@@ -1,54 +1,25 @@
-use serde::Deserialize;
+use tauri::AppHandle;
 
-#[derive(Deserialize)]
-struct HueError {
-    error: HueErrorDetail,
+use crate::services::hue_client::{DiscoveredBridge, HueClient, HueSession};
+
+#[tauri::command(rename = "discover-bridges")]
+pub async fn discover_bridges() -> Result<Vec<DiscoveredBridge>, String> {
+    HueClient::new()?.discover_bridges().await
 }
 
-#[derive(Deserialize)]
-struct HueErrorDetail {
-    typefield: u32,
-    description: String,
+#[tauri::command(rename = "pair-bridge")]
+pub async fn pair_bridge(app: AppHandle, ip: String) -> Result<HueSession, String> {
+    let client = HueClient::new()?;
+    let (bridge, application_key) = client.pair_bridge(&ip).await?;
+    client.save_session(&app, &bridge, &application_key).await
 }
 
-#[derive(Deserialize)]
-struct HueSuccess {
-    success: HueUsername,
+#[tauri::command(rename = "get-hue-session")]
+pub async fn get_hue_session(app: AppHandle) -> Result<HueSession, String> {
+    HueClient::new()?.restore_session(&app).await
 }
 
-#[derive(Deserialize)]
-struct HueUsername {
-    username: String,
-}
-
-#[tauri::command]
-pub async fn discover_bridges() -> Result<Vec<String>, String> {
-    Ok(vec!["192.168.5.208".to_string()])
-}
-
-#[tauri::command]
-pub async fn pair_bridge(ip: String) -> Result<String, String> {
-    let client = reqwest::Client::new();
-    let url = format!("http://{}/api", ip);
-    let payload = serde_json::json!({ "devicetype": "tauri_hue_app" });
-
-    let response = client.post(&url).json(&payload).send().await.map_err(|e| e.to_string())?;
-    let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-
-    if let Some(arr) = json.as_array() {
-        if let Some(item) = arr.first() {
-            if let Some(success) = item.get("success") {
-                if let Some(username) = success.get("username").and_then(|u| u.as_str()) {
-                    return Ok(username.to_string());
-                }
-            }
-            if let Some(error) = item.get("error") {
-                if let Some(desc) = error.get("description").and_then(|d| d.as_str()) {
-                    return Err(desc.to_string());
-                }
-            }
-        }
-    }
-
-    Err("Unexpected response from bridge".to_string())
+#[tauri::command(rename = "reset-hue-session")]
+pub fn reset_hue_session(app: AppHandle) -> Result<(), String> {
+    HueClient::new()?.clear_session(&app)
 }

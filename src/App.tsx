@@ -1,23 +1,113 @@
+import { Moon, Sun } from "lucide-react";
+import { useEffect, useState } from "react";
 import "./App.css";
+import { TitleBar } from "./components/TitleBar";
+import { useHue } from "./context/HueContext";
+import { WizardContainer } from "./features/wizard/WizardContainer";
+
+type ThemeMode = "light" | "dark";
+
+const getInitialTheme = (): ThemeMode => {
+  const storedTheme = localStorage.getItem("themeMode");
+  if (storedTheme === "light" || storedTheme === "dark") {
+    return storedTheme;
+  }
+
+  return window.matchMedia("(prefers-color-scheme: light)").matches
+    ? "light"
+    : "dark";
+};
 
 function App() {
-  // 1. Define the function
-  const handleButtonClick = () => {
-    console.log("Button was clicked!");
-    // You could place your standard fetch() here to talk to your Hue Bridge IP!
-  };
+  const {
+    bridgeId,
+    bridgeIp,
+    configured,
+    connected,
+    error,
+    isLoading,
+    refreshSession,
+    resetSession,
+  } = useHue();
+  const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialTheme);
+
+  useEffect(() => {
+    if (themeMode === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+    document.documentElement.style.colorScheme = themeMode;
+    localStorage.setItem("themeMode", themeMode);
+  }, [themeMode]);
 
   return (
-    <main>
-      <div className="w-screen h-screen grid items-center justify-center bg-slate-950">
-        {/* 2. Attach it to the button using onClick */}
-        <button
-          onClick={handleButtonClick}
-          className="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors duration-300 cursor-pointer active:bg-blue-700"
-        >
-          Click me
-        </button>
+    <main className="app-shell">
+      <TitleBar />
+      <div className="window-content flex items-center justify-center">
+        {isLoading ? (
+          <div className="glass-panel w-full max-w-xl p-10 text-center">
+            <div className="neutral-spinner mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4"></div>
+            <h1 className="mb-2 text-3xl font-bold">Checking connection</h1>
+            <p className="text-secondary">
+              Restoring your saved Hue Bridge session...
+            </p>
+          </div>
+        ) : configured && connected ? (
+          <div className="glass-panel w-full max-w-xl p-10 text-center">
+            <h1 className="mb-4 text-4xl font-bold">Welcome!</h1>
+            <p className="text-secondary mb-2">Connected to bridge at {bridgeIp}</p>
+            <p className="text-muted mb-8 text-sm">Bridge ID: {bridgeId}</p>
+            <button
+              type="button"
+              onClick={() => void resetSession()}
+              className="ghost-button px-4 py-3 font-semibold"
+            >
+              Reset setup
+            </button>
+          </div>
+        ) : configured ? (
+          <div className="glass-panel w-full max-w-xl p-10 text-center">
+            <h1 className="mb-4 text-4xl font-bold">Bridge unavailable</h1>
+            <p className="text-secondary mb-2">
+              Saved bridge ID: {bridgeId ?? "Unknown"}
+            </p>
+            <p className="text-muted mb-8 text-sm">
+              {error ?? "The saved bridge could not be reached."}
+            </p>
+            <div className="flex items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => void refreshSession()}
+                className="accent-button px-4 py-3 font-semibold"
+              >
+                Retry connection
+              </button>
+              <button
+                type="button"
+                onClick={() => void resetSession()}
+                className="ghost-button px-4 py-3 font-semibold"
+              >
+                Start over
+              </button>
+            </div>
+          </div>
+        ) : (
+          <WizardContainer />
+        )}
       </div>
+      <button
+        type="button"
+        aria-label={`Switch to ${themeMode === "dark" ? "light" : "dark"} mode`}
+        onClick={() =>
+          setThemeMode((currentTheme) =>
+            currentTheme === "dark" ? "light" : "dark",
+          )
+        }
+        className="theme-toggle"
+      >
+        {themeMode === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+      </button>
     </main>
   );
 }

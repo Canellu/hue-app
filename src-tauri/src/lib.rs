@@ -12,7 +12,9 @@ pub fn run() {
             commands::discovery::discover_bridges,
             commands::discovery::pair_bridge,
             commands::discovery::get_hue_session,
-            commands::discovery::reset_hue_session
+            commands::discovery::reset_hue_session,
+            commands::lights::get_hue_lights,
+            commands::lights::set_light_state,
         ])
         .setup(|app| {
             #[cfg(target_os = "windows")]

@@ -72,14 +72,21 @@
 
 * {
   box-sizing: border-box;
+  -ms-overflow-style: none; /* IE/Edge legacy */
 }
 
 html,
 body,
 #root {
   width: 100%;
-  min-height: 100%;
+  height: 100vh;
   margin: 0;
+  overflow: hidden;
+  scrollbar-width: none; /* Firefox */
+}
+
+*::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Edge */
 }
 
 body {
@@ -87,9 +94,21 @@ body {
   font-family: var(--font-sans);
   letter-spacing: 0;
   background:
-    radial-gradient(circle at 12% 8%, oklch(0.7 0.25 285 / 0.34), transparent 36rem),
-    radial-gradient(circle at 86% 88%, oklch(0.72 0.2 175 / 0.3), transparent 34rem),
-    radial-gradient(circle at 58% 28%, oklch(0.78 0.18 75 / 0.16), transparent 28rem),
+    radial-gradient(
+      circle at 12% 8%,
+      oklch(0.7 0.25 285 / 0.34),
+      transparent 36rem
+    ),
+    radial-gradient(
+      circle at 86% 88%,
+      oklch(0.72 0.2 175 / 0.3),
+      transparent 34rem
+    ),
+    radial-gradient(
+      circle at 58% 28%,
+      oklch(0.78 0.18 75 / 0.16),
+      transparent 28rem
+    ),
     var(--background);
   background-attachment: fixed;
 }
@@ -104,12 +123,18 @@ button {
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 .window-content {
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
   padding: 4.5rem 1rem 1.25rem;
+  overflow-y: auto;
+  scroll-behavior: smooth;
 }
 
 .glass-panel {

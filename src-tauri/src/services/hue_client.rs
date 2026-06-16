@@ -2,7 +2,8 @@ use keyring::Entry;
 use mdns_sd::{ServiceDaemon, ServiceEvent};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
+use std::collections::{BTreeMap, HashMap};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_store::StoreExt;
@@ -29,6 +30,7 @@ pub struct HueSession {
     pub connected: bool,
     pub bridge_id: Option<String>,
     pub bridge_ip: Option<String>,
+    pub application_key: Option<String>,
     pub error: Option<String>,
 }
 
@@ -36,6 +38,52 @@ pub struct HueSession {
 pub struct StoredBridgeInfo {
     pub bridge_id: String,
     pub bridge_ip: String,
+    #[serde(default)]
+    pub application_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HueLight {
+    pub id: String,
+    pub name: String,
+    pub is_on: bool,
+    pub brightness: Option<u8>,
+    pub reachable: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct HueLightResponse {
+    name: String,
+    state: HueLightState,
+    #[serde(default)]
+    reachable: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct HueLightState {
+    on: bool,
+    bri: Option<u8>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ZigbeeConnectivityList {
+    data: Vec<ZigbeeConnectivityResource>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ZigbeeConnectivityResource {
+    id: String,
+    status: String,
+    owner: Option<ResourceOwner>,
+    #[serde(default)]
+    id_v1: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ResourceOwner {
+    rid: String,
+    rtype: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -186,6 +234,7 @@ impl HueClient {
             StoredBridgeInfo {
                 bridge_id: config.bridgeid.to_uppercase(),
                 bridge_ip: ip.to_string(),
+                application_key: Some(username.clone()),
             },
             username,
         ))
@@ -196,21 +245,62 @@ impl HueClient {
             Some(bridge) => bridge,
             None => {
                 let _ = clear_application_key();
-                return Ok(HueSession { configured: false, connected: false, bridge_id: None, bridge_ip: None, error: None });
+                return Ok(HueSession {
+                    configured: false,
+                    connected: false,
+                    bridge_id: None,
+                    bridge_ip: None,
+                    application_key: None,
+                    error: None,
+                });
             }
         };
 
-        let application_key = match load_application_key()? {
-            Some(key) => key,
-            None => {
-                clear_bridge_info(app)?;
-                return Ok(HueSession { configured: false, connected: false, bridge_id: None, bridge_ip: None, error: None });
+        let application_key = match load_application_key() {
+            Ok(Some(key)) => key,
+            Ok(None) => {
+                if let Some(key) = stored_bridge.application_key.clone() {
+                    key
+                } else {
+                    clear_bridge_info(app)?;
+                    return Ok(HueSession {
+                        configured: false,
+                        connected: false,
+                        bridge_id: None,
+                        bridge_ip: None,
+                        application_key: None,
+                        error: None,
+                    });
+                }
+            }
+            Err(error) => {
+                println!("WARN: keyring lookup failed during restore: {error}");
+                if let Some(key) = stored_bridge.application_key.clone() {
+                    key
+                } else {
+                    clear_bridge_info(app)?;
+                    return Ok(HueSession {
+                        configured: false,
+                        connected: false,
+                        bridge_id: None,
+                        bridge_ip: None,
+                        application_key: None,
+                        error: None,
+                    });
+                }
             }
         };
 
         if let Ok(config) = self.fetch_bridge_config(&stored_bridge.bridge_ip, &application_key).await {
             if bridge_matches(&config.bridgeid, &stored_bridge.bridge_id) {
-                return Ok(HueSession { configured: true, connected: true, bridge_id: Some(config.bridgeid.to_uppercase()), bridge_ip: Some(stored_bridge.bridge_ip), error: None });
+                return Ok(HueSession {
+                    configured: true,
+                    connected: true,
+                    bridge_id: Some(config.bridgeid.to_uppercase()),
+                    bridge_ip: Some(stored_bridge.bridge_ip),
+                    application_key: Some(application_key.clone()),
+                    error: None,
+                });
             }
         }
 
@@ -219,20 +309,47 @@ impl HueClient {
         if let Some(bridge) = rediscovered_bridge {
             if let Ok(config) = self.fetch_bridge_config(&bridge.bridge_ip, &application_key).await {
                 if bridge_matches(&config.bridgeid, &stored_bridge.bridge_id) {
-                    let updated_bridge = StoredBridgeInfo { bridge_id: config.bridgeid.to_uppercase(), bridge_ip: bridge.bridge_ip.clone() };
+                    let updated_bridge = StoredBridgeInfo {
+                        bridge_id: config.bridgeid.to_uppercase(),
+                        bridge_ip: bridge.bridge_ip.clone(),
+                        application_key: stored_bridge.application_key.clone(),
+                    };
                     save_bridge_info(app, &updated_bridge)?;
-                    return Ok(HueSession { configured: true, connected: true, bridge_id: Some(updated_bridge.bridge_id), bridge_ip: Some(updated_bridge.bridge_ip), error: None });
+                    return Ok(HueSession {
+                    configured: true,
+                    connected: true,
+                    bridge_id: Some(updated_bridge.bridge_id),
+                    bridge_ip: Some(updated_bridge.bridge_ip),
+                    application_key: Some(application_key),
+                    error: None,
+                });
                 }
             }
         }
 
-        Ok(HueSession { configured: true, connected: false, bridge_id: Some(stored_bridge.bridge_id), bridge_ip: Some(stored_bridge.bridge_ip), error: Some("Unable to reconnect to the saved Hue Bridge.".to_string()) })
+        Ok(HueSession {
+            configured: true,
+            connected: false,
+            bridge_id: Some(stored_bridge.bridge_id),
+            bridge_ip: Some(stored_bridge.bridge_ip),
+            application_key: Some(application_key),
+            error: Some("Unable to reconnect to the saved Hue Bridge.".to_string()),
+        })
     }
 
     pub async fn save_session<R: Runtime>(&self, app: &AppHandle<R>, bridge: &StoredBridgeInfo, application_key: &str) -> Result<HueSession, String> {
         save_bridge_info(app, bridge)?;
-        save_application_key(application_key)?;
-        Ok(HueSession { configured: true, connected: true, bridge_id: Some(bridge.bridge_id.clone()), bridge_ip: Some(bridge.bridge_ip.clone()), error: None })
+        if let Err(error) = save_application_key(application_key) {
+            println!("WARN: Failed to save Hue application key in keyring: {error}");
+        }
+        Ok(HueSession {
+            configured: true,
+            connected: true,
+            bridge_id: Some(bridge.bridge_id.clone()),
+            bridge_ip: Some(bridge.bridge_ip.clone()),
+            application_key: Some(application_key.to_string()),
+            error: None,
+        })
     }
 
     pub fn clear_session<R: Runtime>(&self, app: &AppHandle<R>) -> Result<(), String> {
@@ -248,12 +365,206 @@ impl HueClient {
         if let Some(hue_error) = parse_hue_error(&json) { return Err(format_hue_error(hue_error)); }
         serde_json::from_value::<BridgeConfigResponse>(json).map_err(|error| format!("Invalid bridge config response: {error}"))
     }
+
+    pub fn get_stored_bridge<R: Runtime>(&self, app: &AppHandle<R>) -> Result<StoredBridgeInfo, String> {
+        load_bridge_info(app)?.ok_or_else(|| "No stored bridge information found. Please pair a Hue bridge.".to_string())
+    }
+
+    pub fn get_stored_application_key<R: Runtime>(&self, app: &AppHandle<R>) -> Result<String, String> {
+        match load_application_key() {
+            Ok(Some(key)) => Ok(key),
+            Ok(None) | Err(_) => {
+                if let Err(error) = load_application_key() {
+                    println!("WARN: keyring lookup failed while resolving application key: {error}");
+                }
+                let stored_bridge = load_bridge_info(app)?.ok_or_else(|| "No stored bridge information found. Please pair a Hue bridge.".to_string())?;
+                stored_bridge.application_key.ok_or_else(|| "No Hue application key found. Please re-pair your Hue bridge.".to_string())
+            }
+        }
+    }
+
+    async fn get_light_resources(&self, ip: &str, application_key: &str) -> Result<Vec<ZigbeeConnectivityResource>, String> {
+        let url = format!("https://{ip}/clip/v2/resource/zigbee_connectivity");
+        let response = self
+            .client
+            .get(&url)
+            .header("hue-application-key", application_key)
+            .send()
+            .await
+            .map_err(|error| format!("Failed to fetch zigbee connectivity: {error}"))?;
+
+        let status = response.status();
+        let text = response
+            .text()
+            .await
+            .map_err(|error| format!("Failed to read zigbee connectivity body: {error}"))?;
+
+        println!("DEBUG: zigbee_connectivity HTTP {status} for {ip}");
+        println!("DEBUG: zigbee_connectivity raw body: {text}");
+
+        let json = serde_json::from_str::<Value>(&text)
+            .map_err(|error| format!("Invalid zigbee connectivity response JSON: {error}"))?;
+
+        println!("DEBUG: zigbee_connectivity response for {ip} = {json:#}");
+
+        if let Some(hue_error) = parse_hue_error(&json) {
+            return Err(format_hue_error(hue_error));
+        }
+
+        let list = serde_json::from_value::<ZigbeeConnectivityList>(json)
+            .map_err(|error| format!("Invalid zigbee connectivity payload: {error}"))?;
+        Ok(list.data)
+    }
+
+    fn light_id_from_owner(owner: &Option<ResourceOwner>) -> Option<String> {
+        owner.as_ref().and_then(|owner| {
+            let rid = owner.rid.as_str();
+            if let Some(light_id) = rid.strip_prefix("light:") {
+                return Some(light_id.to_string());
+            }
+            if let Some(light_id) = rid.strip_prefix("light/") {
+                return Some(light_id.to_string());
+            }
+            if owner.rtype == "light" {
+                return rid.split(':').last().map(|id| id.to_string());
+            }
+            None
+        })
+    }
+
+    pub async fn get_lights(&self, ip: &str, application_key: &str) -> Result<Vec<HueLight>, String> {
+        let lights_url = format!("http://{ip}/api/{application_key}/lights");
+        let response = self
+            .client
+            .get(&lights_url)
+            .send()
+            .await
+            .map_err(|error| format!("Failed to fetch lights: {error}"))?;
+        let json = response
+            .json::<Value>()
+            .await
+            .map_err(|error| format!("Invalid lights response: {error}"))?;
+        if let Some(hue_error) = parse_hue_error(&json) {
+            return Err(format_hue_error(hue_error));
+        }
+
+        let light_map = serde_json::from_value::<BTreeMap<String, HueLightResponse>>(json)
+            .map_err(|error| format!("Invalid lights payload: {error}"))?;
+
+        let resources = self.get_light_resources(ip, application_key).await.unwrap_or_default();
+        let statuses: HashMap<String, String> = resources
+            .into_iter()
+            .filter_map(|resource| {
+                // Prefer the bridge-provided v1 mapping when available (e.g. "/lights/38").
+                if let Some(id_v1) = resource.id_v1.as_ref() {
+                    if let Some(stripped) = id_v1.strip_prefix("/lights/") {
+                        let status_string = resource.status.to_lowercase();
+                        println!(
+                            "DEBUG: mapped zigbee resource id={} id_v1={} -> light_id={} status={}",
+                            resource.id,
+                            id_v1,
+                            stripped,
+                            status_string,
+                        );
+                        return Some((stripped.to_string(), status_string));
+                    }
+                }
+
+                // Fallback: try to extract a light id from the owner info.
+                Self::light_id_from_owner(&resource.owner).map(|light_id| {
+                    let status_string = resource.status.to_lowercase();
+                    println!(
+                        "DEBUG: mapped zigbee resource id={} owner={:?} -> light_id={} status={}",
+                        resource.id,
+                        resource.owner,
+                        light_id,
+                        status_string,
+                    );
+                    (light_id, status_string)
+                })
+            })
+            .collect();
+
+        // Debug: print available v1 light IDs and the computed statuses map so we can
+        // see why no status matches are being found.
+        println!(
+            "DEBUG: v1 lights for {ip} = {:?}",
+            light_map.keys().cloned().collect::<Vec<_>>()
+        );
+        println!("DEBUG: zigbee statuses map = {:?}", statuses);
+
+        let optimistic_reachable = statuses.is_empty();
+        if optimistic_reachable {
+            println!("DEBUG: zigbee statuses empty for {ip}, falling back to optimistic reachable=true");
+        }
+
+        Ok(light_map
+            .into_iter()
+            .map(|(id, light)| {
+                let reachable = if optimistic_reachable {
+                    true
+                } else {
+                    statuses
+                        .get(&id)
+                        .map(|status| zigbee_status_is_reachable(status))
+                        .unwrap_or(light.reachable)
+                };
+
+                HueLight {
+                    id,
+                    name: light.name,
+                    is_on: light.state.on,
+                    brightness: light.state.bri,
+                    reachable,
+                }
+            })
+            .collect())
+    }
+
+    pub async fn set_light_state(
+        &self,
+        ip: &str,
+        application_key: &str,
+        id: &str,
+        on: bool,
+        brightness: Option<u8>,
+    ) -> Result<(), String> {
+        let url = format!("http://{ip}/api/{application_key}/lights/{id}/state");
+        let mut payload = Map::new();
+        payload.insert("on".to_string(), serde_json::Value::Bool(on));
+        if let Some(value) = brightness {
+            payload.insert("bri".to_string(), serde_json::Value::Number(value.into()));
+        }
+
+        let response = self
+            .client
+            .put(&url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|error| format!("Failed to update light: {error}"))?;
+
+        let json = response.json::<Value>().await.map_err(|error| format!("Invalid light update response: {error}"))?;
+        if let Some(hue_error) = parse_hue_error(&json) { return Err(format_hue_error(hue_error)); }
+        Ok(())
+    }
 }
 
 fn bridge_matches(left: &str, right: &str) -> bool { left.eq_ignore_ascii_case(right) }
 
 fn parse_hue_error(value: &Value) -> Option<HueErrorResponse> {
     value.as_array().and_then(|items| items.first()).and_then(|item| serde_json::from_value::<HueErrorResponse>(item.clone()).ok())
+}
+
+fn zigbee_status_is_reachable(status: &str) -> bool {
+    match status {
+        // Known reachable state
+        "connected" => true,
+        // Known non-reachable or problematic states
+        "disconnected" | "connectivity_issue" | "unidirectional_incoming" | "pending_discovery" => false,
+        // Default conservative fallback
+        _ => false,
+    }
 }
 
 fn extract_hue_username(value: &Value) -> Result<String, String> {

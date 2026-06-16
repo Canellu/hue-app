@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import "./App.css";
 import { TitleBar } from "./components/TitleBar";
 import { useHue } from "./context/HueContext";
+import { HueDeviceList } from "./features/hue/HueDeviceList";
 import { WizardContainer } from "./features/wizard/WizardContainer";
 
 type ThemeMode = "light" | "dark";
@@ -44,9 +45,9 @@ function App() {
   return (
     <main className="app-shell">
       <TitleBar />
-      <div className="window-content flex items-center justify-center">
+      <div className="window-content flex flex-col items-stretch justify-start overflow-y-auto">
         {isLoading ? (
-          <div className="glass-panel w-full max-w-xl p-10 text-center">
+          <div className="glass-panel w-full p-10 text-center">
             <div className="neutral-spinner mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4"></div>
             <h1 className="mb-2 text-3xl font-bold">Checking connection</h1>
             <p className="text-secondary">
@@ -54,20 +55,20 @@ function App() {
             </p>
           </div>
         ) : configured && connected ? (
-          <div className="glass-panel w-full max-w-xl p-10 text-center">
-            <h1 className="mb-4 text-4xl font-bold">Welcome!</h1>
-            <p className="text-secondary mb-2">Connected to bridge at {bridgeIp}</p>
-            <p className="text-muted mb-8 text-sm">Bridge ID: {bridgeId}</p>
-            <button
-              type="button"
-              onClick={() => void resetSession()}
-              className="ghost-button px-4 py-3 font-semibold"
-            >
-              Reset setup
-            </button>
+          <div className="w-full px-6 py-6">
+            <HueDeviceList />
+            <div className="mt-6 flex justify-end">
+              <button
+                type="button"
+                onClick={() => void resetSession()}
+                className="ghost-button px-4 py-3 font-semibold"
+              >
+                Reset setup
+              </button>
+            </div>
           </div>
         ) : configured ? (
-          <div className="glass-panel w-full max-w-xl p-10 text-center">
+          <div className="glass-panel w-full p-10 text-center">
             <h1 className="mb-4 text-4xl font-bold">Bridge unavailable</h1>
             <p className="text-secondary mb-2">
               Saved bridge ID: {bridgeId ?? "Unknown"}

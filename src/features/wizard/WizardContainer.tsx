@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import React, { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { type HueSession, useHue } from "../../context/HueContext";
 
 type SetupState =
@@ -14,7 +16,9 @@ export const WizardContainer: React.FC = () => {
   const { applySession } = useHue();
   const [state, setState] = useState<SetupState>({ type: "welcome" });
   const [isBusy, setIsBusy] = useState(false);
-  const countdownIntervalRef = useRef<number | null>(null);
+  const countdownIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
   const shouldPollRef = useRef(false);
 
   const clearCountdown = () => {
@@ -115,100 +119,72 @@ export const WizardContainer: React.FC = () => {
   }, []);
 
   return (
-    <div className="w-full max-w-md mx-auto text-center">
-      {state.type === "welcome" && (
-        <div className="flex flex-col items-center transition-all duration-500">
-          <h1 className="mb-4 text-4xl font-bold">Welcome!</h1>
-          <p className="text-secondary mb-8 text-lg">
-            Let's connect to your hue system!
-          </p>
-          <button
-            type="button"
-            onClick={() => startDiscovery()}
-            disabled={isBusy}
-            className="accent-button"
-          >
-            {isBusy ? "Connecting..." : "Connect"}
-          </button>
-        </div>
-      )}
+    <Card className="mx-auto w-full max-w-md">
+      <CardContent className="flex flex-col items-center gap-6 py-6 text-center">
+        {state.type === "welcome" && (
+          <>
+            <h1 className="font-heading text-3xl font-semibold">Welcome!</h1>
+            <p className="text-muted-foreground">
+              Let's connect to your Hue system!
+            </p>
+            <Button
+              size="lg"
+              onClick={() => startDiscovery()}
+              disabled={isBusy}
+            >
+              {isBusy ? "Connecting..." : "Connect"}
+            </Button>
+          </>
+        )}
 
-      {state.type === "discovering" && (
-        <div className="flex flex-col items-center transition-all duration-500">
-          <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full">
-            <Loader2
-              className="h-12 w-12 animate-spin"
-              style={{ color: "var(--accent)" }}
-            />
-          </div>
-          <h1 className="mb-4 text-3xl font-bold">
-            Looking for Hue Bridges...
-          </h1>
-        </div>
-      )}
+        {state.type === "discovering" && (
+          <>
+            <Loader2 className="size-12 animate-spin text-primary" />
+            <h1 className="font-heading text-2xl font-semibold">
+              Looking for Hue Bridges...
+            </h1>
+          </>
+        )}
 
-      {state.type === "pairing" && (
-        <div className="flex flex-col items-center transition-all duration-500">
-          <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full">
-            <div className="relative">
-              <div
-                className="w-16 h-16 rounded-full border-4 animate-pulse"
-                style={{ borderColor: "var(--accent)" }}
-              />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div
-                  className="w-8 h-8 rounded-full"
-                  style={{
-                    backgroundColor: "var(--accent)",
-                    boxShadow: "0 0 20px var(--accent)",
-                  }}
-                />
-              </div>
+        {state.type === "pairing" && (
+          <>
+            <div className="relative flex size-20 items-center justify-center">
+              <span className="absolute inline-flex size-16 animate-ping rounded-full bg-primary/40" />
+              <span className="relative inline-flex size-8 rounded-full bg-primary" />
             </div>
-          </div>
-          <h1 className="mb-4 text-3xl font-bold">Press the middle button</h1>
-          <p className="text-secondary mb-2">
-            Go press the middle button on your Hue Bridge
-          </p>
-          <p className="text-muted text-lg">
-            Time remaining:{" "}
-            <span className="font-bold">{state.countdown}s</span>
-          </p>
-        </div>
-      )}
+            <h1 className="font-heading text-2xl font-semibold">
+              Press the middle button
+            </h1>
+            <p className="text-muted-foreground">
+              Go press the middle button on your Hue Bridge
+            </p>
+            <p className="text-muted-foreground">
+              Time remaining:{" "}
+              <span className="font-semibold text-foreground">
+                {state.countdown}s
+              </span>
+            </p>
+          </>
+        )}
 
-      {state.type === "success" && (
-        <div className="flex flex-col items-center transition-all duration-500">
-          <div
-            className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full"
-            style={{
-              background: "var(--success-soft)",
-              border: "1px solid var(--success-border)",
-            }}
-          >
-            <CheckCircle2
-              className="h-12 w-12"
-              style={{ color: "var(--success-text)" }}
-            />
-          </div>
-          <h1 className="mb-4 text-4xl font-bold">Connected!</h1>
-          <p className="text-secondary mb-8 text-lg">Your bridge is ready</p>
-        </div>
-      )}
+        {state.type === "success" && (
+          <>
+            <CheckCircle2 className="size-12 text-green-500" />
+            <h1 className="font-heading text-3xl font-semibold">Connected!</h1>
+            <p className="text-muted-foreground">Your bridge is ready</p>
+          </>
+        )}
 
-      {state.type === "error" && (
-        <div className="flex flex-col items-center transition-all duration-500">
-          <h1 className="mb-4 text-3xl font-bold">Oops!</h1>
-          <p className="text-secondary mb-8 text-lg">{state.message}</p>
-          <button
-            type="button"
-            onClick={() => reset()}
-            className="accent-button"
-          >
-            Try Again
-          </button>
-        </div>
-      )}
-    </div>
+        {state.type === "error" && (
+          <>
+            <h1 className="font-heading text-2xl font-semibold">Oops!</h1>
+            <p className="text-muted-foreground">{state.message}</p>
+            <Button variant="outline" onClick={() => reset()}>
+              Try Again
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 };

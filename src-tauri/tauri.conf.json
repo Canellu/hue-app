@@ -13,8 +13,12 @@
     "windows": [
       {
         "title": "hue-app",
-        "width": 800,
-        "height": 600,
+        "width": 1200,
+        "height": 800,
+        "minWidth": 720,
+        "minHeight": 720,
+        "maxWidth": 1620,
+        "maxHeight": 1080,
         "decorations": false,
         "transparent": true,
         "shadow": true,

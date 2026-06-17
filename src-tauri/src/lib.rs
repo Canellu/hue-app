@@ -8,6 +8,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .manage(commands::events::EventStreamState::default())
         .invoke_handler(tauri::generate_handler![
             commands::discovery::discover_bridges,
             commands::discovery::pair_bridge,
@@ -15,6 +16,13 @@ pub fn run() {
             commands::discovery::reset_hue_session,
             commands::lights::get_hue_lights,
             commands::lights::set_light_state,
+            commands::lights::set_light_color,
+            commands::rooms::get_hue_groups,
+            commands::rooms::set_room_state,
+            commands::scenes::get_hue_scenes,
+            commands::scenes::activate_scene,
+            commands::events::start_hue_events,
+            commands::events::stop_hue_events,
         ])
         .setup(|app| {
             #[cfg(target_os = "windows")]

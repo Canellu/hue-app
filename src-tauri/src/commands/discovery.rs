@@ -1,5 +1,6 @@
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
+use crate::commands::events::EventStreamState;
 use crate::services::hue_client::{DiscoveredBridge, HueClient, HueSession};
 
 #[tauri::command(rename = "discover-bridges")]
@@ -21,5 +22,8 @@ pub async fn get_hue_session(app: AppHandle) -> Result<HueSession, String> {
 
 #[tauri::command(rename = "reset-hue-session")]
 pub fn reset_hue_session(app: AppHandle) -> Result<(), String> {
+    if let Some(state) = app.try_state::<EventStreamState>() {
+        state.stop();
+    }
     HueClient::new()?.clear_session(&app)
 }

@@ -4,14 +4,14 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
-import { DesktopShell } from "./features/desktop/DesktopShell";
-import { HomeRoute } from "./features/desktop/routes/HomeRoute";
-import { RoomRoute } from "./features/desktop/routes/RoomRoute";
-import { SettingsRoute } from "./features/desktop/routes/SettingsRoute";
+import { HomeRoute } from "./routes/HomeRoute";
+import { RootLayout } from "./routes/RootLayout";
+import { SettingsRoute } from "./routes/SettingsRoute";
+import { SpaceRoute } from "./routes/SpaceRoute";
 
 // The desktop shell has no addressable URL bar, so an in-memory history keeps
 // navigation state without touching the Tauri webview's location.
-const rootRoute = createRootRoute({ component: DesktopShell });
+const rootRoute = createRootRoute({ component: RootLayout });
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -19,10 +19,10 @@ const indexRoute = createRoute({
   component: HomeRoute,
 });
 
-const roomRoute = createRoute({
+const spaceRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/room/$roomId",
-  component: RoomRoute,
+  path: "/space/$spaceId",
+  component: SpaceRoute,
 });
 
 const settingsRoute = createRoute({
@@ -31,7 +31,7 @@ const settingsRoute = createRoute({
   component: SettingsRoute,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, roomRoute, settingsRoute]);
+const routeTree = rootRoute.addChildren([indexRoute, spaceRoute, settingsRoute]);
 
 export const router = createRouter({
   routeTree,

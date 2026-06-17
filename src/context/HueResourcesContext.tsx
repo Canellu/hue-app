@@ -10,17 +10,18 @@ import {
   type ReactNode,
 } from "react";
 import {
-  newGroupId,
-  useDashboardLayout,
-  type DashboardLayout,
-} from "./useDashboardLayout";
+  newLayoutSectionId,
+  useHomeLayout,
+} from "@/features/home-screen/hooks/useHomeLayout";
+import type { HomeLayout } from "@/types/app-layout";
 import type {
   HueEventUpdate,
-  HueGroup,
-  HueGroups,
   HueLight,
+  HueRoom,
+  HueRoomZone,
   HueScene,
-} from "./types";
+  HueZone,
+} from "@/types/hue";
 
 /** Color attributes that can be pushed to an individual light. */
 export interface LightColorChange {
@@ -29,32 +30,32 @@ export interface LightColorChange {
   effect?: string;
 }
 
-interface DashboardContextValue {
-  groups: HueGroup[];
+interface HueResourcesContextValue {
+  roomZones: HueRoomZone[];
   lights: HueLight[];
   scenes: HueScene[];
   isLoading: boolean;
   error: string | null;
 
-  // Dashboard layout editing (Home screen).
-  layout: DashboardLayout;
-  draftLayout: DashboardLayout;
+  // Home layout editing. Layout sections are local app state, not Hue resources.
+  layout: HomeLayout;
+  draftLayout: HomeLayout;
   isEditLayoutMode: boolean;
-  setDraftLayout: (next: DashboardLayout) => void;
+  setDraftLayout: (next: HomeLayout) => void;
   enterEditLayout: () => void;
   cancelEditLayout: () => void;
   saveEditLayout: () => void;
 
-  // Group creation (dialog driven from the header while editing).
-  isCreatingGroup: boolean;
-  openCreateGroup: () => void;
-  closeCreateGroup: () => void;
-  createGroup: (name: string) => void;
-  renameGroup: (groupId: string, name: string) => void;
+  // Layout section creation (dialog driven from the header while editing).
+  isCreatingSection: boolean;
+  openCreateSection: () => void;
+  closeCreateSection: () => void;
+  createLayoutSection: (name: string) => void;
+  renameLayoutSection: (sectionId: string, name: string) => void;
 
   // Optimistic control handlers.
-  setGroupState: (
-    group: HueGroup,
+  setRoomZoneState: (
+    roomZone: HueRoomZone,
     nextOn: boolean,
     brightnessPct: number | null,
   ) => void;
@@ -67,20 +68,20 @@ interface DashboardContextValue {
   activateScene: (scene: HueScene) => Promise<void>;
 }
 
-const DashboardContext = createContext<DashboardContextValue | undefined>(
+const HueResourcesContext = createContext<HueResourcesContextValue | undefined>(
   undefined,
 );
 
 /**
- * Owns all bridge data (groups/lights/scenes), the real-time event stream, and
+ * Owns Hue room/zone, light, and scene data, the real-time event stream, and
  * the optimistic control handlers, exposing them to every route via context.
  * Mounted once inside the router root so the data layer persists across
- * Home → Room → Settings navigation.
+ * Home → Space → Settings navigation.
  */
-export const DashboardProvider: React.FC<{ children: ReactNode }> = ({
+export const HueResourcesProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
-  const [groups, setGroups] = useState<HueGroup[]>([]);
+  const [roomZones, setRoomZones] = useState<HueRoomZone[]>([]);
   const [lights, setLights] = useState<HueLight[]>([]);
   const [scenes, setScenes] = useState<HueScene[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -88,10 +89,10 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({
   // Explicit, state-driven layout editing. `draftLayout` is a working copy
   // cloned on entry; it replaces the committed layout only on Save.
   const [isEditLayoutMode, setIsEditLayoutMode] = useState(false);
-  const [draftLayout, setDraftLayout] = useState<DashboardLayout>([]);
-  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [draftLayout, setDraftLayout] = useState<HomeLayout>([]);
+  const [isCreatingSection, setIsCreatingSection] = useState(false);
 
-  const { layout, saveLayout } = useDashboardLayout(groups);
+  const { layout, saveLayout } = useHomeLayout(roomZones);
 
   const loadLights = useCallback(async () => {
     const result = await invoke<HueLight[]>("get-hue-lights");
@@ -102,15 +103,16 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({
     setIsLoading(true);
     setError(null);
     try {
-      const [groupResult, sceneResult] = await Promise.all([
-        invoke<HueGroups>("get-hue-groups"),
+      const [rooms, zones, sceneResult] = await Promise.all([
+        invoke<HueRoom[]>("get-hue-rooms"),
+        invoke<HueZone[]>("get-hue-zones").catch(() => [] as HueZone[]),
         invoke<HueScene[]>("get-hue-scenes").catch(() => [] as HueScene[]),
         loadLights(),
       ]);
-      const sorted = [...groupResult.groups].sort((a, b) =>
+      const sorted = [...rooms, ...zones].sort((a, b) =>
         a.name.localeCompare(b.name),
       );
-      setGroups(sorted);
+      setRoomZones(sorted);
       setScenes(sceneResult);
     } catch (loadError) {
       setError(String(loadError) || "Failed to load your Hue setup.");
@@ -132,16 +134,17 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({
     const unlisten = listen<HueEventUpdate[]>("hue-event", (event) => {
       const updates = event.payload;
 
-      setGroups((prev) =>
-        prev.map((group) => {
+      setRoomZones((prev) =>
+        prev.map((roomZone) => {
           const change = updates.find(
-            (u) => u.type === "grouped_light" && u.id === group.groupedLightId,
+            (u) =>
+              u.type === "grouped_light" && u.id === roomZone.groupedLightId,
           );
-          if (!change) return group;
+          if (!change) return roomZone;
           return {
-            ...group,
-            anyOn: change.on ?? group.anyOn,
-            brightness: change.brightness ?? group.brightness,
+            ...roomZone,
+            anyOn: change.on ?? roomZone.anyOn,
+            brightness: change.brightness ?? roomZone.brightness,
           };
         }),
       );
@@ -174,13 +177,13 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({
   }, []);
 
   // Room/zone on/off + brightness via the grouped_light resource.
-  const setGroupState = useCallback(
-    (group: HueGroup, nextOn: boolean, brightnessPct: number | null) => {
-      if (!group.groupedLightId) return;
+  const setRoomZoneState = useCallback(
+    (roomZone: HueRoomZone, nextOn: boolean, brightnessPct: number | null) => {
+      if (!roomZone.groupedLightId) return;
       const bri = brightnessPct !== null && nextOn ? brightnessPct : null;
-      setGroups((prev) =>
+      setRoomZones((prev) =>
         prev.map((g) =>
-          g.id === group.id
+          g.id === roomZone.id
             ? {
                 ...g,
                 anyOn: nextOn,
@@ -190,18 +193,18 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({
             : g,
         ),
       );
-      const memberIds = new Set(group.lightIds);
+      const memberIds = new Set(roomZone.lightIds);
       setLights((prev) =>
         prev.map((light) =>
           memberIds.has(light.id) ? { ...light, isOn: nextOn } : light,
         ),
       );
-      void invoke("set-room-state", {
-        id: group.groupedLightId,
+      void invoke("set-grouped-light-state", {
+        id: roomZone.groupedLightId,
         on: nextOn,
         brightness: bri,
       }).catch((e) => {
-        setError(String(e) || "Unable to update room.");
+        setError(String(e) || "Unable to update room or zone.");
         void loadAll();
       });
     },
@@ -275,7 +278,10 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({
   const enterEditLayout = useCallback(() => {
     // Deep-clone so drag edits never mutate the committed layout.
     setDraftLayout(
-      layout.map((group) => ({ ...group, roomIds: [...group.roomIds] })),
+      layout.map((section) => ({
+        ...section,
+        spaceIds: [...section.spaceIds],
+      })),
     );
     setIsEditLayoutMode(true);
   }, [layout]);
@@ -291,25 +297,28 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({
     setDraftLayout([]);
   }, [draftLayout, saveLayout]);
 
-  const openCreateGroup = useCallback(() => setIsCreatingGroup(true), []);
-  const closeCreateGroup = useCallback(() => setIsCreatingGroup(false), []);
+  const openCreateSection = useCallback(() => setIsCreatingSection(true), []);
+  const closeCreateSection = useCallback(() => setIsCreatingSection(false), []);
 
-  const createGroup = useCallback((name: string) => {
-    setDraftLayout((prev) => [...prev, { id: newGroupId(), name, roomIds: [] }]);
-    setIsCreatingGroup(false);
+  const createLayoutSection = useCallback((name: string) => {
+    setDraftLayout((prev) => [
+      ...prev,
+      { id: newLayoutSectionId(), name, spaceIds: [] },
+    ]);
+    setIsCreatingSection(false);
   }, []);
 
-  const renameGroup = useCallback((groupId: string, name: string) => {
+  const renameLayoutSection = useCallback((sectionId: string, name: string) => {
     setDraftLayout((prev) =>
-      prev.map((group) =>
-        group.id === groupId ? { ...group, name } : group,
+      prev.map((section) =>
+        section.id === sectionId ? { ...section, name } : section,
       ),
     );
   }, []);
 
-  const value = useMemo<DashboardContextValue>(
+  const value = useMemo<HueResourcesContextValue>(
     () => ({
-      groups,
+      roomZones,
       lights,
       scenes,
       isLoading,
@@ -321,18 +330,18 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({
       enterEditLayout,
       cancelEditLayout,
       saveEditLayout,
-      isCreatingGroup,
-      openCreateGroup,
-      closeCreateGroup,
-      createGroup,
-      renameGroup,
-      setGroupState,
+      isCreatingSection,
+      openCreateSection,
+      closeCreateSection,
+      createLayoutSection,
+      renameLayoutSection,
+      setRoomZoneState,
       setLightState,
       setLightColor,
       activateScene,
     }),
     [
-      groups,
+      roomZones,
       lights,
       scenes,
       isLoading,
@@ -343,12 +352,12 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({
       enterEditLayout,
       cancelEditLayout,
       saveEditLayout,
-      isCreatingGroup,
-      openCreateGroup,
-      closeCreateGroup,
-      createGroup,
-      renameGroup,
-      setGroupState,
+      isCreatingSection,
+      openCreateSection,
+      closeCreateSection,
+      createLayoutSection,
+      renameLayoutSection,
+      setRoomZoneState,
       setLightState,
       setLightColor,
       activateScene,
@@ -356,16 +365,16 @@ export const DashboardProvider: React.FC<{ children: ReactNode }> = ({
   );
 
   return (
-    <DashboardContext.Provider value={value}>
+    <HueResourcesContext.Provider value={value}>
       {children}
-    </DashboardContext.Provider>
+    </HueResourcesContext.Provider>
   );
 };
 
-export const useDashboard = (): DashboardContextValue => {
-  const context = useContext(DashboardContext);
+export const useHueResources = (): HueResourcesContextValue => {
+  const context = useContext(HueResourcesContext);
   if (!context) {
-    throw new Error("useDashboard must be used within a DashboardProvider");
+    throw new Error("useHueResources must be used within a HueResourcesProvider");
   }
   return context;
 };

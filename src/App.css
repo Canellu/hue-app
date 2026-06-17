@@ -84,7 +84,7 @@
 }
 
 .dark {
-  --background: oklch(0.21 0 0);
+  --background: oklch(0.22 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
@@ -134,7 +134,7 @@
 }
 
 /* ----- Route view transitions -----
-   The routed content area is named `page` (see DesktopShell). TanStack Router
+   The routed content area is named `page` (see RootLayout). TanStack Router
    tags each navigation with a `slide-left` / `slide-right` view-transition type
    based on the direction of travel; we slide the page's old/new snapshots
    accordingly. The surrounding header/title bar stay put. */

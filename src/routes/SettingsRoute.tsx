@@ -1,5 +1,5 @@
-import { useTheme } from "../../../context/ThemeContext";
-import { SettingsScreen } from "../../settings/SettingsScreen";
+import { useTheme } from "@/context/ThemeContext";
+import { SettingsScreen } from "@/features/settings-screen/SettingsScreen";
 
 export const SettingsRoute: React.FC = () => {
   const { themeMode, setThemeMode } = useTheme();

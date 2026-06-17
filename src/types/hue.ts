@@ -1,28 +1,47 @@
-// Shared types for the desktop 3-pane shell. These mirror the camelCase
-// payloads emitted by the Rust commands (Hue API v2) and the event stream.
-// All ids are v2 UUIDs and all brightness values are percentages (0–100).
+// Shared Hue API v2-facing frontend types. These mirror the camelCase payloads
+// emitted by the Rust commands and preserve Hue resource names where practical.
+// All ids are v2 UUIDs and all brightness values are percentages (0-100).
 
-export interface HueGroup {
+export type HueResourceType =
+  | "room"
+  | "zone"
+  | "grouped_light"
+  | "light"
+  | "scene"
+  | "device"
+  | "zigbee_connectivity"
+  | "bridge_home";
+
+export interface HueResourceReference {
+  rid: string;
+  rtype: HueResourceType;
+}
+
+interface HueRoomZoneBase {
   /** v2 room/zone UUID. */
   id: string;
   name: string;
   /** v2 archetype, e.g. "living_room". */
   class: string;
-  groupType: "room" | "zone";
+  resourceType: "room" | "zone";
   anyOn: boolean;
   allOn: boolean;
   brightness: number | null;
   lightCount: number;
   lightIds: string[];
-  /** grouped_light resource controlling this group's on/brightness. */
+  /** grouped_light resource controlling this room/zone on/brightness. */
   groupedLightId: string | null;
 }
 
-export interface HueGroups {
-  groups: HueGroup[];
-  /** grouped_light controlling every light, for whole-house control. */
-  allId: string | null;
+export interface HueRoom extends HueRoomZoneBase {
+  resourceType: "room";
 }
+
+export interface HueZone extends HueRoomZoneBase {
+  resourceType: "zone";
+}
+
+export type HueRoomZone = HueRoom | HueZone;
 
 export interface HueLight {
   id: string;

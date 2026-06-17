@@ -2,9 +2,9 @@ import { Lightbulb } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { lightColorHex } from "./colorState";
-import { DebouncedSlider } from "./DebouncedSlider";
-import type { HueLight } from "./types";
+import { DebouncedSlider } from "@/components/DebouncedSlider";
+import { lightColorHex } from "@/features/space-screen/utils/color-state";
+import type { HueLight } from "@/types/hue";
 
 interface LightCardProps {
   light: HueLight;

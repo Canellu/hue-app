@@ -23,7 +23,13 @@ pub async fn set_light_state(
     let stored_bridge = client.get_stored_bridge(&app)?;
     let application_key = client.get_stored_application_key(&app)?;
     client
-        .set_light_state(&stored_bridge.bridge_ip, &application_key, &id, on, brightness)
+        .set_light_state(
+            &stored_bridge.bridge_ip,
+            &application_key,
+            &id,
+            on,
+            brightness,
+        )
         .await
 }
 
@@ -39,6 +45,13 @@ pub async fn set_light_color(
     let stored_bridge = client.get_stored_bridge(&app)?;
     let application_key = client.get_stored_application_key(&app)?;
     client
-        .set_light_color(&stored_bridge.bridge_ip, &application_key, &id, xy, ct, effect)
+        .set_light_color(
+            &stored_bridge.bridge_ip,
+            &application_key,
+            &id,
+            xy,
+            ct,
+            effect,
+        )
         .await
 }

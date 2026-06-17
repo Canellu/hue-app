@@ -2,44 +2,47 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { roomTileColor, sceneBubbleCss } from "./colorState";
-import { DebouncedSlider } from "./DebouncedSlider";
-import { LightCard } from "./LightCard";
-import { getRoomIcon } from "./roomIcons";
-import type { HueGroup, HueLight, HueScene } from "./types";
+import { DebouncedSlider } from "@/components/DebouncedSlider";
+import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
+import {
+  roomZoneTileColor,
+  sceneBubbleCss,
+} from "@/features/space-screen/utils/color-state";
+import { LightCard } from "./components/LightCard";
+import type { HueLight, HueRoomZone, HueScene } from "@/types/hue";
 
-interface RoomScreenProps {
-  group: HueGroup;
+interface SpaceScreenProps {
+  roomZone: HueRoomZone;
   lights: HueLight[];
   scenes: HueScene[];
   activeSceneId: string | null;
   selectedLightId: string | null;
   error: string | null;
-  onGroupToggle: (group: HueGroup, nextOn: boolean) => void;
-  onGroupBrightness: (group: HueGroup, pct: number) => void;
+  onRoomZoneToggle: (roomZone: HueRoomZone, nextOn: boolean) => void;
+  onRoomZoneBrightness: (roomZone: HueRoomZone, pct: number) => void;
   onLightToggle: (light: HueLight, nextOn: boolean) => void;
   onLightBrightness: (light: HueLight, pct: number) => void;
   onSelectLight: (id: string) => void;
   onSceneActivate: (scene: HueScene) => void;
 }
 
-export const RoomScreen: React.FC<RoomScreenProps> = ({
-  group,
+export const SpaceScreen: React.FC<SpaceScreenProps> = ({
+  roomZone,
   lights,
   scenes,
   activeSceneId,
   selectedLightId,
   error,
-  onGroupToggle,
-  onGroupBrightness,
+  onRoomZoneToggle,
+  onRoomZoneBrightness,
   onLightToggle,
   onLightBrightness,
   onSelectLight,
   onSceneActivate,
 }) => {
-  const Icon = getRoomIcon(group.class);
-  const roomPct = group.brightness ?? 0;
-  const tile = roomTileColor(lights);
+  const Icon = getRoomZoneIcon(roomZone.class);
+  const brightnessPct = roomZone.brightness ?? 0;
+  const tile = roomZoneTileColor(lights);
 
   return (
     <section className="mx-auto flex w-full flex-col gap-6">
@@ -57,7 +60,9 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         >
           <Icon size={20} />
         </span>
-        <h1 className="font-heading text-2xl font-semibold">{group.name}</h1>
+        <h1 className="font-heading text-2xl font-semibold">
+          {roomZone.name}
+        </h1>
       </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -65,21 +70,22 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
       <Card className="gap-4">
         <div className="flex items-center justify-between px-6">
           <span className="text-sm text-muted-foreground">
-            {group.lightCount} {group.lightCount === 1 ? "light" : "lights"} ·{" "}
-            {group.anyOn ? "On" : "Off"}
+            {roomZone.lightCount}{" "}
+            {roomZone.lightCount === 1 ? "light" : "lights"} ·{" "}
+            {roomZone.anyOn ? "On" : "Off"}
           </span>
           <Switch
-            checked={group.anyOn}
-            aria-label={`Toggle ${group.name}`}
-            onCheckedChange={(checked) => onGroupToggle(group, checked)}
+            checked={roomZone.anyOn}
+            aria-label={`Toggle ${roomZone.name}`}
+            onCheckedChange={(checked) => onRoomZoneToggle(roomZone, checked)}
           />
         </div>
         <div className="px-6">
           <DebouncedSlider
-            value={group.anyOn ? roomPct : 0}
-            ariaLabel={`${group.name} brightness`}
+            value={roomZone.anyOn ? brightnessPct : 0}
+            ariaLabel={`${roomZone.name} brightness`}
             debounceMs={300}
-            onCommit={(pct) => onGroupBrightness(group, pct)}
+            onCommit={(pct) => onRoomZoneBrightness(roomZone, pct)}
           />
         </div>
       </Card>
@@ -114,7 +120,7 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
         <p className="text-sm font-medium text-muted-foreground">Lights</p>
         {lights.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            This room has no individual lights.
+            This room or zone has no individual lights.
           </p>
         ) : (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">

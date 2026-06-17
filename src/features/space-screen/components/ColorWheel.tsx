@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { oklchToCss, oklchToRgb, rgbToOklch, rgbToXy, xyBriToRgb } from "./color";
+import {
+  oklchToCss,
+  oklchToRgb,
+  rgbToOklch,
+  rgbToXy,
+  xyBriToRgb,
+} from "@/features/space-screen/utils/color";
 
 interface ColorWheelProps {
   /** Current CIE xy of the light, used to position the pin. */

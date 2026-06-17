@@ -7,7 +7,7 @@ import {
   distinctHexes,
   paletteToCss,
 } from "./color";
-import type { HueLight, HueScene } from "./types";
+import type { HueLight, HueScene } from "@/types/hue";
 
 /** Current display color of a single light as a hex string, or null if none. */
 export const lightColorHex = (light: HueLight): string | null => {
@@ -46,7 +46,7 @@ export const sceneBubbleCss = (scene: HueScene): string | null =>
  * - `background` (single)  → all active lights share a color; solid tint.
  * - `background` (gradient)→ active lights differ; 135° gradient + glow.
  */
-export interface RoomTileColor {
+export interface SpaceTileColor {
   active: boolean;
   /** CSS background for the tile accent layer, or null when inactive. */
   background: string | null;
@@ -54,7 +54,7 @@ export interface RoomTileColor {
   glow: string | null;
 }
 
-export const roomTileColor = (lights: HueLight[]): RoomTileColor => {
+export const roomZoneTileColor = (lights: HueLight[]): SpaceTileColor => {
   const hexes = distinctHexes(
     lights
       .filter((light) => light.isOn)

@@ -57,5 +57,5 @@ const ICON_BY_ARCHETYPE: Record<string, LucideIcon> = {
   laundry_room: WashingMachine,
 };
 
-export const getRoomIcon = (archetype: string): LucideIcon =>
+export const getRoomZoneIcon = (archetype: string): LucideIcon =>
   ICON_BY_ARCHETYPE[archetype] ?? Lightbulb;

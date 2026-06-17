@@ -12,7 +12,7 @@ import {
   type ThemeMode,
 } from "./context/ThemeContext";
 import { router } from "./router";
-import { WizardContainer } from "./features/wizard/WizardContainer";
+import { WizardContainer } from "./features/setup-wizard/WizardContainer";
 import { useGlobalKeyboardShortcut } from "./hooks/useGlobalKeyboardShortcut";
 
 const getInitialTheme = (): ThemeMode => {

@@ -33,65 +33,65 @@ import {
 } from "@dnd-kit/sortable";
 import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GroupSection } from "./GroupSection";
-import { RoomTile } from "./RoomTile";
-import type { HueGroup, HueLight } from "./types";
-import type { DashboardLayout } from "./useDashboardLayout";
+import { LayoutSection } from "./components/LayoutSection";
+import { SpaceTile } from "./components/SpaceTile";
+import type { HomeLayout } from "@/types/app-layout";
+import type { HueLight, HueRoomZone } from "@/types/hue";
 
 interface HomeScreenProps {
-  groups: HueGroup[];
+  roomZones: HueRoomZone[];
   lights: HueLight[];
   isLoading: boolean;
   error: string | null;
   /** Layout to render — the live draft while editing, else the committed one. */
-  layout: DashboardLayout;
+  layout: HomeLayout;
   editing: boolean;
-  onLayoutChange: (next: DashboardLayout) => void;
-  onOpenRoom: (id: string) => void;
-  onGroupToggle: (group: HueGroup, nextOn: boolean) => void;
-  onGroupBrightness: (group: HueGroup, pct: number) => void;
-  /** Create-group dialog state, lifted so the header can trigger it. */
-  isCreatingGroup: boolean;
-  onCreateGroup: (name: string) => void;
-  onCloseCreateGroup: () => void;
-  onRenameGroup: (groupId: string, name: string) => void;
+  onLayoutChange: (next: HomeLayout) => void;
+  onOpenSpace: (id: string) => void;
+  onRoomZoneToggle: (roomZone: HueRoomZone, nextOn: boolean) => void;
+  onRoomZoneBrightness: (roomZone: HueRoomZone, pct: number) => void;
+  /** Create-section dialog state, lifted so the header can trigger it. */
+  isCreatingSection: boolean;
+  onCreateSection: (name: string) => void;
+  onCloseCreateSection: () => void;
+  onRenameSection: (sectionId: string, name: string) => void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
-  groups,
+  roomZones,
   lights,
   isLoading,
   error,
   layout,
   editing,
   onLayoutChange,
-  onOpenRoom,
-  onGroupToggle,
-  onGroupBrightness,
-  isCreatingGroup,
-  onCreateGroup,
-  onCloseCreateGroup,
-  onRenameGroup,
+  onOpenSpace,
+  onRoomZoneToggle,
+  onRoomZoneBrightness,
+  isCreatingSection,
+  onCreateSection,
+  onCloseCreateSection,
+  onRenameSection,
 }) => {
-  const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
-  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
 
   // Hysteresis for cross-container dragging: remember the last resolved target
   // and freeze re-evaluation for one frame right after a move. Without this the
-  // pointer sitting on a group boundary makes the tile oscillate between groups.
+  // pointer sitting on a section boundary makes the tile oscillate between sections.
   const lastOverId = useRef<string | null>(null);
   const recentlyMovedToNewContainer = useRef(false);
 
-  const roomById = useMemo(() => {
-    const map = new Map<string, HueGroup>();
-    for (const group of groups) map.set(group.id, group);
+  const spaceById = useMemo(() => {
+    const map = new Map<string, HueRoomZone>();
+    for (const roomZone of roomZones) map.set(roomZone.id, roomZone);
     return map;
-  }, [groups]);
+  }, [roomZones]);
 
   const membersOf = useMemo(() => {
-    return (room: HueGroup): HueLight[] => {
-      const ids = new Set(room.lightIds);
+    return (roomZone: HueRoomZone): HueLight[] => {
+      const ids = new Set(roomZone.lightIds);
       return lights.filter((light) => ids.has(light.id));
     };
   }, [lights]);
@@ -100,11 +100,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
 
-  /** Resolves which group container an id belongs to (group id or room id). */
+  /** Resolves which layout section an id belongs to (section id or space id). */
   const findContainer = useCallback(
     (id: string): string | undefined => {
-      if (layout.some((group) => group.id === id)) return id;
-      return layout.find((group) => group.roomIds.includes(id))?.id;
+      if (layout.some((section) => section.id === id)) return id;
+      return layout.find((section) => section.spaceIds.includes(id))?.id;
     },
     [layout],
   );
@@ -118,15 +118,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   // Stable multi-container detection (adapted from dnd-kit's example): pointer
   // first, narrowed to the closest tile inside the hovered group, with the
-  // hysteresis guard so a tile won't ping-pong across a group boundary.
+  // hysteresis guard so a tile won't ping-pong across a section boundary.
   const collisionDetection: CollisionDetection = useCallback(
     (args) => {
-      // Whole-group reordering only collides with other group sections.
-      if (activeGroupId) {
+      // Whole-section reordering only collides with other layout sections.
+      if (activeSectionId) {
         return closestCorners({
           ...args,
           droppableContainers: args.droppableContainers.filter((c) =>
-            layout.some((group) => group.id === c.id),
+            layout.some((section) => section.id === c.id),
           ),
         });
       }
@@ -137,15 +137,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       let overId = getFirstCollision(intersections, "id");
 
       if (overId != null) {
-        const container = layout.find((group) => group.id === overId);
+        const container = layout.find((section) => section.id === overId);
         // Over a container: resolve to the nearest tile inside it for a stable
         // insertion point instead of the section edge.
-        if (container && container.roomIds.length > 0) {
+        if (container && container.spaceIds.length > 0) {
           const inner = closestCenter({
             ...args,
             droppableContainers: args.droppableContainers.filter(
               (c) =>
-                c.id !== overId && container.roomIds.includes(String(c.id)),
+                c.id !== overId && container.spaceIds.includes(String(c.id)),
             ),
           });
           if (inner.length > 0) overId = inner[0].id;
@@ -155,23 +155,23 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       }
 
       if (recentlyMovedToNewContainer.current) {
-        lastOverId.current = activeRoomId;
+        lastOverId.current = activeSpaceId;
       }
       return lastOverId.current ? [{ id: lastOverId.current }] : [];
     },
-    [activeGroupId, activeRoomId, layout],
+    [activeSectionId, activeSpaceId, layout],
   );
 
   const handleDragStart = (event: DragStartEvent) => {
     const type = event.active.data.current?.type;
-    if (type === "room") setActiveRoomId(String(event.active.id));
-    if (type === "group") setActiveGroupId(String(event.active.id));
+    if (type === "space") setActiveSpaceId(String(event.active.id));
+    if (type === "section") setActiveSectionId(String(event.active.id));
     lastOverId.current = String(event.active.id);
   };
 
   const clearActive = () => {
-    setActiveRoomId(null);
-    setActiveGroupId(null);
+    setActiveSpaceId(null);
+    setActiveSectionId(null);
     lastOverId.current = null;
     recentlyMovedToNewContainer.current = false;
   };
@@ -179,7 +179,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   // Moves a tile between sections live as it is dragged over a new container.
   const handleDragOver = (event: DragOverEvent) => {
     const { active, over } = event;
-    if (!over || active.data.current?.type !== "room") return;
+    if (!over || active.data.current?.type !== "space") return;
 
     const activeId = String(active.id);
     const overId = String(over.id);
@@ -192,22 +192,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     recentlyMovedToNewContainer.current = true;
 
     onLayoutChange(
-      layout.map((group) => {
-        if (group.id === from) {
+      layout.map((section) => {
+        if (section.id === from) {
           return {
-            ...group,
-            roomIds: group.roomIds.filter((id) => id !== activeId),
+            ...section,
+            spaceIds: section.spaceIds.filter((id) => id !== activeId),
           };
         }
-        if (group.id === to) {
+        if (section.id === to) {
           // Insert at the hovered tile's position, or append for empty/header.
-          const overIndex = group.roomIds.indexOf(overId);
-          const next = [...group.roomIds];
+          const overIndex = section.spaceIds.indexOf(overId);
+          const next = [...section.spaceIds];
           const insertAt = overIndex >= 0 ? overIndex : next.length;
           next.splice(insertAt, 0, activeId);
-          return { ...group, roomIds: next };
+          return { ...section, spaceIds: next };
         }
-        return group;
+        return section;
       }),
     );
   };
@@ -221,7 +221,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     if (activeId === overId) return;
 
     // Whole-section reordering.
-    if (active.data.current?.type === "group") {
+    if (active.data.current?.type === "section") {
       const oldIndex = layout.findIndex((g) => g.id === activeId);
       const newIndex = layout.findIndex((g) => g.id === overId);
       if (oldIndex >= 0 && newIndex >= 0) {
@@ -234,37 +234,37 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     const container = findContainer(activeId);
     if (!container || container !== findContainer(overId)) return;
     onLayoutChange(
-      layout.map((group) => {
-        if (group.id !== container) return group;
-        const oldIndex = group.roomIds.indexOf(activeId);
-        const newIndex = group.roomIds.indexOf(overId);
-        if (oldIndex < 0 || newIndex < 0) return group;
+      layout.map((section) => {
+        if (section.id !== container) return section;
+        const oldIndex = section.spaceIds.indexOf(activeId);
+        const newIndex = section.spaceIds.indexOf(overId);
+        if (oldIndex < 0 || newIndex < 0) return section;
         return {
-          ...group,
-          roomIds: arrayMove(group.roomIds, oldIndex, newIndex),
+          ...section,
+          spaceIds: arrayMove(section.spaceIds, oldIndex, newIndex),
         };
       }),
     );
   };
 
-  const submitNewGroup = () => {
+  const submitNewSection = () => {
     const name = newName.trim();
     if (!name) return;
-    onCreateGroup(name);
+    onCreateSection(name);
     setNewName("");
   };
 
   const closeCreate = () => {
     setNewName("");
-    onCloseCreateGroup();
+    onCloseCreateSection();
   };
 
-  // A group can only be removed once it holds no spaces, so no room is orphaned.
-  const handleDeleteGroup = (groupId: string) => {
-    onLayoutChange(layout.filter((group) => group.id !== groupId));
+  // A section can only be removed once it holds no spaces, so no room/zone is orphaned.
+  const handleDeleteSection = (sectionId: string) => {
+    onLayoutChange(layout.filter((section) => section.id !== sectionId));
   };
 
-  if (isLoading && groups.length === 0) {
+  if (isLoading && roomZones.length === 0) {
     return (
       <div className="flex min-h-[40vh] items-center justify-center">
         <Loader2 className="size-10 animate-spin text-muted-foreground" />
@@ -272,33 +272,33 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     );
   }
 
-  // Resolve each group's live, ordered room data once for rendering.
-  const sections = layout.map((group) => ({
-    group,
-    rooms: group.roomIds
-      .map((id) => roomById.get(id))
-      .filter((r): r is HueGroup => r !== undefined),
+  // Resolve each section's live, ordered room/zone data once for rendering.
+  const sections = layout.map((section) => ({
+    section,
+    roomZones: section.spaceIds
+      .map((id) => spaceById.get(id))
+      .filter((r): r is HueRoomZone => r !== undefined),
   }));
 
-  const activeRoom = activeRoomId ? roomById.get(activeRoomId) : null;
-  const activeGroup = activeGroupId
-    ? sections.find(({ group }) => group.id === activeGroupId)
+  const activeSpace = activeSpaceId ? spaceById.get(activeSpaceId) : null;
+  const activeSection = activeSectionId
+    ? sections.find(({ section }) => section.id === activeSectionId)
     : null;
 
-  const dashboard = (
+  const content = (
     <div className="flex flex-col gap-8">
-      {sections.map(({ group, rooms }) => (
-        <GroupSection
-          key={group.id}
-          group={group}
-          rooms={rooms}
+      {sections.map(({ section, roomZones }) => (
+        <LayoutSection
+          key={section.id}
+          section={section}
+          roomZones={roomZones}
           lights={lights}
           editing={editing}
-          onOpenRoom={onOpenRoom}
-          onGroupToggle={onGroupToggle}
-          onGroupBrightness={onGroupBrightness}
-          onDeleteGroup={handleDeleteGroup}
-          onRenameGroup={onRenameGroup}
+          onOpenSpace={onOpenSpace}
+          onRoomZoneToggle={onRoomZoneToggle}
+          onRoomZoneBrightness={onRoomZoneBrightness}
+          onDeleteSection={handleDeleteSection}
+          onRenameSection={onRenameSection}
         />
       ))}
     </div>
@@ -308,8 +308,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     <div className="mx-auto flex w-full flex-col gap-6">
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      {groups.length === 0 && !isLoading ? (
-        <p className="text-sm text-muted-foreground">No rooms found.</p>
+      {roomZones.length === 0 && !isLoading ? (
+        <p className="text-sm text-muted-foreground">No rooms or zones found.</p>
       ) : (
         <DndContext
           sensors={sensors}
@@ -320,53 +320,53 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           onDragCancel={clearActive}
         >
           <SortableContext
-            items={layout.map((group) => group.id)}
+            items={layout.map((section) => section.id)}
             strategy={verticalListSortingStrategy}
             disabled={!editing}
           >
-            {dashboard}
+            {content}
           </SortableContext>
           <DragOverlay>
-            {editing && activeRoom ? (
-              <RoomTile
-                group={activeRoom}
-                members={membersOf(activeRoom)}
+            {editing && activeSpace ? (
+              <SpaceTile
+                roomZone={activeSpace}
+                members={membersOf(activeSpace)}
                 editing
-                onOpenRoom={onOpenRoom}
-                onGroupToggle={onGroupToggle}
-                onGroupBrightness={onGroupBrightness}
+                onOpenSpace={onOpenSpace}
+                onRoomZoneToggle={onRoomZoneToggle}
+                onRoomZoneBrightness={onRoomZoneBrightness}
               />
-            ) : editing && activeGroup ? (
-              // A lightweight, non-sortable clone so dropping a group doesn't
+            ) : editing && activeSection ? (
+              // A lightweight, non-sortable clone so dropping a section doesn't
               // flash: the overlay carries the visual while the real section
               // stays put and reorders without a drop-animation jump.
               <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-border bg-background/95 p-4 shadow-xl">
                 <header className="flex items-center gap-2">
                   <h2 className="font-heading text-lg font-medium">
-                    {activeGroup.group.name}
+                    {activeSection.section.name}
                   </h2>
                   <span className="text-sm text-muted-foreground">
-                    {activeGroup.rooms.length}{" "}
-                    {activeGroup.rooms.length === 1 ? "space" : "spaces"}
+                    {activeSection.roomZones.length}{" "}
+                    {activeSection.roomZones.length === 1 ? "space" : "spaces"}
                   </span>
                 </header>
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
-                  {activeGroup.rooms.length === 0 ? (
-                    // Mirror GroupSection's empty placeholder so a dragged empty
-                    // group looks identical to its resting state.
+                  {activeSection.roomZones.length === 0 ? (
+                    // Mirror LayoutSection's empty placeholder so a dragged empty
+                    // section looks identical to its resting state.
                     <div className="col-span-full flex min-h-36 items-center justify-center rounded-2xl border border-dashed border-border/70 bg-muted/20 text-sm text-muted-foreground">
                       Drag spaces here
                     </div>
                   ) : (
-                    activeGroup.rooms.map((room) => (
-                      <RoomTile
-                        key={room.id}
-                        group={room}
-                        members={membersOf(room)}
+                    activeSection.roomZones.map((roomZone) => (
+                      <SpaceTile
+                        key={roomZone.id}
+                        roomZone={roomZone}
+                        members={membersOf(roomZone)}
                         editing
-                        onOpenRoom={onOpenRoom}
-                        onGroupToggle={onGroupToggle}
-                        onGroupBrightness={onGroupBrightness}
+                        onOpenSpace={onOpenSpace}
+                        onRoomZoneToggle={onRoomZoneToggle}
+                        onRoomZoneBrightness={onRoomZoneBrightness}
                       />
                     ))
                   )}
@@ -378,31 +378,31 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       )}
 
       <Dialog
-        open={isCreatingGroup}
+        open={isCreatingSection}
         onOpenChange={(open) => {
           if (!open) closeCreate();
         }}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create new group</DialogTitle>
+            <DialogTitle>Create new section</DialogTitle>
             <DialogDescription>
-              Groups organize your dashboard. Name a new group, then drag spaces
-              into it from the layout editor.
+              Sections organize your Home screen. Name a new section, then drag
+              rooms and zones into it from the layout editor.
             </DialogDescription>
           </DialogHeader>
 
           <form
-            id="create-group-form"
+            id="create-section-form"
             onSubmit={(e) => {
               e.preventDefault();
-              submitNewGroup();
+              submitNewSection();
             }}
             className="flex flex-col gap-2"
           >
-            <Label htmlFor="new-group-name">Group name</Label>
+            <Label htmlFor="new-section-name">Section name</Label>
             <Input
-              id="new-group-name"
+              id="new-section-name"
               type="text"
               autoFocus
               placeholder="e.g. Upstairs, Outdoor, Favorites"
@@ -417,10 +417,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </DialogClose>
             <Button
               type="submit"
-              form="create-group-form"
+              form="create-section-form"
               disabled={!newName.trim()}
             >
-              Create group
+              Create section
             </Button>
           </DialogFooter>
         </DialogContent>

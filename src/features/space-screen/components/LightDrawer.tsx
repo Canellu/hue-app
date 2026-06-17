@@ -16,11 +16,11 @@ import {
 } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DebouncedSlider } from "@/components/DebouncedSlider";
+import type { LightColorChange } from "@/context/HueResourcesContext";
+import { miredToKelvin } from "@/features/space-screen/utils/color";
+import type { HueLight } from "@/types/hue";
 import { ColorWheel } from "./ColorWheel";
-import { DebouncedSlider } from "./DebouncedSlider";
-import { miredToKelvin } from "./color";
-import type { LightColorChange } from "./DashboardProvider";
-import type { HueLight } from "./types";
 
 type Tab = "color" | "kelvin" | "effects";
 

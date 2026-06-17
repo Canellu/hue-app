@@ -19,7 +19,7 @@ interface AppHeaderProps {
   onEditLayout: () => void;
   onCancelEditLayout: () => void;
   onSaveEditLayout: () => void;
-  onCreateGroup: () => void;
+  onCreateSection: () => void;
 }
 
 /** Time-of-day greeting shown on the Home screen. */
@@ -30,7 +30,7 @@ const greeting = (): string => {
   return "Good Evening";
 };
 
-/** A short vertical rule separating groups of header controls. */
+/** A short vertical rule separating clusters of header controls. */
 const Divider = () => <Separator orientation="vertical" className="mx-1 h-8" />;
 
 /**
@@ -46,7 +46,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   onEditLayout,
   onCancelEditLayout,
   onSaveEditLayout,
-  onCreateGroup,
+  onCreateSection,
 }) => (
   <header className="flex h-20 shrink-0 items-center justify-between px-6">
     {onBack ? (
@@ -65,10 +65,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               variant="outline"
               size="xl"
               className="gap-1.5"
-              onClick={onCreateGroup}
+              onClick={onCreateSection}
             >
               <Plus size={20} />
-              Create New Group
+              Create New Section
             </Button>
             <Divider />
             <Button variant="ghost" size="xl" onClick={onCancelEditLayout}>

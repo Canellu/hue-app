@@ -8,7 +8,10 @@ import {
 /** Header wired to the Hue resources context; split out so it can read the data layer. */
 const ShellHeader: React.FC = () => {
   const {
+    roomZones,
     isEditLayoutMode,
+    groupingMode,
+    setGroupingMode,
     enterEditLayout,
     cancelEditLayout,
     saveEditLayout,
@@ -19,13 +22,32 @@ const ShellHeader: React.FC = () => {
 
   // Layout editing and Settings are Home-only; Space/Settings use Back instead.
   const onHome = pathname === "/";
+  const activeSpaceId = pathname.startsWith("/space/")
+    ? decodeURIComponent(pathname.slice("/space/".length))
+    : null;
+  const activeSpace = activeSpaceId
+    ? roomZones.find((roomZone) => roomZone.id === activeSpaceId)
+    : null;
+  const title = pathname === "/settings" ? "Settings" : activeSpace?.name;
+  const description =
+    pathname === "/settings"
+      ? "Bridge & app preferences"
+      : activeSpace
+        ? `${activeSpace.lightCount} ${
+            activeSpace.lightCount === 1 ? "light" : "lights"
+          } · ${activeSpace.anyOn ? "On" : "Off"}`
+        : undefined;
 
   return (
     <AppHeader
       onBack={onHome ? undefined : () => void navigate({ to: "/" })}
+      title={title}
+      description={description}
       showSettings={onHome}
       onOpenSettings={() => void navigate({ to: "/settings" })}
       showEditLayout={onHome}
+      groupingMode={groupingMode}
+      onGroupingModeChange={setGroupingMode}
       isEditLayoutMode={isEditLayoutMode}
       onEditLayout={enterEditLayout}
       onCancelEditLayout={cancelEditLayout}

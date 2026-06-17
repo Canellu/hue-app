@@ -13,7 +13,7 @@ import {
   newLayoutSectionId,
   useHomeLayout,
 } from "@/features/home-screen/hooks/useHomeLayout";
-import type { HomeLayout } from "@/types/app-layout";
+import type { HomeGroupingMode, HomeLayout } from "@/types/app-layout";
 import type {
   HueEventUpdate,
   HueLight,
@@ -39,6 +39,9 @@ interface HueResourcesContextValue {
 
   // Home layout editing. Layout sections are local app state, not Hue resources.
   layout: HomeLayout;
+  displayLayout: HomeLayout;
+  groupingMode: HomeGroupingMode;
+  setGroupingMode: (mode: HomeGroupingMode) => void;
   draftLayout: HomeLayout;
   isEditLayoutMode: boolean;
   setDraftLayout: (next: HomeLayout) => void;
@@ -92,7 +95,13 @@ export const HueResourcesProvider: React.FC<{ children: ReactNode }> = ({
   const [draftLayout, setDraftLayout] = useState<HomeLayout>([]);
   const [isCreatingSection, setIsCreatingSection] = useState(false);
 
-  const { layout, saveLayout } = useHomeLayout(roomZones);
+  const {
+    layout,
+    displayLayout,
+    groupingMode,
+    setGroupingMode: setStoredGroupingMode,
+    saveLayout,
+  } = useHomeLayout(roomZones);
 
   const loadLights = useCallback(async () => {
     const result = await invoke<HueLight[]>("get-hue-lights");
@@ -276,6 +285,7 @@ export const HueResourcesProvider: React.FC<{ children: ReactNode }> = ({
   );
 
   const enterEditLayout = useCallback(() => {
+    if (groupingMode !== "custom") setStoredGroupingMode("custom");
     // Deep-clone so drag edits never mutate the committed layout.
     setDraftLayout(
       layout.map((section) => ({
@@ -284,7 +294,7 @@ export const HueResourcesProvider: React.FC<{ children: ReactNode }> = ({
       })),
     );
     setIsEditLayoutMode(true);
-  }, [layout]);
+  }, [groupingMode, layout, setStoredGroupingMode]);
 
   const cancelEditLayout = useCallback(() => {
     setIsEditLayoutMode(false);
@@ -296,6 +306,18 @@ export const HueResourcesProvider: React.FC<{ children: ReactNode }> = ({
     setIsEditLayoutMode(false);
     setDraftLayout([]);
   }, [draftLayout, saveLayout]);
+
+  const setGroupingMode = useCallback(
+    (mode: HomeGroupingMode) => {
+      setStoredGroupingMode(mode);
+      if (mode !== "custom") {
+        setIsEditLayoutMode(false);
+        setDraftLayout([]);
+        setIsCreatingSection(false);
+      }
+    },
+    [setStoredGroupingMode],
+  );
 
   const openCreateSection = useCallback(() => setIsCreatingSection(true), []);
   const closeCreateSection = useCallback(() => setIsCreatingSection(false), []);
@@ -324,6 +346,9 @@ export const HueResourcesProvider: React.FC<{ children: ReactNode }> = ({
       isLoading,
       error,
       layout,
+      displayLayout,
+      groupingMode,
+      setGroupingMode,
       draftLayout,
       isEditLayoutMode,
       setDraftLayout,
@@ -347,6 +372,9 @@ export const HueResourcesProvider: React.FC<{ children: ReactNode }> = ({
       isLoading,
       error,
       layout,
+      displayLayout,
+      groupingMode,
+      setGroupingMode,
       draftLayout,
       isEditLayoutMode,
       enterEditLayout,

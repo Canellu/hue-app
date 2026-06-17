@@ -10,6 +10,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { HomeLayout } from "@/types/app-layout";
+import type { HueLight, HueRoomZone } from "@/types/hue";
 import {
   DndContext,
   DragOverlay,
@@ -35,8 +37,6 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LayoutSection } from "./components/LayoutSection";
 import { SpaceTile } from "./components/SpaceTile";
-import type { HomeLayout } from "@/types/app-layout";
-import type { HueLight, HueRoomZone } from "@/types/hue";
 
 interface HomeScreenProps {
   roomZones: HueRoomZone[];
@@ -285,6 +285,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     ? sections.find(({ section }) => section.id === activeSectionId)
     : null;
 
+  const activeSectionCountText =
+    activeSection && String(activeSection.roomZones.length);
+
   const content = (
     <div className="flex flex-col gap-8">
       {sections.map(({ section, roomZones }) => (
@@ -309,7 +312,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       {roomZones.length === 0 && !isLoading ? (
-        <p className="text-sm text-muted-foreground">No rooms or zones found.</p>
+        <p className="text-sm text-muted-foreground">
+          No rooms or zones found.
+        </p>
       ) : (
         <DndContext
           sensors={sensors}
@@ -346,11 +351,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     {activeSection.section.name}
                   </h2>
                   <span className="text-sm text-muted-foreground">
-                    {activeSection.roomZones.length}{" "}
-                    {activeSection.roomZones.length === 1 ? "space" : "spaces"}
+                    {activeSectionCountText}
                   </span>
                 </header>
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
                   {activeSection.roomZones.length === 0 ? (
                     // Mirror LayoutSection's empty placeholder so a dragged empty
                     // section looks identical to its resting state.
@@ -385,7 +389,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create new section</DialogTitle>
+            <DialogTitle>Add New Section</DialogTitle>
             <DialogDescription>
               Sections organize your Home screen. Name a new section, then drag
               rooms and zones into it from the layout editor.
@@ -400,10 +404,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             }}
             className="flex flex-col gap-2"
           >
-            <Label htmlFor="new-section-name">Section name</Label>
+            <Label htmlFor="new-section-name" size="lg">
+              Section name
+            </Label>
             <Input
               id="new-section-name"
               type="text"
+              size="xl"
               autoFocus
               placeholder="e.g. Upstairs, Outdoor, Favorites"
               value={newName}
@@ -412,12 +419,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </form>
 
           <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>
+            <DialogClose render={<Button variant="outline" size="xl" />}>
               Cancel
             </DialogClose>
             <Button
               type="submit"
               form="create-section-form"
+              size="xl"
               disabled={!newName.trim()}
             >
               Create section

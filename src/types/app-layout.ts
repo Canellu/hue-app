@@ -8,3 +8,5 @@ export interface HomeLayoutSection {
 
 /** Persisted Home screen layout. This is app-local and does not come from Hue. */
 export type HomeLayout = HomeLayoutSection[];
+
+export type HomeGroupingMode = "rooms-first" | "zones-first" | "custom";

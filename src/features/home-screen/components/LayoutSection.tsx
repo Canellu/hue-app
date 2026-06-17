@@ -8,6 +8,7 @@ import { GripVertical, Trash2 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { SpaceTile } from "./SpaceTile";
 import { SortableSpaceTile } from "./SortableSpaceTile";
@@ -74,6 +75,8 @@ export const LayoutSection: React.FC<LayoutSectionProps> = ({
     return lights.filter((light) => ids.has(light.id));
   };
 
+  const countText = String(roomZones.length);
+
   return (
     <section
       ref={setNodeRef}
@@ -107,7 +110,7 @@ export const LayoutSection: React.FC<LayoutSectionProps> = ({
         </AnimatePresence>
 
         {editing && renaming ? (
-          <input
+          <Input
             autoFocus
             value={draftName}
             onChange={(e) => setDraftName(e.target.value)}
@@ -118,7 +121,8 @@ export const LayoutSection: React.FC<LayoutSectionProps> = ({
               if (e.key === "Escape") setRenaming(false);
             }}
             aria-label={`Rename ${section.name}`}
-            className="font-heading min-w-0 rounded-md border border-border bg-background px-2 py-0.5 text-lg font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            size="lg"
+            className="font-heading w-auto min-w-0 max-w-xs text-lg font-medium"
           />
         ) : editing ? (
           <button
@@ -133,9 +137,7 @@ export const LayoutSection: React.FC<LayoutSectionProps> = ({
           <h2 className="font-heading text-lg font-medium">{section.name}</h2>
         )}
 
-        <span className="ml-2 text-sm text-muted-foreground">
-          {roomZones.length} {roomZones.length === 1 ? "space" : "spaces"}
-        </span>
+        <span className="ml-2 text-sm text-muted-foreground">{countText}</span>
         {editing && roomZones.length === 0 && (
           <Button
             variant="ghost"
@@ -155,7 +157,7 @@ export const LayoutSection: React.FC<LayoutSectionProps> = ({
         strategy={rectSortingStrategy}
         disabled={!editing}
       >
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-3">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
           {roomZones.length === 0 ? (
             <div
               className={cn(

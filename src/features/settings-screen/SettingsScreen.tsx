@@ -11,6 +11,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { useHue } from "../../context/HueContext";
 import type { ThemeMode } from "../../context/ThemeContext";
@@ -43,23 +44,19 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Theme
         </h2>
-        <div className="inline-flex w-fit rounded-full bg-muted p-1">
-          {themeOptions.map(({ value, label, icon: Icon }) => (
-            <Button
-              key={value}
-              variant={themeMode === value ? "secondary" : "ghost"}
-              size="sm"
-              className={cn(
-                "gap-2 px-4",
-                themeMode === value && "bg-background shadow-sm",
-              )}
-              onClick={() => onThemeModeChange(value)}
-            >
-              <Icon size={16} />
-              {label}
-            </Button>
-          ))}
-        </div>
+        <Tabs
+          value={themeMode}
+          onValueChange={(value) => onThemeModeChange(value as ThemeMode)}
+        >
+          <TabsList size="xl" aria-label="Theme mode">
+            {themeOptions.map(({ value, label, icon: Icon }) => (
+              <TabsTrigger key={value} value={value} className="gap-2">
+                <Icon size={18} />
+                {label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </section>
 
       <section className="flex flex-col gap-3">
@@ -102,6 +99,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
           <Button
             variant="outline"
+            size="xl"
             className="gap-2"
             onClick={() => void refreshSession()}
           >
@@ -118,7 +116,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         <div className="flex flex-wrap gap-2">
           <AlertDialog>
             <AlertDialogTrigger
-              render={<Button variant="destructive" className="gap-2" />}
+              render={
+                <Button variant="destructive" size="xl" className="gap-2" />
+              }
             >
               <Power size={18} />
               Remove bridge & reset
@@ -132,9 +132,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogCancel size="xl">Cancel</AlertDialogCancel>
                 <AlertDialogAction
                   variant="destructive"
+                  size="xl"
                   className="gap-2"
                   onClick={() => void resetSession()}
                 >

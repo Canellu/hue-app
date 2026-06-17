@@ -52,9 +52,9 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
             }
       }
       className={cn(
-        "min-h-36 justify-center gap-4 bg-muted/45 outline-none ring-0 transition-colors focus-visible:ring-2 focus-visible:ring-ring dark:bg-muted/30",
-        !editing && "cursor-pointer hover:bg-accent/70 dark:hover:bg-accent/50",
-        roomZone.anyOn && "bg-accent/80 dark:bg-accent/60",
+        "min-h-36 justify-center gap-4 border-border/70 bg-card outline-none ring-0 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring dark:border-border/80 dark:bg-muted/55",
+        !editing && "cursor-pointer hover:bg-accent/70 dark:hover:bg-accent/55",
+        roomZone.anyOn && "bg-accent/80 dark:bg-accent/65",
       )}
     >
       <div className="flex items-center gap-4 px-5">
@@ -76,6 +76,7 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
           </p>
         </div>
         <Switch
+          size="lg"
           checked={roomZone.anyOn}
           disabled={controlsDisabled}
           aria-label={`Toggle ${roomZone.name}`}
@@ -89,6 +90,7 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
           value={roomZone.anyOn ? pct : 0}
           disabled={controlsDisabled}
           ariaLabel={`${roomZone.name} brightness`}
+          size="lg"
           debounceMs={300}
           onCommit={(value) => onRoomZoneBrightness(roomZone, value)}
         />

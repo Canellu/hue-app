@@ -1,13 +1,8 @@
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
 import { DebouncedSlider } from "@/components/DebouncedSlider";
-import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
-import {
-  roomZoneTileColor,
-  sceneBubbleCss,
-} from "@/features/space-screen/utils/color-state";
+import { sceneBubbleCss } from "@/features/space-screen/utils/color-state";
 import { LightCard } from "./components/LightCard";
 import type { HueLight, HueRoomZone, HueScene } from "@/types/hue";
 
@@ -40,39 +35,16 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
   onSelectLight,
   onSceneActivate,
 }) => {
-  const Icon = getRoomZoneIcon(roomZone.class);
   const brightnessPct = roomZone.brightness ?? 0;
-  const tile = roomZoneTileColor(lights);
 
   return (
     <section className="mx-auto flex w-full flex-col gap-6">
-      <div className="flex items-center gap-3">
-        <span
-          className={cn(
-            "flex size-9 items-center justify-center rounded-full ring-1 ring-foreground/10",
-            tile.active ? "text-white" : "bg-muted text-muted-foreground",
-          )}
-          style={
-            tile.active && tile.background
-              ? { background: tile.background }
-              : undefined
-          }
-        >
-          <Icon size={20} />
-        </span>
-        <h1 className="font-heading text-2xl font-semibold">
-          {roomZone.name}
-        </h1>
-      </div>
-
       {error && <p className="text-sm text-destructive">{error}</p>}
 
       <Card className="gap-4">
         <div className="flex items-center justify-between px-6">
-          <span className="text-sm text-muted-foreground">
-            {roomZone.lightCount}{" "}
-            {roomZone.lightCount === 1 ? "light" : "lights"} ·{" "}
-            {roomZone.anyOn ? "On" : "Off"}
+          <span className="text-sm font-medium text-muted-foreground">
+            Group controls
           </span>
           <Switch
             checked={roomZone.anyOn}

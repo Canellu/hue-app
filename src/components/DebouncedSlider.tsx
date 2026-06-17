@@ -9,6 +9,7 @@ interface DebouncedSliderProps {
   disabled?: boolean;
   ariaLabel: string;
   className?: string;
+  size?: "default" | "lg" | "xl";
   /** Trailing-debounce delay before committing to the bridge. */
   debounceMs?: number;
   /** Fires the debounced/final value once the user pauses or releases. */
@@ -34,6 +35,7 @@ export const DebouncedSlider: React.FC<DebouncedSliderProps> = ({
   disabled,
   ariaLabel,
   className = "w-full",
+  size = "default",
   debounceMs = 200,
   onCommit,
   onInput,
@@ -73,6 +75,7 @@ export const DebouncedSlider: React.FC<DebouncedSliderProps> = ({
       disabled={disabled}
       aria-label={ariaLabel}
       className={className}
+      size={size}
       onValueChange={(v) => schedule(first(v))}
       onValueCommitted={(v) => commitNow(first(v))}
     />

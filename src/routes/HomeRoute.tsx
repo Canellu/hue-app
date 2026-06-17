@@ -8,7 +8,7 @@ export const HomeRoute: React.FC = () => {
     lights,
     isLoading,
     error,
-    layout,
+    displayLayout,
     draftLayout,
     isEditLayoutMode,
     setDraftLayout,
@@ -26,7 +26,7 @@ export const HomeRoute: React.FC = () => {
       lights={lights}
       isLoading={isLoading}
       error={error}
-      layout={isEditLayoutMode ? draftLayout : layout}
+      layout={isEditLayoutMode ? draftLayout : displayLayout}
       editing={isEditLayoutMode}
       onLayoutChange={setDraftLayout}
       onOpenSpace={(id) =>

@@ -40,7 +40,7 @@ const greeting = (): string => {
 const Divider = () => (
   <Separator
     orientation="vertical"
-    className="mx-1 h-12 data-vertical:w-[1.5px]"
+    className="mx-1 h-12"
   />
 );
 

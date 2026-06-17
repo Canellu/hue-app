@@ -1,8 +1,9 @@
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { useHueResources } from "@/context/HueResourcesContext";
+import { useShallow } from "zustand/react/shallow";
 import { SpaceScreen } from "@/features/space-screen/SpaceScreen";
 import { LightDrawer } from "@/features/space-screen/components/LightDrawer";
+import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 
 export const SpaceRoute: React.FC = () => {
   const { spaceId } = useParams({ from: "/space/$spaceId" });
@@ -16,7 +17,18 @@ export const SpaceRoute: React.FC = () => {
     setLightState,
     setLightColor,
     activateScene,
-  } = useHueResources();
+  } = useHueResourcesStore(
+    useShallow((state) => ({
+      roomZones: state.roomZones,
+      lights: state.lights,
+      scenes: state.scenes,
+      error: state.error,
+      setRoomZoneState: state.setRoomZoneState,
+      setLightState: state.setLightState,
+      setLightColor: state.setLightColor,
+      activateScene: state.activateScene,
+    })),
+  );
 
   const [selectedLightId, setSelectedLightId] = useState<string | null>(null);
   const [activeSceneId, setActiveSceneId] = useState<string | null>(null);

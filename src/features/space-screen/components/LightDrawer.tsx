@@ -17,7 +17,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DebouncedSlider } from "@/components/DebouncedSlider";
-import type { LightColorChange } from "@/context/HueResourcesContext";
+import type { LightColorChange } from "@/stores/HueResourcesStore";
 import { miredToKelvin } from "@/features/space-screen/utils/color";
 import type { HueLight } from "@/types/hue";
 import { ColorWheel } from "./ColorWheel";

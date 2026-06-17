@@ -42,10 +42,11 @@ export const DebouncedSlider: React.FC<DebouncedSliderProps> = ({
 }) => {
   const [local, setLocal] = useState(value);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isInteracting = useRef(false);
 
-  // Re-sync to the authoritative value when not mid-drag (prop changes win).
+  // Re-sync to the authoritative value unless the user is actively moving it.
   useEffect(() => {
-    setLocal(value);
+    if (!isInteracting.current) setLocal(value);
   }, [value]);
 
   useEffect(
@@ -56,6 +57,7 @@ export const DebouncedSlider: React.FC<DebouncedSliderProps> = ({
   );
 
   const schedule = (next: number) => {
+    isInteracting.current = true;
     setLocal(next);
     onInput?.(next);
     if (timer.current) clearTimeout(timer.current);
@@ -64,6 +66,8 @@ export const DebouncedSlider: React.FC<DebouncedSliderProps> = ({
 
   const commitNow = (next: number) => {
     if (timer.current) clearTimeout(timer.current);
+    isInteracting.current = false;
+    setLocal(next);
     onCommit(next);
   };
 

@@ -22,7 +22,7 @@ const DEFAULT_GROUPING_MODE: HomeGroupingMode = "rooms-first";
 export const newLayoutSectionId = (): string =>
   `group-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
-const readStored = (): HomeLayout | null => {
+export const readStoredHomeLayout = (): HomeLayout | null => {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
@@ -51,7 +51,7 @@ const readStored = (): HomeLayout | null => {
 const isGroupingMode = (value: string | null): value is HomeGroupingMode =>
   value === "rooms-first" || value === "zones-first" || value === "custom";
 
-const readGroupingMode = (): HomeGroupingMode => {
+export const readStoredGroupingMode = (): HomeGroupingMode => {
   try {
     const stored = localStorage.getItem(MODE_STORAGE_KEY);
     return isGroupingMode(stored) ? stored : DEFAULT_GROUPING_MODE;
@@ -60,7 +60,7 @@ const readGroupingMode = (): HomeGroupingMode => {
   }
 };
 
-const writeGroupingMode = (mode: HomeGroupingMode): void => {
+export const writeStoredGroupingMode = (mode: HomeGroupingMode): void => {
   try {
     localStorage.setItem(MODE_STORAGE_KEY, mode);
   } catch {
@@ -68,7 +68,7 @@ const writeGroupingMode = (mode: HomeGroupingMode): void => {
   }
 };
 
-const writeStored = (layout: HomeLayout): void => {
+export const writeStoredHomeLayout = (layout: HomeLayout): void => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
   } catch {
@@ -154,9 +154,9 @@ interface HomeLayoutApi {
  * component so this hook only deals with the committed, on-disk layout.
  */
 export const useHomeLayout = (roomZones: HueRoomZone[]): HomeLayoutApi => {
-  const [stored, setStored] = useState<HomeLayout | null>(readStored);
+  const [stored, setStored] = useState<HomeLayout | null>(readStoredHomeLayout);
   const [groupingMode, setGroupingModeState] =
-    useState<HomeGroupingMode>(readGroupingMode);
+    useState<HomeGroupingMode>(readStoredGroupingMode);
 
   // Stable signature so we only reconcile when the actual id set changes.
   const liveSpaceIds = useMemo(() => roomZones.map((g) => g.id), [roomZones]);
@@ -179,18 +179,18 @@ export const useHomeLayout = (roomZones: HueRoomZone[]): HomeLayoutApi => {
   // Persist the reconciled layout once rooms/zones have loaded so freshly
   // discovered and pruned ids survive the next boot.
   useEffect(() => {
-    if (liveSpaceIds.length > 0) writeStored(layout);
+    if (liveSpaceIds.length > 0) writeStoredHomeLayout(layout);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveKey]);
 
   const saveLayout = useCallback((next: HomeLayout) => {
     setStored(next);
-    writeStored(next);
+    writeStoredHomeLayout(next);
   }, []);
 
   const setGroupingMode = useCallback((mode: HomeGroupingMode) => {
     setGroupingModeState(mode);
-    writeGroupingMode(mode);
+    writeStoredGroupingMode(mode);
   }, []);
 
   return { layout, displayLayout, groupingMode, setGroupingMode, saveLayout };

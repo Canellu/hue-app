@@ -1,42 +1,75 @@
+import { RouterProvider } from "@tanstack/react-router";
 import { Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import "./App.css";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { TitleBar } from "./components/TitleBar";
 import { useHue } from "./context/HueContext";
-import { DesktopShell } from "./features/desktop/DesktopShell";
+import {
+  ThemeContext,
+  type ResolvedThemeMode,
+  type ThemeMode,
+} from "./context/ThemeContext";
+import { router } from "./router";
 import { WizardContainer } from "./features/wizard/WizardContainer";
-
-type ThemeMode = "light" | "dark";
+import { useGlobalKeyboardShortcut } from "./hooks/useGlobalKeyboardShortcut";
 
 const getInitialTheme = (): ThemeMode => {
   const storedTheme = localStorage.getItem("themeMode");
-  if (storedTheme === "light" || storedTheme === "dark") {
+  if (
+    storedTheme === "light" ||
+    storedTheme === "dark" ||
+    storedTheme === "system"
+  ) {
     return storedTheme;
   }
 
-  return window.matchMedia("(prefers-color-scheme: light)").matches
+  return "system";
+};
+
+const getSystemTheme = (): ResolvedThemeMode =>
+  window.matchMedia("(prefers-color-scheme: light)").matches
     ? "light"
     : "dark";
-};
 
 function App() {
   const { configured, connected, error, isLoading, refreshSession } = useHue();
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialTheme);
+  const [systemThemeMode, setSystemThemeMode] =
+    useState<ResolvedThemeMode>(getSystemTheme);
+  const resolvedThemeMode =
+    themeMode === "system" ? systemThemeMode : themeMode;
 
   useEffect(() => {
-    if (themeMode === "dark") {
+    const media = window.matchMedia("(prefers-color-scheme: light)");
+    const onChange = () => setSystemThemeMode(getSystemTheme());
+
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    if (resolvedThemeMode === "dark") {
       document.documentElement.classList.add("dark");
     } else {
       document.documentElement.classList.remove("dark");
     }
-    document.documentElement.style.colorScheme = themeMode;
+    document.documentElement.style.colorScheme = resolvedThemeMode;
     localStorage.setItem("themeMode", themeMode);
-  }, [themeMode]);
+  }, [resolvedThemeMode, themeMode]);
 
   const toggleTheme = () =>
-    setThemeMode((current) => (current === "dark" ? "light" : "dark"));
+    setThemeMode(resolvedThemeMode === "dark" ? "light" : "dark");
+
+  useGlobalKeyboardShortcut({ key: "j", mod: true }, () => {
+    toggleTheme();
+  });
+
+  const themeValue = useMemo(
+    () => ({ themeMode, resolvedThemeMode, setThemeMode, toggleTheme }),
+    [themeMode, resolvedThemeMode],
+  );
 
   const renderContent = () => {
     if (isLoading) {
@@ -60,7 +93,9 @@ function App() {
     if (configured && connected) {
       return (
         <div className="h-full">
-          <DesktopShell themeMode={themeMode} onToggleTheme={toggleTheme} />
+          <ThemeContext.Provider value={themeValue}>
+            <RouterProvider router={router} />
+          </ThemeContext.Provider>
         </div>
       );
     }

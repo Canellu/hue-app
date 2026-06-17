@@ -1,4 +1,4 @@
-import { Moon, Power, RefreshCcw, Router, Sun } from "lucide-react";
+import { Monitor, Moon, Power, RefreshCcw, Router, Sun } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -11,33 +11,67 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useHue } from "../../context/HueContext";
-
-type ThemeMode = "light" | "dark";
+import type { ThemeMode } from "../../context/ThemeContext";
 
 interface SettingsScreenProps {
   themeMode: ThemeMode;
-  onToggleTheme: () => void;
+  onThemeModeChange: (themeMode: ThemeMode) => void;
 }
+
+const themeOptions = [
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+  { value: "system", label: "System", icon: Monitor },
+] satisfies Array<{
+  value: ThemeMode;
+  label: string;
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+}>;
 
 export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   themeMode,
-  onToggleTheme,
+  onThemeModeChange,
 }) => {
   const { bridgeId, bridgeIp, connected, refreshSession, resetSession } =
     useHue();
 
   return (
-    <div className="flex flex-col gap-4">
-      <Card>
-        <CardContent className="flex flex-col gap-4">
-          <div className="flex items-center gap-3">
-            <span className="flex size-9 items-center justify-center rounded-full bg-muted text-muted-foreground ring-1 ring-foreground/10">
-              <Router size={18} />
+    <div className="flex flex-col gap-8">
+      <section className="flex flex-col gap-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Theme
+        </h2>
+        <div className="inline-flex w-fit rounded-full bg-muted p-1">
+          {themeOptions.map(({ value, label, icon: Icon }) => (
+            <Button
+              key={value}
+              variant={themeMode === value ? "secondary" : "ghost"}
+              size="sm"
+              className={cn(
+                "gap-2 px-4",
+                themeMode === value && "bg-background shadow-sm",
+              )}
+              onClick={() => onThemeModeChange(value)}
+            >
+              <Icon size={16} />
+              {label}
+            </Button>
+          ))}
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Bridge
+        </h2>
+        <div className="rounded-2xl bg-muted/45 p-5 dark:bg-muted/30">
+          <div className="mb-5 flex items-center gap-3">
+            <span className="flex size-10 items-center justify-center rounded-full bg-background text-muted-foreground">
+              <Router size={20} />
             </span>
-            <div>
+            <div className="min-w-0">
               <p className="font-medium">Hue Bridge</p>
               <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
                 <span
@@ -51,7 +85,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </div>
           </div>
 
-          <dl className="flex flex-col gap-2 text-sm">
+          <dl className="mb-5 grid gap-2 text-sm">
             <div className="flex items-center justify-between gap-4">
               <dt className="text-muted-foreground">Bridge ID</dt>
               <dd className="truncate text-right font-medium">
@@ -68,31 +102,23 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
           <Button
             variant="outline"
-            className="w-full justify-start gap-2"
+            className="gap-2"
             onClick={() => void refreshSession()}
           >
             <RefreshCcw size={18} />
             Reconnect to bridge
           </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Card>
-        <CardContent className="flex flex-col gap-2">
-          <Button
-            variant="outline"
-            className="w-full justify-start gap-2"
-            onClick={onToggleTheme}
-          >
-            {themeMode === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-            {themeMode === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          </Button>
-
+      <section className="flex flex-col gap-3">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Advanced
+        </h2>
+        <div className="flex flex-wrap gap-2">
           <AlertDialog>
             <AlertDialogTrigger
-              render={
-                <Button variant="destructive" className="w-full justify-start gap-2" />
-              }
+              render={<Button variant="destructive" className="gap-2" />}
             >
               <Power size={18} />
               Remove bridge & reset
@@ -118,8 +144,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
     </div>
   );
 };

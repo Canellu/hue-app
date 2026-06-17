@@ -1,12 +1,11 @@
-import { ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { roomTileColor, sceneBubbleCss } from "./colorState";
 import { DebouncedSlider } from "./DebouncedSlider";
-import { getRoomIcon } from "./roomIcons";
 import { LightCard } from "./LightCard";
+import { getRoomIcon } from "./roomIcons";
 import type { HueGroup, HueLight, HueScene } from "./types";
 
 interface RoomScreenProps {
@@ -16,7 +15,6 @@ interface RoomScreenProps {
   activeSceneId: string | null;
   selectedLightId: string | null;
   error: string | null;
-  onBack: () => void;
   onGroupToggle: (group: HueGroup, nextOn: boolean) => void;
   onGroupBrightness: (group: HueGroup, pct: number) => void;
   onLightToggle: (light: HueLight, nextOn: boolean) => void;
@@ -32,7 +30,6 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
   activeSceneId,
   selectedLightId,
   error,
-  onBack,
   onGroupToggle,
   onGroupBrightness,
   onLightToggle,
@@ -45,20 +42,23 @@ export const RoomScreen: React.FC<RoomScreenProps> = ({
   const tile = roomTileColor(lights);
 
   return (
-    <section className="mx-auto flex w-full max-w-5xl flex-col gap-6">
-      <Button variant="ghost" className="-ml-2 w-fit gap-2" onClick={onBack}>
-        <ChevronLeft size={18} />
+    <section className="mx-auto flex w-full flex-col gap-6">
+      <div className="flex items-center gap-3">
         <span
           className={cn(
-            "flex size-7 items-center justify-center rounded-full ring-1 ring-foreground/10",
+            "flex size-9 items-center justify-center rounded-full ring-1 ring-foreground/10",
             tile.active ? "text-white" : "bg-muted text-muted-foreground",
           )}
-          style={tile.active && tile.background ? { background: tile.background } : undefined}
+          style={
+            tile.active && tile.background
+              ? { background: tile.background }
+              : undefined
+          }
         >
-          <Icon size={16} />
+          <Icon size={20} />
         </span>
-        <span className="text-base font-medium">{group.name}</span>
-      </Button>
+        <h1 className="font-heading text-2xl font-semibold">{group.name}</h1>
+      </div>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 

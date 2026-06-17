@@ -19,7 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ColorWheel } from "./ColorWheel";
 import { DebouncedSlider } from "./DebouncedSlider";
 import { miredToKelvin } from "./color";
-import type { LightColorChange } from "./DesktopShell";
+import type { LightColorChange } from "./DashboardProvider";
 import type { HueLight } from "./types";
 
 type Tab = "color" | "kelvin" | "effects";

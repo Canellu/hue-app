@@ -49,7 +49,7 @@
 }
 
 :root {
-  --background: oklch(1 0 0);
+  --background: oklch(0.99 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -84,7 +84,7 @@
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
+  --background: oklch(0.21 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
@@ -130,5 +130,61 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+/* ----- Route view transitions -----
+   The routed content area is named `page` (see DesktopShell). TanStack Router
+   tags each navigation with a `slide-left` / `slide-right` view-transition type
+   based on the direction of travel; we slide the page's old/new snapshots
+   accordingly. The surrounding header/title bar stay put. */
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(page),
+  ::view-transition-new(page) {
+    animation-duration: 0.26s;
+    animation-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  html:active-view-transition-type(slide-left) {
+    &::view-transition-old(page) {
+      animation-name: page-slide-out-left;
+    }
+    &::view-transition-new(page) {
+      animation-name: page-slide-in-right;
+    }
+  }
+
+  html:active-view-transition-type(slide-right) {
+    &::view-transition-old(page) {
+      animation-name: page-slide-out-right;
+    }
+    &::view-transition-new(page) {
+      animation-name: page-slide-in-left;
+    }
+  }
+}
+
+@keyframes page-slide-out-left {
+  to {
+    transform: translateX(-2rem);
+    opacity: 0;
+  }
+}
+@keyframes page-slide-in-right {
+  from {
+    transform: translateX(2rem);
+    opacity: 0;
+  }
+}
+@keyframes page-slide-out-right {
+  to {
+    transform: translateX(2rem);
+    opacity: 0;
+  }
+}
+@keyframes page-slide-in-left {
+  from {
+    transform: translateX(-2rem);
+    opacity: 0;
   }
 }

@@ -33,7 +33,7 @@ export const TitleBar: React.FC = () => {
     <div
       data-tauri-drag-region
       onMouseDown={handleMouseDown}
-      className="fixed top-0 right-0 left-0 z-50 flex h-10 items-stretch justify-between border-b border-border bg-background/80 pl-4 backdrop-blur supports-backdrop-filter:bg-background/60"
+      className="fixed top-0 right-0 left-0 z-50 flex h-10 items-stretch justify-between  bg-background/80 pl-4 backdrop-blur supports-backdrop-filter:bg-background/60"
     >
       <div className="flex items-center text-sm font-medium text-muted-foreground">
         Hue Controller
@@ -46,7 +46,7 @@ export const TitleBar: React.FC = () => {
             e.stopPropagation();
             await handleMinimize();
           }}
-          className="flex aspect-square h-full items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="flex aspect-square h-full items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-muted-foreground"
         >
           <Minus size={16} strokeWidth={2.2} />
         </button>
@@ -57,7 +57,7 @@ export const TitleBar: React.FC = () => {
             e.stopPropagation();
             await handleClose();
           }}
-          className="flex aspect-square h-full items-center justify-center text-muted-foreground transition-colors hover:bg-destructive hover:text-white"
+          className="flex aspect-square h-full items-center justify-center text-muted-foreground transition-colors hover:bg-muted hover:text-muted-foreground "
         >
           <X size={16} strokeWidth={2.2} />
         </button>

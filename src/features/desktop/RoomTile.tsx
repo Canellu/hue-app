@@ -52,24 +52,24 @@ export const RoomTile: React.FC<RoomTileProps> = ({
             }
       }
       className={cn(
-        "gap-3 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
-        !editing && "cursor-pointer hover:bg-accent/40",
-        group.anyOn && "ring-primary/40",
+        "min-h-36 justify-center gap-4 bg-muted/45 outline-none ring-0 transition-colors focus-visible:ring-2 focus-visible:ring-ring dark:bg-muted/30",
+        !editing && "cursor-pointer hover:bg-accent/70 dark:hover:bg-accent/50",
+        group.anyOn && "bg-accent/80 dark:bg-accent/60",
       )}
     >
-      <div className="flex items-center gap-3 px-4">
+      <div className="flex items-center gap-4 px-5">
         <span
           className={cn(
-            "flex size-9 shrink-0 items-center justify-center rounded-full ring-1 ring-foreground/10",
+            "flex size-12 shrink-0 items-center justify-center rounded-full ring-1 ring-foreground/10",
             tile.active ? "text-white" : "bg-muted text-muted-foreground",
           )}
           style={tile.active && tile.background ? { background: tile.background } : undefined}
         >
-          <Icon size={20} />
+          <Icon size={26} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-medium">{group.name}</p>
-          <p className="text-xs text-muted-foreground">
+          <p className="truncate text-base font-medium">{group.name}</p>
+          <p className="text-sm text-muted-foreground">
             {group.lightCount} {group.lightCount === 1 ? "light" : "lights"}
             {on > 0 ? ` · ${on} on` : ""}
           </p>
@@ -83,7 +83,7 @@ export const RoomTile: React.FC<RoomTileProps> = ({
         />
       </div>
 
-      <div className="px-4" onClick={(e) => e.stopPropagation()}>
+      <div className="px-5" onClick={(e) => e.stopPropagation()}>
         <DebouncedSlider
           value={group.anyOn ? pct : 0}
           disabled={controlsDisabled}

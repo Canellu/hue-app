@@ -297,7 +297,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     : query || deviceStatus !== "all"
       ? "No devices match your filters."
       : "No devices found.";
-  const isSectionOpen = (key: string) => !collapsedSections.has(key);
+  // An active search or status filter narrows the list to a handful of
+  // matches, so force every rendered section open — otherwise the results
+  // (and their controls, like delete) stay hidden behind a collapsed header.
+  const isFiltering = query !== "" || deviceStatus !== "all";
+  const isSectionOpen = (key: string) =>
+    isFiltering || !collapsedSections.has(key);
   const toggleSection = (key: string) =>
     setCollapsedSections((current) => {
       const next = new Set(current);
@@ -654,6 +659,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                         key={light.id}
                         light={light}
                         onRename={renameResource}
+                        onDelete={deleteResource}
                       />
                     ))}
                   </div>
@@ -957,6 +963,7 @@ const CollapsibleSection = ({
 const EditableLightRow = ({
   light,
   onRename,
+  onDelete,
 }: {
   light: HueLight;
   onRename: (
@@ -964,6 +971,7 @@ const EditableLightRow = ({
     id: string,
     name: string,
   ) => Promise<void>;
+  onDelete: (resourceType: DeleteableResourceType, id: string) => Promise<void>;
 }) => (
   <EditableResourceRow
     id={light.id}
@@ -976,6 +984,8 @@ const EditableLightRow = ({
       light.reachable ? "Reachable" : "Unreachable",
     ]}
     onRename={onRename}
+    onDelete={onDelete}
+    deleteDescription={`Delete light "${light.name}" from the bridge.`}
   />
 );
 

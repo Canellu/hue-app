@@ -2,12 +2,19 @@
 
 Guidance for coding agents working in this repository.
 
-Use the official Hue API v2 reference for endpoint details:
-https://developers.meethue.com/develop/hue-api-v2/api-reference/
+Use the local Hue documentation instead of the public Hue developer site for
+endpoint details. The public API reference is login-gated and is not reliable
+for agent workflows.
+
+Start with `docs/HUE/README.md`, then open the smallest relevant Markdown file
+from that index. For current bridge work, prefer the Hue API v2 docs
+(`core-concepts.md`, `hue-clip-api-v2.md`, and
+`migration-guide-to-the-new-hue-api.md`) unless the task explicitly involves
+legacy API v1 behavior, pairing, or a documented v1 fallback.
 
 ## Stack
 
-- **Frontend**: React 19 + TypeScript 6, Vite 7, Tailwind CSS 4
+- **Frontend**: React + TypeScript, Vite, Tailwind CSS
 - **Component library**: shadcn/ui (`base-maia` style, built on `@base-ui/react`, not Radix). Components live in `src/components/ui/` and are added with `bunx shadcn@latest add <name>`.
 - **Routing**: TanStack Router with in-memory history for the desktop webview.
 - **Icons**: lucide-react
@@ -15,6 +22,8 @@ https://developers.meethue.com/develop/hue-api-v2/api-reference/
 - **Backend**: Tauri 2 (Rust) desktop shell and IPC layer.
 - **Package manager**: Bun
 
+Use `package.json`, `components.json`, and the source files as the source of
+truth for exact versions, installed libraries, and current feature structure.
 The `@/*` path alias maps to `src/` through `tsconfig.json` and `vite.config.ts`.
 `src/lib/utils.ts` exports the `cn()` class-merge helper.
 
@@ -68,106 +77,34 @@ Allowed non-v2 bridge communication includes:
 React frontend --Tauri IPC--> Rust backend --Hue bridge client--> Hue Bridge
 ```
 
-The ready-state UI is a room/zone-first shell: a custom window title bar, a
-minimal global app header, and one routed content area. There is no sidebar or
-tab bar for app navigation.
-
-Routes are defined in `src/router.tsx`:
-
-- `/` - Home
-- `/space/$spaceId` - Room or Zone detail
-- `/settings` - Settings
-
-The router uses `createMemoryHistory({ initialEntries: ["/"] })` because the
-desktop shell has no useful URL bar. `defaultViewTransition` is enabled and the
-routed content area uses the named `page` view-transition element in `App.css`.
+The ready-state UI is route-driven and optimized for the desktop webview.
+Routes are defined in `src/router.tsx`; treat that file as the source of truth
+for the current route map instead of relying on a hard-coded route list in this
+guide. The router uses memory history because the desktop shell has no useful
+URL bar.
 
 ## Frontend
 
-- `src/main.tsx` - React entry point; wraps `App` in `HueProvider`.
-- `src/App.tsx` - top-level app state. Renders loading, setup wizard,
-  disconnected bridge error, or the ready router. Owns light/dark/system theme
-  state, applies `.dark` and `color-scheme` to `<html>`, persists `themeMode`,
-  and registers `mod+j` as a theme toggle.
-- `src/router.tsx` - TanStack Router route tree with memory history.
-- `src/context/HueContext.tsx` - bridge session state (`bridgeId`, `bridgeIp`,
-  `applicationKey`, `configured`, `connected`). Calls `get-hue-session` on
-  mount and exposes `refreshSession`, `applySession`, and `resetSession`.
-- `src/context/ThemeContext.tsx` - theme context (`light`, `dark`, `system`,
-  resolved mode, setter, toggle).
-- `src/context/HueResourcesContext.tsx` - shared Hue data layer. Fetches
-  rooms, zones, lights, and scenes; starts the event stream; owns Home grouping
-  and layout edit state; exposes optimistic handlers for room/zone, light,
-  color, and scene control. Mounted once in `RootLayout` so data survives route
-  changes.
-- `src/hooks/useGlobalKeyboardShortcut.ts` - reusable global keyboard shortcut
-  hook.
+The frontend is changing actively. Do not treat this guide as a complete
+component, route, hook, or feature inventory. Before making frontend changes,
+inspect the current files under `src/` and follow the nearby patterns.
 
-### Routes
+Stable orientation:
 
-- `src/routes/RootLayout.tsx` - mounts `HueResourcesProvider`, renders
-  `AppHeader`, and renders the active route via `<Outlet />`.
-- `src/routes/HomeRoute.tsx` - wires `useHueResources()` to `HomeScreen` and
-  navigates to `/space/$spaceId`.
-- `src/routes/SpaceRoute.tsx` - finds the selected room/zone, filters lights and
-  scenes for it, owns the selected light drawer and active scene id.
-- `src/routes/SettingsRoute.tsx` - wires `useTheme()` to `SettingsScreen`.
+- `src/main.tsx`, `src/App.tsx`, and `src/router.tsx` define app boot, shell
+  state, and routing.
+- `src/context/` contains shared application state providers.
+- `src/features/` contains route-level and domain-specific feature UI. Prefer
+  feature-local components, hooks, and utilities when behavior is not broadly
+  reused.
+- `src/components/` contains shared app components.
+- `src/components/ui/` contains shadcn/base-ui primitives. Import them through
+  `@/components/ui/...` and keep additions consistent with the local style.
+- `src/hooks/` and `src/lib/` contain reusable cross-feature helpers.
 
-### Components
-
-- `src/components/TitleBar.tsx` - fixed 40px custom Tauri title bar with drag,
-  minimize, and close behavior; gracefully no-ops in browser previews.
-- `src/components/AppHeader.tsx` - fixed-height global header. Home shows a
-  time-of-day greeting, Home grouping tabs (`Rooms`, `Zones`, `Custom`), layout
-  editing controls, and Settings. Space/Settings show an icon-only Back button.
-- `src/components/DebouncedSlider.tsx` - reusable shadcn `Slider` wrapper that
-  updates local UI immediately and debounces bridge writes.
-- `src/components/ui/` - shadcn/base-ui components. Keep additions consistent
-  with the local style and import through `@/components/ui/...`.
-
-### Home Screen
-
-`src/features/home-screen/` contains the Home route UI.
-
-- `HomeScreen.tsx` - sectioned room/zone grid with dnd-kit drag and drop for
-  custom layout editing. Supports reordering sections, reordering spaces inside
-  a section, and moving spaces across sections.
-- `components/LayoutSection.tsx` - one named Home section. Empty sections keep a
-  tile-sized placeholder to avoid layout shift and can be deleted only when
-  empty.
-- `components/SpaceTile.tsx` / `SortableSpaceTile.tsx` - room/zone cards and
-  sortable wrappers.
-- `components/room-zone-icons.tsx` - Hue archetype to lucide icon mapping.
-- `hooks/useHomeLayout.ts` - persists app-local Home layout and grouping mode in
-  `localStorage`, reconciles stored ids against live Hue room/zone ids, reads
-  legacy `roomIds`, and writes current `spaceIds`.
-
-Home has three grouping modes:
-
-- `rooms-first` - derived from Hue resources, Rooms then Zones.
-- `zones-first` - derived from Hue resources, Zones then Rooms.
-- `custom` - persisted app-local section/order layout.
-
-### Space Screen
-
-`src/features/space-screen/` contains the room/zone detail UI.
-
-- `SpaceScreen.tsx` - room/zone title, grouped power switch, grouped brightness
-  via `grouped_light`, scene chips, and individual light grid.
-- `components/LightCard.tsx` - per-light tile with power/brightness.
-- `components/LightDrawer.tsx` - right-side overlay drawer for individual light
-  controls. It does not reserve layout space or reflow the page.
-- `components/ColorWheel.tsx` - color picker.
-- `utils/color.ts` - OKLCH, CIE xy, mired, and Kelvin conversion helpers.
-- `utils/color-state.ts` - live tile, swatch, and scene color derivation.
-
-### Settings And Setup
-
-- `src/features/settings-screen/SettingsScreen.tsx` - theme segmented control
-  (`Light`, `Dark`, `System`), bridge status/details, reconnect, and reset
-  confirmation.
-- `src/features/setup-wizard/WizardContainer.tsx` - setup flow:
-  welcome -> discovering -> pairing countdown -> success/error.
+When adding or changing UI, keep behavior close to the feature unless it is
+clearly shared, and avoid updating this file with detailed component lists that
+will drift during active feature work.
 
 ## Styling And Theming
 

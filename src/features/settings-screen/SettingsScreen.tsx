@@ -23,9 +23,9 @@ interface SettingsScreenProps {
 }
 
 const themeOptions = [
+  { value: "system", label: "System", icon: Monitor },
   { value: "light", label: "Light", icon: Sun },
   { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "System", icon: Monitor },
 ] satisfies Array<{
   value: ThemeMode;
   label: string;

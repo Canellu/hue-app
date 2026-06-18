@@ -1,6 +1,6 @@
-import { Slider as SliderPrimitive } from "@base-ui/react/slider"
+import { Slider as SliderPrimitive } from "@base-ui/react/slider";
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
 function Slider({
   className,
@@ -11,19 +11,19 @@ function Slider({
   size = "default",
   ...props
 }: SliderPrimitive.Root.Props & {
-  size?: "default" | "lg" | "xl"
+  size?: "default" | "lg" | "xl";
 }) {
   const _values = Array.isArray(value)
     ? value
     : Array.isArray(defaultValue)
       ? defaultValue
-      : [min, max]
+      : [min, max];
 
   return (
     <SliderPrimitive.Root
       className={cn(
         "group/slider data-horizontal:w-full data-vertical:h-full",
-        className
+        className,
       )}
       data-slot="slider"
       data-size={size}
@@ -53,7 +53,7 @@ function Slider({
         ))}
       </SliderPrimitive.Control>
     </SliderPrimitive.Root>
-  )
+  );
 }
 
-export { Slider }
+export { Slider };

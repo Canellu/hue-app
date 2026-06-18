@@ -44,8 +44,18 @@ export const LayoutSection: React.FC<LayoutSectionProps> = ({
   onDeleteSection,
   onRenameSection,
 }) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: section.id, data: { type: "section" }, disabled: !editing });
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: section.id,
+    data: { type: "section" },
+    disabled: !editing,
+  });
 
   // Inline rename: clicking the name (while editing) swaps it for an input
   // prefilled with the current name. The new value is written to the draft

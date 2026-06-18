@@ -2,11 +2,7 @@
 // lights, rooms/zones, and scene presets. Builds on the centralized converters
 // in `color.ts` (CIE xy / mirek → hex) and the palette/gradient helpers there.
 
-import {
-  convertHueColorToCss,
-  distinctHexes,
-  paletteToCss,
-} from "./color";
+import { convertHueColorToCss, distinctHexes, paletteToCss } from "./color";
 import type { HueLight, HueScene } from "@/types/hue";
 
 /** Current display color of a single light as a hex string, or null if none. */

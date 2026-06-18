@@ -49,9 +49,7 @@ export const HomeRoute: React.FC = () => {
       onOpenSpace={(id) =>
         void navigate({ to: "/space/$spaceId", params: { spaceId: id } })
       }
-      onRoomZoneToggle={(roomZone, on) =>
-        setRoomZoneState(roomZone, on, null)
-      }
+      onRoomZoneToggle={(roomZone, on) => setRoomZoneState(roomZone, on, null)}
       onRoomZoneBrightness={(roomZone, pct) =>
         setRoomZoneState(roomZone, pct > 0, pct)
       }

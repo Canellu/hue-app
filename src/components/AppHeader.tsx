@@ -38,10 +38,7 @@ const greeting = (): string => {
 
 /** A short vertical rule separating clusters of header controls. */
 const Divider = () => (
-  <Separator
-    orientation="vertical"
-    className="mx-1 h-12"
-  />
+  <Separator orientation="vertical" className="mx-1 h-12" />
 );
 
 /**

@@ -10,7 +10,7 @@ import {
   reconcileLayout,
   writeStoredGroupingMode,
   writeStoredHomeLayout,
-} from "@/features/home-screen/hooks/useHomeLayout";
+} from "@/features/home-screen/utils/homeLayout";
 import type { HomeGroupingMode, HomeLayout } from "@/types/app-layout";
 import type {
   HueEventUpdate,
@@ -40,6 +40,7 @@ export interface HueResourcesState extends LayoutState {
   lights: HueLight[];
   scenes: HueScene[];
   isLoading: boolean;
+  hasLoaded: boolean;
   error: string | null;
 
   // Home layout editing. Layout sections are local app state, not Hue resources.
@@ -112,6 +113,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   lights: [],
   scenes: [],
   isLoading: true,
+  hasLoaded: false,
   error: null,
   ...buildLayoutState([], initialStoredLayout, initialGroupingMode),
   draftLayout: [],
@@ -187,8 +189,16 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   loadAll: async () => {
     set({ isLoading: true, error: null });
     try {
+      // Each resource degrades independently: a failure in any one (zones,
+      // scenes, rooms, lights) leaves the others usable rather than blanking
+      // the whole Home. Rooms failing surfaces a banner but Home still renders.
       const [rooms, zones, sceneResult] = await Promise.all([
-        invoke<HueRoom[]>("get-hue-rooms"),
+        invoke<HueRoom[]>("get-hue-rooms").catch((roomsError) => {
+          set({
+            error: String(roomsError) || "Failed to load your Hue setup.",
+          });
+          return [] as HueRoom[];
+        }),
         invoke<HueZone[]>("get-hue-zones").catch(() => [] as HueZone[]),
         invoke<HueScene[]>("get-hue-scenes").catch(() => [] as HueScene[]),
         get().loadLights(),
@@ -199,12 +209,17 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
       set((state) => ({
         roomZones,
         scenes: sceneResult,
-        ...refreshLayoutState(roomZones, state.storedLayout, state.groupingMode),
+        ...refreshLayoutState(
+          roomZones,
+          state.storedLayout,
+          state.groupingMode,
+        ),
       }));
     } catch (loadError) {
+      // Reached only if loadLights rejects (it has no per-call fallback).
       set({ error: String(loadError) || "Failed to load your Hue setup." });
     } finally {
-      set({ isLoading: false });
+      set({ isLoading: false, hasLoaded: true });
     }
   },
 
@@ -345,7 +360,11 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
  */
 export const HueResourcesStoreEffects: React.FC = () => {
   useEffect(() => {
-    void useHueResourcesStore.getState().loadAll();
+    // The setup wizard prefetches resources before entering Home so the reveal
+    // lands on a ready screen; skip the duplicate load when that already ran.
+    if (!useHueResourcesStore.getState().hasLoaded) {
+      void useHueResourcesStore.getState().loadAll();
+    }
   }, []);
 
   useEffect(() => {

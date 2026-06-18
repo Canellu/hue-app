@@ -93,7 +93,10 @@ export const LightDrawer: React.FC<LightDrawerProps> = ({
 
   return (
     <Sheet open onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="right" className="w-full gap-0 overflow-y-auto sm:max-w-md">
+      <SheetContent
+        side="right"
+        className="w-full gap-0 overflow-y-auto sm:max-w-md"
+      >
         <SheetHeader>
           <SheetTitle>{light.name}</SheetTitle>
           <SheetDescription>
@@ -115,7 +118,9 @@ export const LightDrawer: React.FC<LightDrawerProps> = ({
           </div>
 
           <div className="flex flex-col gap-2">
-            <p className="text-sm font-medium text-muted-foreground">Brightness</p>
+            <p className="text-sm font-medium text-muted-foreground">
+              Brightness
+            </p>
             <DebouncedSlider
               value={brightnessPct}
               disabled={!light.reachable}
@@ -147,7 +152,10 @@ export const LightDrawer: React.FC<LightDrawerProps> = ({
               )}
 
               {light.supportsCt && (
-                <TabsContent value="kelvin" className="flex flex-col gap-3 py-4">
+                <TabsContent
+                  value="kelvin"
+                  className="flex flex-col gap-3 py-4"
+                >
                   <div className="text-center font-heading text-2xl font-medium">
                     {miredToKelvin(ct)}K
                   </div>
@@ -172,7 +180,9 @@ export const LightDrawer: React.FC<LightDrawerProps> = ({
                     {light.effects.map((effect) => (
                       <Button
                         key={effect}
-                        variant={light.effect === effect ? "default" : "outline"}
+                        variant={
+                          light.effect === effect ? "default" : "outline"
+                        }
                         className="justify-start gap-2"
                         onClick={() => onLightColor(light, { effect })}
                       >

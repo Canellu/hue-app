@@ -2,7 +2,6 @@
 // so we persist a user-defined arrangement of rooms/zones into named sections
 // in localStorage and reconcile it against live room/zone data on boot.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
 import type { HomeGroupingMode, HomeLayout } from "@/types/app-layout";
 import type { HueRoomZone } from "@/types/hue";
 
@@ -40,8 +39,10 @@ export const readStoredHomeLayout = (): HomeLayout | null => {
       .map((g) => ({
         id: g.id,
         name: g.name,
-        spaceIds: (Array.isArray(g.spaceIds) ? g.spaceIds : g.roomIds ?? [])
-          .filter((r: unknown): r is string => typeof r === "string"),
+        spaceIds: (Array.isArray(g.spaceIds)
+          ? g.spaceIds
+          : (g.roomIds ?? [])
+        ).filter((r: unknown): r is string => typeof r === "string"),
       }));
   } catch {
     return null;
@@ -129,69 +130,20 @@ export const deriveGroupedLayout = (
   const zones = roomZones
     .filter((space) => space.resourceType === "zone")
     .map((space) => space.id);
-  const roomSection = { id: "hue-section-rooms", name: "Rooms", spaceIds: rooms };
-  const zoneSection = { id: "hue-section-zones", name: "Zones", spaceIds: zones };
+  const roomSection = {
+    id: "hue-section-rooms",
+    name: "Rooms",
+    spaceIds: rooms,
+  };
+  const zoneSection = {
+    id: "hue-section-zones",
+    name: "Zones",
+    spaceIds: zones,
+  };
   const ordered =
-    mode === "rooms-first" ? [roomSection, zoneSection] : [zoneSection, roomSection];
+    mode === "rooms-first"
+      ? [roomSection, zoneSection]
+      : [zoneSection, roomSection];
 
   return ordered.filter((section) => section.spaceIds.length > 0);
-};
-
-interface HomeLayoutApi {
-  /** The committed, reconciled custom layout. */
-  layout: HomeLayout;
-  /** The Home layout for the active grouping mode. */
-  displayLayout: HomeLayout;
-  groupingMode: HomeGroupingMode;
-  setGroupingMode: (mode: HomeGroupingMode) => void;
-  /** Overwrites the persisted layout (called on Save). */
-  saveLayout: (next: HomeLayout) => void;
-}
-
-/**
- * Owns the persisted Home layout and keeps it reconciled with the live
- * room/zone list. Edit-mode draft state is intentionally kept in the consuming
- * component so this hook only deals with the committed, on-disk layout.
- */
-export const useHomeLayout = (roomZones: HueRoomZone[]): HomeLayoutApi => {
-  const [stored, setStored] = useState<HomeLayout | null>(readStoredHomeLayout);
-  const [groupingMode, setGroupingModeState] =
-    useState<HomeGroupingMode>(readStoredGroupingMode);
-
-  // Stable signature so we only reconcile when the actual id set changes.
-  const liveSpaceIds = useMemo(() => roomZones.map((g) => g.id), [roomZones]);
-  const liveKey = liveSpaceIds.join(",");
-
-  const layout = useMemo(
-    () => reconcileLayout(stored, liveSpaceIds),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [stored, liveKey],
-  );
-
-  const displayLayout = useMemo(
-    () =>
-      groupingMode === "custom"
-        ? layout
-        : deriveGroupedLayout(roomZones, groupingMode),
-    [groupingMode, layout, roomZones],
-  );
-
-  // Persist the reconciled layout once rooms/zones have loaded so freshly
-  // discovered and pruned ids survive the next boot.
-  useEffect(() => {
-    if (liveSpaceIds.length > 0) writeStoredHomeLayout(layout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveKey]);
-
-  const saveLayout = useCallback((next: HomeLayout) => {
-    setStored(next);
-    writeStoredHomeLayout(next);
-  }, []);
-
-  const setGroupingMode = useCallback((mode: HomeGroupingMode) => {
-    setGroupingModeState(mode);
-    writeStoredGroupingMode(mode);
-  }, []);
-
-  return { layout, displayLayout, groupingMode, setGroupingMode, saveLayout };
 };

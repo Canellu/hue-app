@@ -72,9 +72,9 @@ export const hsvToRgb = (h: number, s: number, v: number): Rgb => {
   const c = v * s;
   const hp = (((h % 360) + 360) % 360) / 60;
   const x = c * (1 - Math.abs((hp % 2) - 1));
-  let r = 0;
-  let g = 0;
-  let b = 0;
+  let r: number;
+  let g: number;
+  let b: number;
   if (hp < 1) [r, g, b] = [c, x, 0];
   else if (hp < 2) [r, g, b] = [x, c, 0];
   else if (hp < 3) [r, g, b] = [0, c, x];
@@ -90,7 +90,11 @@ export const hsvToRgb = (h: number, s: number, v: number): Rgb => {
 };
 
 /** RGB (0–255) to HSV (h 0–360, s/v 0–1). */
-export const rgbToHsv = (r: number, g: number, b: number): [number, number, number] => {
+export const rgbToHsv = (
+  r: number,
+  g: number,
+  b: number,
+): [number, number, number] => {
   const rn = r / 255;
   const gn = g / 255;
   const bn = b / 255;
@@ -148,7 +152,12 @@ const oklchToLinearRgb = (L: number, C: number, h: number): LinearRgb => {
 };
 
 const inSrgbGamut = ({ r, g, b }: LinearRgb): boolean =>
-  r >= -1e-4 && g >= -1e-4 && b >= -1e-4 && r <= 1.0001 && g <= 1.0001 && b <= 1.0001;
+  r >= -1e-4 &&
+  g >= -1e-4 &&
+  b >= -1e-4 &&
+  r <= 1.0001 &&
+  g <= 1.0001 &&
+  b <= 1.0001;
 
 /**
  * OKLCH → displayable sRGB (0–255). When the requested chroma falls outside the
@@ -180,9 +189,15 @@ export const rgbToOklch = (r: number, g: number, b: number): Oklch => {
   const lg = inverseGamma(g / 255);
   const lb = inverseGamma(b / 255);
 
-  const l = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
-  const m = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
-  const s = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
+  const l = Math.cbrt(
+    0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb,
+  );
+  const m = Math.cbrt(
+    0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb,
+  );
+  const s = Math.cbrt(
+    0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb,
+  );
 
   const L = 0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s;
   const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s;
@@ -235,7 +250,9 @@ export const ctToRgb = (mireds: number): Rgb => {
 export const rgbToCss = ({ r, g, b }: Rgb): string => `rgb(${r}, ${g}, ${b})`;
 
 const toHexByte = (n: number): string =>
-  Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+  Math.max(0, Math.min(255, Math.round(n)))
+    .toString(16)
+    .padStart(2, "0");
 
 /** sRGB (0–255) to a `#rrggbb` hex string. */
 export const rgbToHex = ({ r, g, b }: Rgb): string =>
@@ -258,7 +275,9 @@ export interface HueColor {
  */
 export const convertHueColorToCss = (color: HueColor): string | null => {
   if (color.xy) {
-    return rgbToHex(xyBriToRgb(color.xy[0], color.xy[1], color.brightness ?? 1));
+    return rgbToHex(
+      xyBriToRgb(color.xy[0], color.xy[1], color.brightness ?? 1),
+    );
   }
   if (color.mirek != null) {
     return rgbToHex(ctToRgb(color.mirek));

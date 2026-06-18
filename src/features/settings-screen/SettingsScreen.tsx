@@ -1,4 +1,4 @@
-import { Monitor, Moon, Power, RefreshCcw, Router, Sun } from "lucide-react";
+import { Monitor, Moon, Power, Router, Sun } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import { useHue } from "../../context/HueContext";
 import type { ThemeMode } from "../../context/ThemeContext";
 
@@ -35,8 +36,27 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   themeMode,
   onThemeModeChange,
 }) => {
-  const { bridgeId, bridgeIp, connected, refreshSession, resetSession } =
-    useHue();
+  const { bridgeId, bridgeIp, connected, resetSession } = useHue();
+  const lights = useHueResourcesStore((state) => state.lights);
+  const roomZones = useHueResourcesStore((state) => state.roomZones);
+  const scenes = useHueResourcesStore((state) => state.scenes);
+
+  const roomCount = roomZones.filter(
+    (roomZone) => roomZone.resourceType === "room",
+  ).length;
+  const zoneCount = roomZones.filter(
+    (roomZone) => roomZone.resourceType === "zone",
+  ).length;
+  const unreachableLightCount = lights.filter(
+    (light) => !light.reachable,
+  ).length;
+
+  const summaryItems = [
+    { label: "Rooms", value: roomCount },
+    { label: "Zones", value: zoneCount },
+    { label: "Lights", value: lights.length },
+    { label: "Scenes", value: scenes.length },
+  ];
 
   return (
     <div className="flex flex-col gap-8">
@@ -82,7 +102,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             </div>
           </div>
 
-          <dl className="mb-5 grid gap-2 text-sm">
+          <dl className="grid gap-2 text-sm">
             <div className="flex items-center justify-between gap-4">
               <dt className="text-muted-foreground">Bridge ID</dt>
               <dd className="truncate text-right font-medium">
@@ -95,17 +115,25 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 {bridgeIp ?? "Unknown"}
               </dd>
             </div>
+            <div className="flex items-center justify-between gap-4">
+              <dt className="text-muted-foreground">Unreachable lights</dt>
+              <dd className="truncate text-right font-medium">
+                {unreachableLightCount}
+              </dd>
+            </div>
           </dl>
 
-          <Button
-            variant="outline"
-            size="xl"
-            className="gap-2"
-            onClick={() => void refreshSession()}
-          >
-            <RefreshCcw size={18} />
-            Reconnect to bridge
-          </Button>
+          <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {summaryItems.map((item) => (
+              <div
+                key={item.label}
+                className="rounded-xl bg-background/70 px-3 py-2"
+              >
+                <p className="text-xs text-muted-foreground">{item.label}</p>
+                <p className="text-lg font-semibold">{item.value}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -127,8 +155,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <AlertDialogHeader>
                 <AlertDialogTitle>Remove bridge?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This removes the saved bridge and credentials from this device.
-                  You'll need to pair again to control your lights.
+                  This removes the saved bridge and credentials from this
+                  device. You'll need to pair again to control your lights.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>

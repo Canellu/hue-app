@@ -1,158 +1,189 @@
 import { RouterProvider } from "@tanstack/react-router";
-import { Loader2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useState, type ReactNode } from "react";
 import "./App.css";
+import {
+  AppContentTransition,
+  type AppViewKey,
+} from "@/components/AppContentTransition";
+import { BridgeStatus } from "@/components/BridgeStatus";
+import { DiscoveryWifi } from "@/components/DiscoveryWifi";
+import { StatusScreen } from "@/components/StatusScreen";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { TitleBar } from "./components/TitleBar";
 import { useHue } from "./context/HueContext";
-import {
-  ThemeContext,
-  type ResolvedThemeMode,
-  type ThemeMode,
-} from "./context/ThemeContext";
 import { router } from "./router";
+import { WizardDevToolbar } from "./features/setup-wizard/components/WizardDevToolbar";
+import {
+  devNextSteps,
+  wizardDevStates,
+} from "./features/setup-wizard/constants";
+import { useDevViews } from "./features/setup-wizard/hooks/useDevViews";
 import { WizardContainer } from "./features/setup-wizard/WizardContainer";
-import { useGlobalKeyboardShortcut } from "./hooks/useGlobalKeyboardShortcut";
+import { bridgeKind } from "./features/setup-wizard/utils/bridge";
 
-const getInitialTheme = (): ThemeMode => {
-  const storedTheme = localStorage.getItem("themeMode");
-  if (
-    storedTheme === "light" ||
-    storedTheme === "dark" ||
-    storedTheme === "system"
-  ) {
-    return storedTheme;
-  }
+interface RenderedAppContent {
+  viewKey: AppViewKey;
+  content: ReactNode;
+}
 
-  return "system";
-};
+const HomeApp = () => (
+  <div className="h-full">
+    <RouterProvider router={router} />
+  </div>
+);
 
-const getSystemTheme = (): ResolvedThemeMode =>
-  window.matchMedia("(prefers-color-scheme: light)").matches
-    ? "light"
-    : "dark";
+const LoadingConnectionView = () => (
+  <StatusScreen
+    visual={<DiscoveryWifi />}
+    title="Checking connection…"
+    titleClassName="text-shimmer"
+    description="Restoring your saved Hue Bridge session."
+  />
+);
 
-const getWizardDevMode = () => {
-  if (!import.meta.env.DEV) return false;
-
-  const params = new URLSearchParams(window.location.search);
-  if (params.get("wizardDev") === "0") {
-    localStorage.removeItem("hueWizardDev");
-    return false;
-  }
-
-  if (params.has("wizardDev") || window.location.hash === "#wizard-dev") {
-    localStorage.setItem("hueWizardDev", "1");
-    return true;
-  }
-
-  return (
-    import.meta.env.VITE_HUE_WIZARD_DEV === "1" ||
-    localStorage.getItem("hueWizardDev") === "1"
-  );
-};
+const DisconnectedBridgeView = ({
+  error,
+  onRetry,
+  onPairNewBridge,
+}: {
+  error: string | null;
+  onRetry: () => void;
+  onPairNewBridge: () => void;
+}) => (
+  <StatusScreen
+    visual={<BridgeStatus kind={bridgeKind()} status="error" />}
+    title="Bridge unavailable"
+    description={error ?? "The saved bridge could not be reached."}
+    actions={
+      <div className="flex gap-3">
+        <Button size="xl" variant="outline" onClick={onPairNewBridge}>
+          Pair a new bridge
+        </Button>
+        <Button size="xl" onClick={onRetry}>
+          Retry connection
+        </Button>
+      </div>
+    }
+  />
+);
 
 function App() {
-  const { configured, connected, error, isLoading, refreshSession } = useHue();
-  const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialTheme);
-  const [wizardDevMode] = useState(getWizardDevMode);
-  const [systemThemeMode, setSystemThemeMode] =
-    useState<ResolvedThemeMode>(getSystemTheme);
-  const resolvedThemeMode =
-    themeMode === "system" ? systemThemeMode : themeMode;
+  const {
+    configured,
+    connected,
+    error,
+    isLoading,
+    refreshSession,
+    resetSession,
+  } = useHue();
+  const dev = useDevViews();
+  const [pairNewBridge, setPairNewBridge] = useState(false);
 
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: light)");
-    const onChange = () => setSystemThemeMode(getSystemTheme());
-
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, []);
-
-  useEffect(() => {
-    if (resolvedThemeMode === "dark") {
-      document.documentElement.classList.add("dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-    }
-    document.documentElement.style.colorScheme = resolvedThemeMode;
-    localStorage.setItem("themeMode", themeMode);
-  }, [resolvedThemeMode, themeMode]);
-
-  const toggleTheme = () =>
-    setThemeMode(resolvedThemeMode === "dark" ? "light" : "dark");
-
-  useGlobalKeyboardShortcut({ key: "j", mod: true }, () => {
-    toggleTheme();
-  });
-
-  const themeValue = useMemo(
-    () => ({ themeMode, resolvedThemeMode, setThemeMode, toggleTheme }),
-    [themeMode, resolvedThemeMode],
-  );
-
-  const renderContent = () => {
-    if (wizardDevMode) {
-      return <WizardContainer devMode />;
+  // Dev preview path: the wizard dev toolbar drives which mock view shows.
+  const renderDevContent = (): RenderedAppContent => {
+    if (dev.viewId === "home-preview") {
+      return { viewKey: "home-preview", content: <HomeApp /> };
     }
 
+    if (dev.viewId === "loading" || dev.retryLoading) {
+      return { viewKey: "loading", content: <LoadingConnectionView /> };
+    }
+
+    if (dev.viewId === "disconnected") {
+      return {
+        viewKey: "disconnected",
+        content: (
+          <DisconnectedBridgeView
+            error={null}
+            onRetry={dev.startRetryTransition}
+            onPairNewBridge={() => dev.selectView("discovering")}
+          />
+        ),
+      };
+    }
+
+    return {
+      viewKey: "wizard-dev",
+      content: (
+        <WizardContainer
+          devMode
+          devStateId={dev.viewId}
+          onDevStateChange={dev.setViewId}
+          onEnterHomePreview={() => dev.selectView("home-preview")}
+          devBridgeCount={dev.bridgeCount}
+          devPairingKind={dev.pairingKind}
+          onDevPairingKindChange={dev.setPairingKind}
+        />
+      ),
+    };
+  };
+
+  // Real path: the Hue session decides loading / home / disconnected / wizard.
+  const renderSessionContent = (): RenderedAppContent => {
     if (isLoading) {
-      return (
-        <div className="flex h-full items-center justify-center p-6">
-          <Card className="w-full max-w-md">
-            <CardContent className="flex flex-col items-center gap-4 py-6 text-center">
-              <Loader2 className="size-10 animate-spin text-muted-foreground" />
-              <h1 className="font-heading text-2xl font-semibold">
-                Checking connection
-              </h1>
-              <p className="text-muted-foreground">
-                Restoring your saved Hue Bridge session...
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      );
+      return { viewKey: "loading", content: <LoadingConnectionView /> };
     }
 
     if (configured && connected) {
-      return (
-        <div className="h-full">
-          <RouterProvider router={router} />
-        </div>
-      );
+      return { viewKey: "home", content: <HomeApp /> };
     }
 
     if (configured) {
-      return (
-        <div className="flex h-full items-center justify-center p-6">
-          <Card className="w-full max-w-md">
-            <CardContent className="flex flex-col items-center gap-4 py-6 text-center">
-              <h1 className="font-heading text-2xl font-semibold">
-                Bridge unavailable
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                {error ?? "The saved bridge could not be reached."}
-              </p>
-              <Button onClick={() => void refreshSession()}>
-                Retry connection
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      );
+      return {
+        viewKey: "disconnected",
+        content: (
+          <DisconnectedBridgeView
+            error={error}
+            onRetry={() => void refreshSession()}
+            onPairNewBridge={() => {
+              setPairNewBridge(true);
+              void resetSession();
+            }}
+          />
+        ),
+      };
     }
 
-    return <WizardContainer />;
+    return {
+      viewKey: "wizard",
+      content: <WizardContainer autoStartDiscovery={pairNewBridge} />,
+    };
   };
 
+  const rendered = dev.enabled ? renderDevContent() : renderSessionContent();
+
+  const selectedWizardDevState = wizardDevStates.find(
+    (devState) => devState.id === dev.viewId,
+  );
+  const currentDevNextSteps = selectedWizardDevState
+    ? devNextSteps[selectedWizardDevState.state.type]
+    : undefined;
+
   return (
-    <ThemeContext.Provider value={themeValue}>
-      <main className="h-screen overflow-hidden bg-background pt-10 text-foreground">
-        <TitleBar />
-        {renderContent()}
-      </main>
-    </ThemeContext.Provider>
+    <main className="h-screen overflow-hidden bg-background pt-10 text-foreground">
+      <TitleBar
+        onDevBack={
+          dev.enabled && dev.viewId === "home-preview"
+            ? () => dev.selectView("success")
+            : undefined
+        }
+      />
+      {dev.enabled && (
+        <WizardDevToolbar
+          value={dev.viewId}
+          groups={dev.groups}
+          nextSteps={currentDevNextSteps}
+          onSelectState={dev.selectView}
+          bridgeCount={dev.bridgeCount}
+          onBridgeCountChange={dev.setBridgeCount}
+          pairingKind={dev.pairingKind}
+          onPairingKindChange={dev.setPairingKind}
+        />
+      )}
+      <AppContentTransition viewKey={rendered.viewKey}>
+        {rendered.content}
+      </AppContentTransition>
+    </main>
   );
 }
 

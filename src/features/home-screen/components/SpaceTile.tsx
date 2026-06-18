@@ -63,7 +63,11 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
             "flex size-12 shrink-0 items-center justify-center rounded-full ring-1 ring-foreground/10",
             tile.active ? "text-white" : "bg-muted text-muted-foreground",
           )}
-          style={tile.active && tile.background ? { background: tile.background } : undefined}
+          style={
+            tile.active && tile.background
+              ? { background: tile.background }
+              : undefined
+          }
         >
           <Icon size={26} />
         </span>

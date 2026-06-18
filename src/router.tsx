@@ -31,7 +31,11 @@ const settingsRoute = createRoute({
   component: SettingsRoute,
 });
 
-const routeTree = rootRoute.addChildren([indexRoute, spaceRoute, settingsRoute]);
+const routeTree = rootRoute.addChildren([
+  indexRoute,
+  spaceRoute,
+  settingsRoute,
+]);
 
 export const router = createRouter({
   routeTree,

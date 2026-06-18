@@ -35,8 +35,7 @@ export const useGlobalKeyboardShortcut = (
     if (options.enabled === false) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      const keyMatches =
-        event.key.toLowerCase() === options.key.toLowerCase();
+      const keyMatches = event.key.toLowerCase() === options.key.toLowerCase();
       const modMatches =
         options.mod === undefined ||
         (event.metaKey || event.ctrlKey) === options.mod;

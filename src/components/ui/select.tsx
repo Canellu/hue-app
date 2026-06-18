@@ -1,15 +1,15 @@
-"use client"
+"use client";
 
-import { Select as SelectPrimitive } from "@base-ui/react/select"
-import { Check, ChevronDown } from "lucide-react"
-import { cva, type VariantProps } from "class-variance-authority"
+import { Select as SelectPrimitive } from "@base-ui/react/select";
+import { Check, ChevronDown } from "lucide-react";
+import { cva, type VariantProps } from "class-variance-authority";
 
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
 function Select<Value, Multiple extends boolean | undefined = false>(
-  props: SelectPrimitive.Root.Props<Value, Multiple>
+  props: SelectPrimitive.Root.Props<Value, Multiple>,
 ) {
-  return <SelectPrimitive.Root data-slot="select" {...props} />
+  return <SelectPrimitive.Root data-slot="select" {...props} />;
 }
 
 const selectTriggerVariants = cva(
@@ -26,16 +26,15 @@ const selectTriggerVariants = cva(
     defaultVariants: {
       size: "default",
     },
-  }
-)
+  },
+);
 
 function SelectTrigger({
   className,
   size = "default",
   children,
   ...props
-}: SelectPrimitive.Trigger.Props &
-  VariantProps<typeof selectTriggerVariants>) {
+}: SelectPrimitive.Trigger.Props & VariantProps<typeof selectTriggerVariants>) {
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
@@ -50,20 +49,17 @@ function SelectTrigger({
         <ChevronDown />
       </SelectPrimitive.Icon>
     </SelectPrimitive.Trigger>
-  )
+  );
 }
 
-function SelectValue({
-  className,
-  ...props
-}: SelectPrimitive.Value.Props) {
+function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
   return (
     <SelectPrimitive.Value
       data-slot="select-value"
       className={cn("truncate", className)}
       {...props}
     />
-  )
+  );
 }
 
 function SelectContent({
@@ -85,7 +81,7 @@ function SelectContent({
           data-slot="select-content"
           className={cn(
             "max-h-72 min-w-[var(--anchor-width)] overflow-hidden rounded-2xl border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none transition-[opacity,transform] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0",
-            className
+            className,
           )}
           {...props}
         >
@@ -95,7 +91,7 @@ function SelectContent({
         </SelectPrimitive.Popup>
       </SelectPrimitive.Positioner>
     </SelectPrimitive.Portal>
-  )
+  );
 }
 
 function SelectItem({
@@ -108,7 +104,7 @@ function SelectItem({
       data-slot="select-item"
       className={cn(
         "relative flex min-h-8 cursor-default items-center gap-2 rounded-xl py-1.5 pr-8 pl-3 text-sm outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[selected]:font-medium",
-        className
+        className,
       )}
       {...props}
     >
@@ -122,7 +118,7 @@ function SelectItem({
         <Check className="size-4" />
       </SelectPrimitive.ItemIndicator>
     </SelectPrimitive.Item>
-  )
+  );
 }
 
 export {
@@ -132,4 +128,4 @@ export {
   SelectTrigger,
   SelectValue,
   selectTriggerVariants,
-}
+};

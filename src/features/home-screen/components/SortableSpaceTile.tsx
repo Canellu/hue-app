@@ -19,8 +19,14 @@ interface SortableSpaceTileProps {
 export const SortableSpaceTile: React.FC<
   SortableSpaceTileProps & { containerId: string }
 > = ({ roomZone, members, containerId, ...handlers }) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
-    useSortable({ id: roomZone.id, data: { type: "space", containerId } });
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: roomZone.id, data: { type: "space", containerId } });
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),

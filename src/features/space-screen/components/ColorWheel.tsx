@@ -65,7 +65,8 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({ xy, onPick }) => {
         data[idx + 1] = g;
         data[idx + 2] = b;
         // Soft 1px antialiased edge.
-        data[idx + 3] = dist > RADIUS - 1 ? Math.round((RADIUS - dist) * 255) : 255;
+        data[idx + 3] =
+          dist > RADIUS - 1 ? Math.round((RADIUS - dist) * 255) : 255;
       }
     }
     ctx.putImageData(image, 0, 0);

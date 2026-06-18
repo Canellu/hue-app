@@ -10,6 +10,12 @@ Read this file first. It is a routing index for the local Hue docs in this folde
 
 For this app, prefer Hue API v2 docs unless you are specifically working on legacy v1 behavior. Normal bridge control uses `https://{ip}/clip/v2/...`. The main exceptions are discovery and pairing.
 
+These local docs can go out of date. Use them as the source for endpoint
+details because the public Hue API reference pages are login-gated or may return
+`403 Forbidden` to agents. When freshness matters, check the public developer
+homepage at <https://developers.meethue.com/> for news, changelogs, and API
+change announcements before relying on older local documentation.
+
 ## Current Hue API v2
 
 | File | Title | Keywords | Summary | Use when |

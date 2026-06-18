@@ -1,6 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Minus, X } from "lucide-react";
 import React from "react";
+import logo from "../assets/logo.svg";
 
 export const TitleBar: React.FC = () => {
   const handleMinimize = async () => {
@@ -35,8 +36,9 @@ export const TitleBar: React.FC = () => {
       onMouseDown={handleMouseDown}
       className="fixed top-0 right-0 left-0 z-50 flex h-10 items-stretch justify-between  bg-background/80 pl-4 backdrop-blur supports-backdrop-filter:bg-background/60"
     >
-      <div className="flex items-center text-sm font-medium text-muted-foreground">
-        Hue Controller
+      <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+        <img src={logo} alt="Hue Desktop logo" className="h-5 w-5" />
+        Hue Desktop
       </div>
       <div className="flex items-stretch">
         <button

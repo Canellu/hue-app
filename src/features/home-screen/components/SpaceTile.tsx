@@ -75,14 +75,15 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
             {on > 0 ? ` · ${on} on` : ""}
           </p>
         </div>
-        <Switch
-          size="lg"
-          checked={roomZone.anyOn}
-          disabled={controlsDisabled}
-          aria-label={`Toggle ${roomZone.name}`}
-          onClick={(e) => e.stopPropagation()}
-          onCheckedChange={(checked) => onRoomZoneToggle(roomZone, checked)}
-        />
+        <div onClick={(e) => e.stopPropagation()}>
+          <Switch
+            size="lg"
+            checked={roomZone.anyOn}
+            disabled={controlsDisabled}
+            aria-label={`Toggle ${roomZone.name}`}
+            onCheckedChange={(checked) => onRoomZoneToggle(roomZone, checked)}
+          />
+        </div>
       </div>
 
       <div className="px-5" onClick={(e) => e.stopPropagation()}>

@@ -33,9 +33,30 @@ const getSystemTheme = (): ResolvedThemeMode =>
     ? "light"
     : "dark";
 
+const getWizardDevMode = () => {
+  if (!import.meta.env.DEV) return false;
+
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("wizardDev") === "0") {
+    localStorage.removeItem("hueWizardDev");
+    return false;
+  }
+
+  if (params.has("wizardDev") || window.location.hash === "#wizard-dev") {
+    localStorage.setItem("hueWizardDev", "1");
+    return true;
+  }
+
+  return (
+    import.meta.env.VITE_HUE_WIZARD_DEV === "1" ||
+    localStorage.getItem("hueWizardDev") === "1"
+  );
+};
+
 function App() {
   const { configured, connected, error, isLoading, refreshSession } = useHue();
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialTheme);
+  const [wizardDevMode] = useState(getWizardDevMode);
   const [systemThemeMode, setSystemThemeMode] =
     useState<ResolvedThemeMode>(getSystemTheme);
   const resolvedThemeMode =
@@ -72,6 +93,10 @@ function App() {
   );
 
   const renderContent = () => {
+    if (wizardDevMode) {
+      return <WizardContainer devMode />;
+    }
+
     if (isLoading) {
       return (
         <div className="flex h-full items-center justify-center p-6">
@@ -93,9 +118,7 @@ function App() {
     if (configured && connected) {
       return (
         <div className="h-full">
-          <ThemeContext.Provider value={themeValue}>
-            <RouterProvider router={router} />
-          </ThemeContext.Provider>
+          <RouterProvider router={router} />
         </div>
       );
     }
@@ -120,18 +143,16 @@ function App() {
       );
     }
 
-    return (
-      <div className="flex h-full items-center justify-center p-6">
-        <WizardContainer />
-      </div>
-    );
+    return <WizardContainer />;
   };
 
   return (
-    <main className="h-screen overflow-hidden bg-background pt-10 text-foreground">
-      <TitleBar />
-      {renderContent()}
-    </main>
+    <ThemeContext.Provider value={themeValue}>
+      <main className="h-screen overflow-hidden bg-background pt-10 text-foreground">
+        <TitleBar />
+        {renderContent()}
+      </main>
+    </ThemeContext.Provider>
   );
 }
 

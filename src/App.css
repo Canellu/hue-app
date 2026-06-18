@@ -193,3 +193,87 @@
     opacity: 0;
   }
 }
+
+.text-shimmer {
+  background: linear-gradient(
+    100deg,
+    var(--muted-foreground) 0%,
+    var(--muted-foreground) 40%,
+    var(--foreground) 50%,
+    var(--muted-foreground) 60%,
+    var(--muted-foreground) 100%
+  );
+  background-size: 200% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 2s linear infinite;
+}
+
+@keyframes text-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+/* A finger tapping the bridge's center button, one full cycle: it fades in while
+   moving up toward the button, nudges down to press it, then fades away before
+   looping. The tap-ripple expands from the button center timed to the press. */
+@keyframes finger-tap {
+  0% {
+    opacity: 0;
+    transform: translate(0, 1.25rem) rotate(-8deg);
+  }
+  28% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(-8deg);
+  }
+  44% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(-8deg);
+  }
+  54% {
+    opacity: 1;
+    transform: translate(-0.1rem, 0.1rem) rotate(-8deg);
+  }
+  66% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(-8deg);
+  }
+  82% {
+    opacity: 1;
+    transform: translate(0, 0) rotate(-8deg);
+  }
+  94%,
+  100% {
+    opacity: 0;
+    transform: translate(0, 0) rotate(-8deg);
+  }
+}
+
+@keyframes tap-ripple {
+  0%,
+  50% {
+    transform: scale(0.45);
+    opacity: 0;
+  }
+  58% {
+    opacity: 0.55;
+  }
+  78%,
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .finger-tap,
+  .tap-ripple {
+    animation: none;
+  }
+}

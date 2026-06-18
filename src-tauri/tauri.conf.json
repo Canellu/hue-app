@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "hue-app",
+  "productName": "Hue Desktop",
   "version": "0.1.0",
   "identifier": "com.anton.hue-app",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "hue-app",
+        "title": "Hue Desktop",
         "width": 1200,
         "height": 800,
         "minWidth": 800,

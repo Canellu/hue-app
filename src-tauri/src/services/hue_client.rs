@@ -6,10 +6,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Runtime};
 use tauri_plugin_store::StoreExt;
+use tokio::sync::Semaphore;
 
 const DISCOVERY_URL: &str = "https://discovery.meethue.com/";
 const STORE_FILE: &str = "hue-store.json";
@@ -19,11 +20,32 @@ const KEYRING_ACCOUNT: &str = "hue-application-key";
 const DEVICE_TYPE: &str = "hue-app#desktop";
 const REQUEST_TIMEOUT_SECS: u64 = 8;
 
+/// The local Hue Bridge tolerates only a handful of simultaneous connections;
+/// fanning out every resource fetch at once makes it reset or return empty
+/// bodies. Cap the in-flight v2 requests so bursts stay within its budget.
+const MAX_CONCURRENT_BRIDGE_REQUESTS: usize = 3;
+/// Total attempts for an idempotent GET before surfacing the failure.
+const MAX_REQUEST_ATTEMPTS: u32 = 3;
+/// Base backoff between retries; multiplied by the attempt index.
+const RETRY_BACKOFF: Duration = Duration::from_millis(250);
+
+/// Process-wide limiter shared across every `HueClient` (each Tauri command
+/// builds its own client) so concurrency is bounded globally, not per call.
+fn bridge_semaphore() -> &'static Semaphore {
+    static SEM: OnceLock<Semaphore> = OnceLock::new();
+    SEM.get_or_init(|| Semaphore::new(MAX_CONCURRENT_BRIDGE_REQUESTS))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscoveredBridge {
     pub bridge_id: String,
     pub bridge_ip: String,
+    /// Hardware model reported by the bridge's public config (e.g. "BSB002"
+    /// for the white square v2, a newer id for the Hue Bridge Pro). `None`
+    /// when the bridge could not be reached for its config.
+    #[serde(default)]
+    pub model_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -368,6 +390,14 @@ struct DiscoveryBridgeResponse {
     internalipaddress: String,
 }
 
+/// Unauthenticated public config served at `/api/0/config`. Exposes just
+/// enough to tell bridge models apart before pairing.
+#[derive(Debug, Deserialize)]
+struct PublicBridgeConfig {
+    #[serde(default)]
+    modelid: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct PairErrorResponse {
     error: PairErrorDetail,
@@ -427,16 +457,7 @@ impl HueClient {
         resource: &str,
     ) -> Result<Vec<T>, String> {
         let url = format!("https://{ip}/clip/v2/resource/{resource}");
-        let text = self
-            .client
-            .get(&url)
-            .header("hue-application-key", application_key)
-            .send()
-            .await
-            .map_err(|error| format!("Failed to fetch {resource}: {error}"))?
-            .text()
-            .await
-            .map_err(|error| format!("Failed to read {resource} response: {error}"))?;
+        let text = self.fetch_text(&url, application_key, resource).await?;
 
         let response = serde_json::from_str::<HueApiResponse<T>>(&text)
             .map_err(|error| format!("Invalid {resource} response: {error}"))?;
@@ -444,6 +465,73 @@ impl HueClient {
             return Err(format!("Hue bridge error: {}", error.description));
         }
         Ok(response.data)
+    }
+
+    /// Performs a throttled GET against the bridge, retrying the transient
+    /// failures it produces under concurrent load — an empty body, HTTP 429,
+    /// 5xx, or a dropped connection — with a short backoff. A non-retriable
+    /// status (e.g. 403) returns immediately. The returned body is guaranteed
+    /// non-empty, so callers no longer see a bare JSON "expected value at line
+    /// 1 column 1" when the bridge hands back nothing.
+    async fn fetch_text(
+        &self,
+        url: &str,
+        application_key: &str,
+        resource: &str,
+    ) -> Result<String, String> {
+        let mut last_error = format!("Failed to fetch {resource}");
+        for attempt in 0..MAX_REQUEST_ATTEMPTS {
+            if attempt > 0 {
+                tokio::time::sleep(RETRY_BACKOFF * attempt).await;
+            }
+
+            // Hold a concurrency permit only for the duration of the request,
+            // so retries wait (above) without occupying the budget.
+            let _permit = bridge_semaphore().acquire().await.ok();
+            let retriable = match self
+                .client
+                .get(url)
+                .header("hue-application-key", application_key)
+                .send()
+                .await
+            {
+                Ok(response) => {
+                    let status = response.status();
+                    match response.text().await {
+                        Ok(text) if status.is_success() && !text.trim().is_empty() => {
+                            return Ok(text);
+                        }
+                        Ok(text) if text.trim().is_empty() => {
+                            last_error = format!(
+                                "Failed to fetch {resource}: bridge returned an empty response (HTTP {status})"
+                            );
+                            // Empty body is the hallmark of the bridge dropping
+                            // a request under load — always worth a retry.
+                            true
+                        }
+                        Ok(_) => {
+                            // Non-success with a body: surface it as-is.
+                            last_error =
+                                format!("Failed to fetch {resource}: bridge returned HTTP {status}");
+                            status.as_u16() == 429 || status.is_server_error()
+                        }
+                        Err(error) => {
+                            last_error = format!("Failed to read {resource} response: {error}");
+                            true
+                        }
+                    }
+                }
+                Err(error) => {
+                    last_error = format!("Failed to fetch {resource}: {error}");
+                    true
+                }
+            };
+
+            if !retriable {
+                break;
+            }
+        }
+        Err(last_error)
     }
 
     async fn put_v2(
@@ -455,6 +543,7 @@ impl HueClient {
         body: Value,
     ) -> Result<(), String> {
         let url = format!("https://{ip}/clip/v2/resource/{resource}/{id}");
+        let permit = bridge_semaphore().acquire().await.ok();
         let text = self
             .client
             .put(&url)
@@ -466,6 +555,7 @@ impl HueClient {
             .text()
             .await
             .map_err(|error| format!("Failed to read {resource} update response: {error}"))?;
+        drop(permit);
 
         let response = serde_json::from_str::<HueApiResponse<Value>>(&text)
             .map_err(|error| format!("Invalid {resource} update response: {error}"))?;
@@ -478,6 +568,13 @@ impl HueClient {
     // ---- Discovery & pairing ------------------------------------------------
 
     pub async fn discover_bridges(&self) -> Result<Vec<DiscoveredBridge>, String> {
+        let bridges = self.collect_bridges().await?;
+        Ok(self.attach_models(bridges).await)
+    }
+
+    /// Finds bridges via mDNS (preferred) and falls back to the cloud
+    /// discovery endpoint. The returned bridges carry no model yet.
+    async fn collect_bridges(&self) -> Result<Vec<DiscoveredBridge>, String> {
         if let Ok(bridges) = self.discover_via_mdns().await {
             if !bridges.is_empty() {
                 return Ok(bridges);
@@ -514,8 +611,41 @@ impl HueClient {
             .map(|bridge| DiscoveredBridge {
                 bridge_id: bridge.id.to_uppercase(),
                 bridge_ip: bridge.internalipaddress,
+                model_id: None,
             })
             .collect())
+    }
+
+    /// Enriches discovered bridges with their hardware model by querying each
+    /// bridge's unauthenticated public config. Unreachable bridges keep their
+    /// existing (likely `None`) model so discovery never fails over this.
+    async fn attach_models(&self, bridges: Vec<DiscoveredBridge>) -> Vec<DiscoveredBridge> {
+        let mut enriched = Vec::with_capacity(bridges.len());
+        for mut bridge in bridges {
+            if bridge.model_id.is_none() {
+                bridge.model_id = self.fetch_bridge_model(&bridge.bridge_ip).await;
+            }
+            enriched.push(bridge);
+        }
+        enriched
+    }
+
+    /// Reads `modelid` from a bridge's public config. Tries plain HTTP first
+    /// (the v1 config endpoint every bridge still serves) then HTTPS, and
+    /// swallows all errors into `None` since this is best-effort metadata.
+    async fn fetch_bridge_model(&self, ip: &str) -> Option<String> {
+        let host = format_host(ip);
+        for scheme in ["http", "https"] {
+            let url = format!("{scheme}://{host}/api/0/config");
+            if let Ok(response) = self.client.get(&url).send().await {
+                if let Ok(config) = response.json::<PublicBridgeConfig>().await {
+                    if config.modelid.is_some() {
+                        return config.modelid;
+                    }
+                }
+            }
+        }
+        None
     }
 
     async fn discover_via_mdns(&self) -> Result<Vec<DiscoveredBridge>, String> {
@@ -542,6 +672,7 @@ impl HueClient {
                         bridges.push(DiscoveredBridge {
                             bridge_id: id.to_uppercase(),
                             bridge_ip: ip.to_string(),
+                            model_id: None,
                         });
                     }
                 }
@@ -551,12 +682,7 @@ impl HueClient {
     }
 
     pub async fn pair_bridge(&self, ip: &str) -> Result<(StoredBridgeInfo, String), String> {
-        let clean_ip = ip.split('%').next().unwrap_or(ip);
-        let formatted_ip = if clean_ip.contains(':') {
-            format!("[{}]", clean_ip)
-        } else {
-            clean_ip.to_string()
-        };
+        let formatted_ip = format_host(ip);
 
         // The CLIP link-button handshake is unchanged between API versions.
         let url = format!("http://{}/api", formatted_ip);
@@ -1156,6 +1282,17 @@ impl HueClient {
 
 fn bridge_matches(left: &str, right: &str) -> bool {
     left.eq_ignore_ascii_case(right)
+}
+
+/// Normalizes a discovered address into a URL host: strips any IPv6 zone id
+/// (`%scope`) and wraps IPv6 literals in brackets.
+fn format_host(ip: &str) -> String {
+    let clean_ip = ip.split('%').next().unwrap_or(ip);
+    if clean_ip.contains(':') {
+        format!("[{clean_ip}]")
+    } else {
+        clean_ip.to_string()
+    }
 }
 
 fn disconnected_session(

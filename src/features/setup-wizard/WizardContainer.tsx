@@ -49,10 +49,12 @@ const WizardView = ({ controller }: { controller: WizardController }) => (
 
 const WizardFlowContainer = ({
   autoStartDiscovery,
+  onPairingComplete,
 }: {
   autoStartDiscovery: boolean;
+  onPairingComplete?: () => void | Promise<void>;
 }) => {
-  const controller = useWizardFlow({ autoStartDiscovery });
+  const controller = useWizardFlow({ autoStartDiscovery, onPairingComplete });
   return <WizardView controller={controller} />;
 };
 
@@ -83,8 +85,14 @@ const WizardDevContainer = ({
 export const WizardContainer = ({
   devMode = false,
   autoStartDiscovery = false,
+  onPairingComplete,
   ...devProps
 }: WizardContainerProps) => {
   if (devMode) return <WizardDevContainer {...devProps} />;
-  return <WizardFlowContainer autoStartDiscovery={autoStartDiscovery} />;
+  return (
+    <WizardFlowContainer
+      autoStartDiscovery={autoStartDiscovery}
+      onPairingComplete={onPairingComplete}
+    />
+  );
 };

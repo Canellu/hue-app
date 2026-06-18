@@ -44,18 +44,28 @@ diagnostics.
 ## Architecture
 
 The app discovers and controls Philips Hue lights through a local Hue Bridge.
-All normal bridge communication uses Hue API v2:
-`https://{ip}/clip/v2/...`, with the bridge's self-signed certificate accepted.
-All persisted and UI-facing Hue resource ids are v2 UUIDs.
+Bridge communication is v2-first: use Hue API v2 for every resource and feature
+it supports, and use Hue API v1 only as an explicit fallback or for functionality
+not yet covered by v2. Local v2 calls use `https://{ip}/clip/v2/...`, with the
+bridge's self-signed certificate accepted.
 
-The only non-v2 bridge calls are discovery and pairing:
+All persisted and UI-facing Hue resource ids should remain v2 UUIDs whenever
+possible. Keep v1 ids as backend transport details unless a feature has no v2
+identity.
+
+Allowed non-v2 bridge communication includes:
 
 - mDNS `_hue._tcp.local.` discovery
 - `https://discovery.meethue.com/` fallback discovery
 - CLIP link-button pairing via `POST http://{ip}/api`
+- v1 light/sensor/device discovery fallbacks when a bridge lacks the v2
+  discovery resource
+- legacy effects or bridge features that are missing, incomplete, or rejected in
+  v2
+- future Hue features that are still under development and not yet exposed by v2
 
 ```text
-React frontend --Tauri IPC--> Rust backend --HTTPS Hue API v2--> Hue Bridge
+React frontend --Tauri IPC--> Rust backend --Hue bridge client--> Hue Bridge
 ```
 
 The ready-state UI is a room/zone-first shell: a custom window title bar, a
@@ -187,12 +197,12 @@ Tauri commands live in `src-tauri/src/commands/`:
 - `events.rs` - `start-hue-events`, `stop-hue-events`; guarded by managed
   `EventStreamState` so only one background SSE task runs.
 
-`src-tauri/src/services/hue_client.rs` is the core Hue API v2 client. It handles:
+`src-tauri/src/services/hue_client.rs` is the core Hue bridge client. It handles:
 
 - mDNS discovery with cloud discovery fallback
 - CLIP link-button pairing
 - session restore and bridge rediscovery
-- generic `get_v2` / `put_v2` helpers
+- generic `get_v2` / `put_v2` helpers and explicit v1 fallback helpers
 - light, room, zone, grouped light, scene, device, zigbee connectivity, and
   bridge resource mapping
 - event stream parsing and Tauri event emission
@@ -239,10 +249,17 @@ The backend emits `hue-event` carrying `Vec<HueEventUpdate>`. Updates include:
 
 ## Hue Data Rules
 
-- Hue API v2 brightness is 0-100 dimming percentage end-to-end. Do not convert
-  to or from the legacy 0-254 scale.
+- Frontend and backend app state use normalized Hue units: brightness is 0-100
+  percent, transition duration is milliseconds, and color temperature is mireds.
+- Convert only at transport boundaries. For v2, send brightness as
+  `dimming.brightness` and transition duration as `dynamics.duration`. For v1
+  fallback writes, convert brightness to legacy `bri` 1-254 and transition
+  duration to `transitiontime` in 100ms units.
+- Treat transition timing as command-local. `transitiontime` and
+  `dynamics.duration` are not persisted by the bridge, so include them on every
+  state write where timing matters.
 - Color temperature is in mireds in API/backend/frontend state.
 - The light drawer may display Kelvin using `1e6 / mirek`.
-- All Hue resource ids used by the UI are v2 UUIDs.
+- All Hue resource ids used by the UI are v2 UUIDs whenever possible.
 - Room/zone power and brightness controls must target their `grouped_light`
   resource id, not the room/zone resource id.

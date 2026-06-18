@@ -5,7 +5,7 @@ export const SettingsRoute: React.FC = () => {
   const { themeMode, setThemeMode } = useTheme();
 
   return (
-    <section className="mx-auto flex w-full max-w-2xl flex-col gap-6">
+    <section className="flex w-full flex-col gap-6">
       <SettingsScreen themeMode={themeMode} onThemeModeChange={setThemeMode} />
     </section>
   );

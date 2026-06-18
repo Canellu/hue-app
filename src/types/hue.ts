@@ -9,12 +9,36 @@ export type HueResourceType =
   | "light"
   | "scene"
   | "device"
+  | "button"
+  | "relative_rotary"
+  | "motion"
+  | "temperature"
+  | "light_level"
+  | "camera_motion"
+  | "contact"
+  | "tamper"
+  | "device_power"
   | "zigbee_connectivity"
+  | "smart_scene"
+  | "switch_input_configuration"
   | "bridge_home";
 
 export interface HueResourceReference {
   rid: string;
   rtype: HueResourceType;
+}
+
+/** Bucket a device is grouped under in the UI. */
+export type HueDeviceKind = "light" | "switch" | "sensor";
+
+/** A non-light accessory (switch/remote or sensor) placed in a room. */
+export interface HueAccessory {
+  /** v2 device UUID. */
+  id: string;
+  name: string;
+  kind: Extract<HueDeviceKind, "switch" | "sensor">;
+  productName: string | null;
+  reachable: boolean;
 }
 
 interface HueRoomZoneBase {
@@ -29,8 +53,12 @@ interface HueRoomZoneBase {
   brightness: number | null;
   lightCount: number;
   lightIds: string[];
+  /** Device children in rooms; empty for zones. */
+  deviceIds: string[];
   /** grouped_light resource controlling this room/zone on/brightness. */
   groupedLightId: string | null;
+  /** Switches and sensors placed here. Always empty for zones. */
+  accessories: HueAccessory[];
 }
 
 export interface HueRoom extends HueRoomZoneBase {
@@ -57,6 +85,10 @@ export interface HueLight {
   effect: string | null;
   /** Effect identifiers this fixture supports. */
   effects: string[];
+  /** Active modern effect identifier from effects_v2, when available. */
+  effectV2: string | null;
+  /** Modern effect identifiers this fixture supports. */
+  effectsV2: string[];
   supportsColor: boolean;
   supportsCt: boolean;
   ctMin: number | null;
@@ -79,11 +111,65 @@ export interface SceneColor {
 export interface HueScene {
   id: string;
   name: string;
+  resourceType: "scene" | "smart_scene";
   /** room/zone UUID this scene targets. */
   group: string | null;
   sceneType: string | null;
+  status: string | null;
+  dynamic: boolean;
+  smart: boolean;
   /** Preset color palette parsed from the scene's per-light actions. */
   colors: SceneColor[];
+}
+
+export interface HueSettingsSummary {
+  bridge: HueSettingsBridge;
+  devices: HueSettingsDevice[];
+  accessoryServices: HueAccessoryService[];
+  switchInputConfigurations: HueSwitchInputConfiguration[];
+  deviceDiscoverySupported: boolean;
+}
+
+export interface HueSettingsBridge {
+  bridgeId: string;
+  bridgeIp: string;
+  productName: string | null;
+  modelId: string | null;
+  swVersion: string | null;
+  applicationKeySaved: boolean;
+}
+
+export interface HueSettingsDevice {
+  id: string;
+  name: string;
+  productName: string | null;
+  modelId: string | null;
+  productArchetype: string | null;
+  swVersion: string | null;
+  reachable: boolean;
+  uniqueId: string | null;
+  serviceTypes: string[];
+}
+
+export interface HueAccessoryService {
+  id: string;
+  resourceType: HueResourceType;
+  deviceId: string | null;
+  deviceName: string | null;
+  productName: string | null;
+  reachable: boolean;
+  enabled: boolean | null;
+  value: string | null;
+  updated: string | null;
+  raw: unknown;
+}
+
+export interface HueSwitchInputConfiguration {
+  id: string;
+  deviceId: string | null;
+  deviceName: string | null;
+  mode: string | null;
+  raw: unknown;
 }
 
 /** Resource change pushed from the bridge SSE stream. Matched by v2 `id`. */
@@ -96,4 +182,7 @@ export interface HueEventUpdate {
   xy: [number, number] | null;
   /** Live color temperature in mireds, when the change carries one. */
   mirek: number | null;
+  effect: string | null;
+  effectV2: string | null;
+  value: string | null;
 }

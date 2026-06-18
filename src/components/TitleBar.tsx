@@ -1,7 +1,7 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ArrowLeft, Minus, X } from "lucide-react";
 import React from "react";
-import logo from "../assets/logo.svg";
+import logo from "../assets/rectangle.svg";
 
 interface TitleBarProps {
   /** Dev-only: when set, shows a "back to wizard" control in the title bar. */

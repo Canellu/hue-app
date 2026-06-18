@@ -9,6 +9,7 @@ pub async fn set_grouped_light_state(
     id: String,
     on: bool,
     brightness: Option<f64>,
+    transition_ms: Option<u32>,
 ) -> Result<(), String> {
     let client = HueClient::new()?;
     let stored_bridge = client.get_stored_bridge(&app)?;
@@ -20,6 +21,7 @@ pub async fn set_grouped_light_state(
             &id,
             on,
             brightness,
+            transition_ms,
         )
         .await
 }

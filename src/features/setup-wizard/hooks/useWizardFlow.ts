@@ -17,6 +17,8 @@ import {
 import { usePairingPoll } from "./usePairingPoll";
 
 const DISCOVERY_MIN_MS = 1000;
+const ENTER_HOME_MIN_BUSY_MS = 1500;
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * The real setup flow: network discovery, the link-button pairing handshake,
@@ -25,6 +27,7 @@ const DISCOVERY_MIN_MS = 1000;
  */
 export const useWizardFlow = ({
   autoStartDiscovery = false,
+  onPairingComplete,
 }: WizardFlowOptions): WizardController => {
   const { applySession } = useHue();
   const [state, setState] = useState<SetupState>({ type: "welcome" });
@@ -145,10 +148,13 @@ export const useWizardFlow = ({
     // and never rejects, so Home still opens (with its own error state) if the
     // fetch failed.
     setIsBusy(true);
-    await (warmupPromiseRef.current ??
-      useHueResourcesStore.getState().loadAll());
+    await Promise.all([
+      warmupPromiseRef.current ?? useHueResourcesStore.getState().loadAll(),
+      delay(ENTER_HOME_MIN_BUSY_MS),
+    ]);
 
     pendingSessionRef.current = null;
+    await onPairingComplete?.();
     applySession(session);
   };
 

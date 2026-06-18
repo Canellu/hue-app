@@ -1,25 +1,27 @@
-import { RouterProvider } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
-import "./App.css";
 import {
   AppContentTransition,
   type AppViewKey,
 } from "@/components/AppContentTransition";
 import { BridgeStatus } from "@/components/BridgeStatus";
-import { DiscoveryWifi } from "@/components/DiscoveryWifi";
+import Logo from "@/components/Logo";
 import { StatusScreen } from "@/components/StatusScreen";
 import { Button } from "@/components/ui/button";
+import { RouterProvider } from "@tanstack/react-router";
+import { motion, useReducedMotion, type Variants } from "motion/react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import "./App.css";
 import { TitleBar } from "./components/TitleBar";
 import { useHue } from "./context/HueContext";
-import { router } from "./router";
 import { WizardDevToolbar } from "./features/setup-wizard/components/WizardDevToolbar";
 import {
   devNextSteps,
   wizardDevStates,
 } from "./features/setup-wizard/constants";
 import { useDevViews } from "./features/setup-wizard/hooks/useDevViews";
-import { WizardContainer } from "./features/setup-wizard/WizardContainer";
 import { bridgeKind } from "./features/setup-wizard/utils/bridge";
+import { WizardContainer } from "./features/setup-wizard/WizardContainer";
+import { router } from "./router";
+import { useHueResourcesStore } from "./stores/HueResourcesStore";
 
 interface RenderedAppContent {
   viewKey: AppViewKey;
@@ -32,14 +34,54 @@ const HomeApp = () => (
   </div>
 );
 
-const LoadingConnectionView = () => (
-  <StatusScreen
-    visual={<DiscoveryWifi />}
-    title="Checking connection…"
-    titleClassName="text-shimmer"
-    description="Restoring your saved Hue Bridge session."
-  />
-);
+const splashLockupVariants: Variants = {
+  hidden: { opacity: 0, y: 18, scale: 0.96 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: {
+      duration: 0.7,
+      ease: [0.16, 1, 0.3, 1],
+      staggerChildren: 0.08,
+    },
+  },
+};
+
+const splashItemVariants: Variants = {
+  hidden: { opacity: 0, y: 12, scale: 0.92 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { duration: 0.55, ease: [0.16, 1, 0.3, 1] },
+  },
+};
+
+const SplashView = () => {
+  const reduceMotion = Boolean(useReducedMotion());
+
+  return (
+    <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-background px-6">
+      <motion.div
+        className="relative flex flex-col items-center gap-6"
+        variants={splashLockupVariants}
+        initial={reduceMotion ? false : "hidden"}
+        animate="visible"
+      >
+        <motion.div variants={splashItemVariants}>
+          <Logo className="size-28 rounded-3xl shadow-2xl shadow-foreground/10" />
+        </motion.div>
+        <motion.div
+          className="font-heading text-4xl font-semibold tracking-tight"
+          variants={splashItemVariants}
+        >
+          Hue Desktop
+        </motion.div>
+      </motion.div>
+    </div>
+  );
+};
 
 const DisconnectedBridgeView = ({
   error,
@@ -78,6 +120,29 @@ function App() {
   } = useHue();
   const dev = useDevViews();
   const [pairNewBridge, setPairNewBridge] = useState(false);
+  const initialResourcesLoadStartedRef = useRef(false);
+  const resourcesHasLoaded = useHueResourcesStore((state) => state.hasLoaded);
+  const loadHueResources = useHueResourcesStore((state) => state.loadAll);
+
+  useEffect(() => {
+    if (dev.enabled || !configured || !connected || resourcesHasLoaded) return;
+    if (initialResourcesLoadStartedRef.current) return;
+
+    initialResourcesLoadStartedRef.current = true;
+    void loadHueResources();
+  }, [
+    connected,
+    configured,
+    dev.enabled,
+    loadHueResources,
+    resourcesHasLoaded,
+  ]);
+
+  useEffect(() => {
+    if (!configured || !connected) {
+      initialResourcesLoadStartedRef.current = false;
+    }
+  }, [configured, connected]);
 
   // Dev preview path: the wizard dev toolbar drives which mock view shows.
   const renderDevContent = (): RenderedAppContent => {
@@ -85,8 +150,8 @@ function App() {
       return { viewKey: "home-preview", content: <HomeApp /> };
     }
 
-    if (dev.viewId === "loading" || dev.retryLoading) {
-      return { viewKey: "loading", content: <LoadingConnectionView /> };
+    if (dev.viewId === "splash" || dev.retryLoading) {
+      return { viewKey: "loading", content: <SplashView /> };
     }
 
     if (dev.viewId === "disconnected") {
@@ -121,10 +186,14 @@ function App() {
   // Real path: the Hue session decides loading / home / disconnected / wizard.
   const renderSessionContent = (): RenderedAppContent => {
     if (isLoading) {
-      return { viewKey: "loading", content: <LoadingConnectionView /> };
+      return { viewKey: "loading", content: <SplashView /> };
     }
 
     if (configured && connected) {
+      if (!resourcesHasLoaded) {
+        return { viewKey: "loading", content: <SplashView /> };
+      }
+
       return { viewKey: "home", content: <HomeApp /> };
     }
 
@@ -146,7 +215,15 @@ function App() {
 
     return {
       viewKey: "wizard",
-      content: <WizardContainer autoStartDiscovery={pairNewBridge} />,
+      content: (
+        <WizardContainer
+          autoStartDiscovery={pairNewBridge}
+          onPairingComplete={async () => {
+            await router.navigate({ to: "/", replace: true });
+            setPairNewBridge(false);
+          }}
+        />
+      ),
     };
   };
 

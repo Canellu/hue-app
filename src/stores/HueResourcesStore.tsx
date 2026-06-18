@@ -108,6 +108,11 @@ const refreshLayoutState = (
 const initialGroupingMode = readStoredGroupingMode();
 const initialStoredLayout = readStoredHomeLayout();
 
+const TOGGLE_TRANSITION_MS = 300;
+const BRIGHTNESS_TRANSITION_MS = 200;
+const COLOR_TRANSITION_MS = 200;
+const SCENE_TRANSITION_MS = 1000;
+
 export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   roomZones: [],
   lights: [],
@@ -247,6 +252,8 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
           brightness: change.brightness ?? light.brightness,
           xy: change.xy ?? light.xy,
           ct: change.mirek ?? light.ct,
+          effect: change.effectV2 ?? change.effect ?? light.effect,
+          effectV2: change.effectV2 ?? light.effectV2,
           colorMode: change.xy
             ? "xy"
             : change.mirek != null
@@ -262,6 +269,8 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
     const bri = brightnessPct !== null && nextOn ? brightnessPct : null;
     const optimisticBrightness = bri ?? roomZone.brightness;
     const memberIds = new Set(roomZone.lightIds);
+    const transitionMs =
+      brightnessPct === null ? TOGGLE_TRANSITION_MS : BRIGHTNESS_TRANSITION_MS;
 
     set((state) => ({
       roomZones: state.roomZones.map((g) =>
@@ -289,6 +298,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
       id: roomZone.groupedLightId,
       on: nextOn,
       brightness: bri,
+      transitionMs,
     }).catch((e) => {
       set({ error: String(e) || "Unable to update room or zone." });
       void get().loadAll();
@@ -297,6 +307,8 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
 
   setLightState: (light, nextOn, brightnessPct) => {
     const bri = brightnessPct !== null && nextOn ? brightnessPct : null;
+    const transitionMs =
+      brightnessPct === null ? TOGGLE_TRANSITION_MS : BRIGHTNESS_TRANSITION_MS;
     set((state) => ({
       lights: state.lights.map((l) =>
         l.id === light.id
@@ -309,6 +321,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
       id: light.id,
       on: nextOn,
       brightness: bri,
+      transitionMs,
     }).catch((e) => {
       set({ error: String(e) || "Unable to update light." });
       void get().loadLights();
@@ -325,6 +338,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
               xy: change.xy ?? l.xy,
               ct: change.ct ?? l.ct,
               effect: change.effect ?? l.effect,
+              effectV2: change.effect ?? l.effectV2,
               colorMode: change.xy ? "xy" : change.ct ? "ct" : l.colorMode,
             }
           : l,
@@ -336,6 +350,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
       xy: change.xy ?? null,
       ct: change.ct ?? null,
       effect: change.effect ?? null,
+      transitionMs: COLOR_TRANSITION_MS,
     }).catch((e) => {
       set({ error: String(e) || "Unable to update color." });
       void get().loadLights();
@@ -344,7 +359,12 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
 
   activateScene: async (scene) => {
     try {
-      await invoke("activate-scene", { sceneId: scene.id });
+      await invoke(
+        scene.resourceType === "smart_scene"
+          ? "activate-smart-scene"
+          : "activate-scene",
+        { sceneId: scene.id, transitionMs: SCENE_TRANSITION_MS },
+      );
       // A scene touches many lights at once, so refresh their real states.
       await get().loadLights();
     } catch (e) {

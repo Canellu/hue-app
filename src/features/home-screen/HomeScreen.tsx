@@ -33,7 +33,6 @@ import {
   arrayMove,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LayoutSection } from "./components/LayoutSection";
 import { SpaceTile } from "./components/SpaceTile";
@@ -263,14 +262,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const handleDeleteSection = (sectionId: string) => {
     onLayoutChange(layout.filter((section) => section.id !== sectionId));
   };
-
-  if (isLoading && roomZones.length === 0) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <Loader2 className="size-10 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
 
   // Resolve each section's live, ordered room/zone data once for rendering.
   const sections = layout.map((section) => ({

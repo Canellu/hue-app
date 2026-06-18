@@ -6,10 +6,10 @@ import {
   wizardDevStates,
 } from "../constants";
 
-type AppDevViewId = "loading" | "disconnected" | "home-preview";
+type AppDevViewId = "splash" | "disconnected" | "home-preview";
 
 const appDevViewOptions: { id: AppDevViewId; label: string }[] = [
-  { id: "loading", label: "Loading" },
+  { id: "splash", label: "Splash" },
   { id: "disconnected", label: "Disconnected" },
   { id: "home-preview", label: "Ready app" },
 ];
@@ -63,8 +63,8 @@ export const useDevViews = () => {
     setViewId(id);
   };
 
-  // Fakes a connection retry on the disconnected preview: show the loading
-  // view briefly, then fall back to disconnected.
+  // Fakes a connection retry on the disconnected preview: show the splash
+  // briefly, then fall back to disconnected.
   const startRetryTransition = () => {
     if (viewId !== "disconnected") return;
     if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);

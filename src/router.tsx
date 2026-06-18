@@ -4,6 +4,7 @@ import {
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
+import { DeviceDiscoveryRoute } from "./routes/DeviceDiscoveryRoute";
 import { HomeRoute } from "./routes/HomeRoute";
 import { RootLayout } from "./routes/RootLayout";
 import { SettingsRoute } from "./routes/SettingsRoute";
@@ -28,13 +29,23 @@ const spaceRoute = createRoute({
 const settingsRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings",
+  validateSearch: (search: Record<string, unknown>) => ({
+    tab: typeof search.tab === "string" ? search.tab : undefined,
+  }),
   component: SettingsRoute,
+});
+
+const deviceDiscoveryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/device-discovery",
+  component: DeviceDiscoveryRoute,
 });
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
   spaceRoute,
   settingsRoute,
+  deviceDiscoveryRoute,
 ]);
 
 export const router = createRouter({

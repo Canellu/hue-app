@@ -38,6 +38,8 @@ export interface WizardContainerProps {
   devPairingKind?: BridgeKind;
   /** Dev-only: sync the toolbar's bridge variant when the driver advances. */
   onDevPairingKindChange?: (kind: BridgeKind) => void;
+  /** Real flow: runs before the connected app is revealed. */
+  onPairingComplete?: () => void | Promise<void>;
 }
 
 /**
@@ -61,6 +63,8 @@ export interface WizardController {
 export interface WizardFlowOptions {
   /** Skip the welcome step and begin discovery on mount (e.g. re-pairing). */
   autoStartDiscovery?: boolean;
+  /** Runs before applying the paired session and revealing the connected app. */
+  onPairingComplete?: () => void | Promise<void>;
 }
 
 export interface WizardDevDriverOptions {

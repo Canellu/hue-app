@@ -44,6 +44,9 @@ const Divider = () => (
 /**
  * Minimal global header with a fixed height so swapping its contents (back
  * button vs. greeting, edit controls) never shifts the layout below it.
+ *
+ * Pinned above the scroll area so it stays put while the page scrolls; content
+ * fades out at the viewport's top edge just beneath it.
  */
 export const AppHeader: React.FC<AppHeaderProps> = ({
   onBack,

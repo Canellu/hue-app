@@ -28,6 +28,17 @@ const MAX_CONCURRENT_BRIDGE_REQUESTS: usize = 3;
 const MAX_REQUEST_ATTEMPTS: u32 = 3;
 /// Base backoff between retries; multiplied by the attempt index.
 const RETRY_BACKOFF: Duration = Duration::from_millis(250);
+const ACCESSORY_SERVICE_TYPES: &[&str] = &[
+    "button",
+    "relative_rotary",
+    "motion",
+    "camera_motion",
+    "temperature",
+    "light_level",
+    "contact",
+    "tamper",
+    "device_power",
+];
 
 /// Process-wide limiter shared across every `HueClient` (each Tauri command
 /// builds its own client) so concurrency is bounded globally, not per call.
@@ -90,6 +101,10 @@ pub struct HueLight {
     pub effect: Option<String>,
     /// Effect identifiers this fixture supports.
     pub effects: Vec<String>,
+    /// Active modern effect identifier from `effects_v2`, when available.
+    pub effect_v2: Option<String>,
+    /// Modern effect identifiers this fixture supports.
+    pub effects_v2: Vec<String>,
     pub supports_color: bool,
     pub supports_ct: bool,
     pub ct_min: Option<u16>,
@@ -100,6 +115,21 @@ pub struct HueLight {
     pub type_name: Option<String>,
     pub sw_version: Option<String>,
     pub unique_id: Option<String>,
+}
+
+/// A non-light accessory (switch/remote or sensor) belonging to a room. Rooms
+/// group whole `device` resources, so accessories ride along with their lights;
+/// zones group only `light` services and therefore never carry accessories.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HueAccessory {
+    /// v2 device UUID.
+    pub id: String,
+    pub name: String,
+    /// "switch" (button/dial) or "sensor" (motion/temperature/etc.).
+    pub kind: String,
+    pub product_name: Option<String>,
+    pub reachable: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -116,8 +146,12 @@ pub struct HueRoom {
     pub brightness: Option<f64>,
     pub light_count: usize,
     pub light_ids: Vec<String>,
+    /// Device children in this room. Rooms manage device membership.
+    pub device_ids: Vec<String>,
     /// The grouped_light resource that controls this room's on/brightness.
     pub grouped_light_id: Option<String>,
+    /// Switches and sensors placed in this room.
+    pub accessories: Vec<HueAccessory>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -134,8 +168,13 @@ pub struct HueZone {
     pub brightness: Option<f64>,
     pub light_count: usize,
     pub light_ids: Vec<String>,
+    /// Always empty for zones; present so rooms and zones share a frontend shape.
+    pub device_ids: Vec<String>,
     /// The grouped_light resource that controls this zone's on/brightness.
     pub grouped_light_id: Option<String>,
+    /// Always empty for zones (zones group lights, not whole devices); present
+    /// so rooms and zones share a single frontend shape.
+    pub accessories: Vec<HueAccessory>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -143,12 +182,77 @@ pub struct HueZone {
 pub struct HueScene {
     pub id: String,
     pub name: String,
+    /// `scene` or `smart_scene`.
+    pub resource_type: String,
     /// The room/zone UUID this scene targets.
     pub group: Option<String>,
     pub scene_type: Option<String>,
+    pub status: Option<String>,
+    pub dynamic: bool,
+    pub smart: bool,
     /// Preset color palette from the scene's per-light actions. Each entry
     /// carries either an `xy` chromaticity or a `mirek` color temperature.
     pub colors: Vec<SceneColor>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HueSettingsSummary {
+    pub bridge: HueSettingsBridge,
+    pub devices: Vec<HueSettingsDevice>,
+    pub accessory_services: Vec<HueAccessoryService>,
+    pub switch_input_configurations: Vec<HueSwitchInputConfiguration>,
+    pub device_discovery_supported: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HueSettingsBridge {
+    pub bridge_id: String,
+    pub bridge_ip: String,
+    pub product_name: Option<String>,
+    pub model_id: Option<String>,
+    pub sw_version: Option<String>,
+    pub application_key_saved: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HueSettingsDevice {
+    pub id: String,
+    pub name: String,
+    pub product_name: Option<String>,
+    pub model_id: Option<String>,
+    pub product_archetype: Option<String>,
+    pub sw_version: Option<String>,
+    pub reachable: bool,
+    pub unique_id: Option<String>,
+    pub service_types: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HueAccessoryService {
+    pub id: String,
+    pub resource_type: String,
+    pub device_id: Option<String>,
+    pub device_name: Option<String>,
+    pub product_name: Option<String>,
+    pub reachable: bool,
+    pub enabled: Option<bool>,
+    pub value: Option<String>,
+    pub updated: Option<String>,
+    pub raw: Value,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HueSwitchInputConfiguration {
+    pub id: String,
+    pub device_id: Option<String>,
+    pub device_name: Option<String>,
+    pub mode: Option<String>,
+    pub raw: Value,
 }
 
 /// One color from a scene action — exactly one of `xy`/`mirek` is set.
@@ -173,6 +277,12 @@ pub struct HueEventUpdate {
     pub xy: Option<[f64; 2]>,
     /// Live color temperature in mireds, when the change includes one.
     pub mirek: Option<u16>,
+    /// Active legacy effect identifier when the event carries one.
+    pub effect: Option<String>,
+    /// Active `effects_v2` identifier when the event carries one.
+    pub effect_v2: Option<String>,
+    /// Compact display value for accessory/sensor events.
+    pub value: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +371,16 @@ struct HueEffectsFeature {
 }
 
 #[derive(Debug, Deserialize)]
+struct HueEffectsV2Feature {
+    #[serde(default)]
+    status: Option<Value>,
+    #[serde(default)]
+    action: Option<Value>,
+    #[serde(default)]
+    effect_values: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct HueLightResource {
     id: String,
     owner: HueResourceRef,
@@ -274,6 +394,8 @@ struct HueLightResource {
     color_temperature: Option<HueColorTemperature>,
     #[serde(default)]
     effects: Option<HueEffectsFeature>,
+    #[serde(default)]
+    effects_v2: Option<HueEffectsV2Feature>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -292,9 +414,26 @@ struct HueProductData {
 struct HueDeviceResource {
     id: String,
     #[serde(default)]
+    metadata: Option<HueMetadata>,
+    #[serde(default)]
     product_data: Option<HueProductData>,
     #[serde(default)]
     services: Vec<HueResourceRef>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HueRawResource {
+    id: String,
+    #[serde(rename = "type", default)]
+    rtype: Option<String>,
+    #[serde(default)]
+    owner: Option<HueResourceRef>,
+    #[serde(default)]
+    metadata: Option<HueMetadata>,
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -331,13 +470,28 @@ struct HueBridgeResource {
 }
 
 #[derive(Debug, Deserialize)]
+struct HueDeviceDiscoveryResource {
+    id: String,
+}
+
+#[derive(Debug)]
+pub struct HueQrInstallCode {
+    pub mac_address: String,
+    pub install_code: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct HueSceneResource {
     id: String,
+    #[serde(rename = "type", default)]
+    rtype: Option<String>,
     metadata: HueMetadata,
     #[serde(default)]
     group: Option<HueResourceRef>,
     #[serde(default)]
     actions: Vec<HueSceneActionEntry>,
+    #[serde(flatten)]
+    extra: Map<String, Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -361,23 +515,7 @@ struct HueSceneAction {
 #[derive(Debug, Deserialize)]
 struct EventContainer {
     #[serde(default)]
-    data: Vec<EventResource>,
-}
-
-#[derive(Debug, Deserialize)]
-struct EventResource {
-    #[serde(rename = "type", default)]
-    rtype: Option<String>,
-    #[serde(default)]
-    id: Option<String>,
-    #[serde(default)]
-    on: Option<HueOn>,
-    #[serde(default)]
-    dimming: Option<HueDimming>,
-    #[serde(default)]
-    color: Option<HueColor>,
-    #[serde(default)]
-    color_temperature: Option<HueColorTemperature>,
+    data: Vec<Value>,
 }
 
 // ---------------------------------------------------------------------------
@@ -563,6 +701,120 @@ impl HueClient {
             return Err(format!("Hue bridge error: {}", error.description));
         }
         Ok(())
+    }
+
+    async fn delete_v2(
+        &self,
+        ip: &str,
+        application_key: &str,
+        resource: &str,
+        id: &str,
+    ) -> Result<(), String> {
+        let url = format!("https://{ip}/clip/v2/resource/{resource}/{id}");
+        let permit = bridge_semaphore().acquire().await.ok();
+        let text = self
+            .client
+            .delete(&url)
+            .header("hue-application-key", application_key)
+            .send()
+            .await
+            .map_err(|error| format!("Failed to delete {resource}: {error}"))?
+            .text()
+            .await
+            .map_err(|error| format!("Failed to read {resource} delete response: {error}"))?;
+        drop(permit);
+
+        let response = serde_json::from_str::<HueApiResponse<Value>>(&text)
+            .map_err(|error| format!("Invalid {resource} delete response: {error}"))?;
+        if let Some(error) = response.errors.first() {
+            return Err(format!("Hue bridge error: {}", error.description));
+        }
+        Ok(())
+    }
+
+    /// Creates a v2 resource via POST and returns the new resource's `rid`.
+    async fn post_v2(
+        &self,
+        ip: &str,
+        application_key: &str,
+        resource: &str,
+        body: Value,
+    ) -> Result<String, String> {
+        let url = format!("https://{ip}/clip/v2/resource/{resource}");
+        let permit = bridge_semaphore().acquire().await.ok();
+        let text = self
+            .client
+            .post(&url)
+            .header("hue-application-key", application_key)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|error| format!("Failed to create {resource}: {error}"))?
+            .text()
+            .await
+            .map_err(|error| format!("Failed to read {resource} create response: {error}"))?;
+        drop(permit);
+
+        let response = serde_json::from_str::<HueApiResponse<HueResourceRef>>(&text)
+            .map_err(|error| format!("Invalid {resource} create response: {error}"))?;
+        if let Some(error) = response.errors.first() {
+            return Err(format!("Hue bridge error: {}", error.description));
+        }
+        response
+            .data
+            .into_iter()
+            .next()
+            .map(|reference| reference.rid)
+            .ok_or_else(|| format!("Bridge did not return the created {resource}."))
+    }
+
+    pub async fn get_resource(
+        &self,
+        ip: &str,
+        application_key: &str,
+        resource_type: &str,
+        id: Option<&str>,
+    ) -> Result<Vec<Value>, String> {
+        ensure_supported_resource_type(resource_type)?;
+        let resource = id
+            .map(|value| format!("{resource_type}/{value}"))
+            .unwrap_or_else(|| resource_type.to_string());
+        self.get_v2(ip, application_key, &resource).await
+    }
+
+    pub async fn create_resource(
+        &self,
+        ip: &str,
+        application_key: &str,
+        resource_type: &str,
+        body: Value,
+    ) -> Result<String, String> {
+        ensure_supported_resource_type(resource_type)?;
+        self.post_v2(ip, application_key, resource_type, body).await
+    }
+
+    pub async fn update_resource(
+        &self,
+        ip: &str,
+        application_key: &str,
+        resource_type: &str,
+        id: &str,
+        body: Value,
+    ) -> Result<(), String> {
+        ensure_supported_resource_type(resource_type)?;
+        self.put_v2(ip, application_key, resource_type, id, body)
+            .await
+    }
+
+    pub async fn delete_resource(
+        &self,
+        ip: &str,
+        application_key: &str,
+        resource_type: &str,
+        id: &str,
+    ) -> Result<(), String> {
+        ensure_supported_resource_type(resource_type)?;
+        self.delete_v2(ip, application_key, resource_type, id).await
     }
 
     // ---- Discovery & pairing ------------------------------------------------
@@ -938,7 +1190,17 @@ impl HueClient {
                     .as_ref()
                     .map(|e| e.effect_values.clone())
                     .unwrap_or_default();
-                let effect = light.effects.as_ref().and_then(|e| e.status.clone());
+                let legacy_effect = light.effects.as_ref().and_then(|e| e.status.clone());
+                let effects_v2 = light
+                    .effects_v2
+                    .as_ref()
+                    .map(|e| e.effect_values.clone())
+                    .unwrap_or_default();
+                let effect_v2 = light
+                    .effects_v2
+                    .as_ref()
+                    .and_then(|e| extract_effect_id(e.status.as_ref().or(e.action.as_ref())));
+                let effect = effect_v2.clone().or(legacy_effect);
 
                 let archetype = light.metadata.archetype.clone();
 
@@ -953,6 +1215,8 @@ impl HueClient {
                     ct,
                     effect,
                     effects,
+                    effect_v2,
+                    effects_v2,
                     supports_color,
                     supports_ct,
                     ct_min,
@@ -976,12 +1240,14 @@ impl HueClient {
         id: &str,
         on: bool,
         brightness: Option<f64>,
+        transition_ms: Option<u32>,
     ) -> Result<(), String> {
         let mut body = Map::new();
         body.insert("on".to_string(), json!({ "on": on }));
         if let Some(value) = brightness {
             body.insert("dimming".to_string(), json!({ "brightness": value }));
         }
+        insert_v2_transition(&mut body, transition_ms);
         self.put_v2(ip, application_key, "light", id, Value::Object(body))
             .await
     }
@@ -997,6 +1263,7 @@ impl HueClient {
         xy: Option<[f64; 2]>,
         ct: Option<u16>,
         effect: Option<String>,
+        transition_ms: Option<u32>,
     ) -> Result<(), String> {
         let mut body = Map::new();
         body.insert("on".to_string(), json!({ "on": true }));
@@ -1006,7 +1273,21 @@ impl HueClient {
         if let Some(value) = ct {
             body.insert("color_temperature".to_string(), json!({ "mirek": value }));
         }
+        insert_v2_transition(&mut body, transition_ms);
         if let Some(value) = effect {
+            let mut v2_body = body.clone();
+            v2_body.insert(
+                "effects_v2".to_string(),
+                json!({ "action": { "effect": value } }),
+            );
+            if self
+                .put_v2(ip, application_key, "light", id, Value::Object(v2_body))
+                .await
+                .is_ok()
+            {
+                return Ok(());
+            }
+
             body.insert("effects".to_string(), json!({ "effect": value }));
         }
         self.put_v2(ip, application_key, "light", id, Value::Object(body))
@@ -1025,8 +1306,28 @@ impl HueClient {
             .get_v2(ip, application_key, "device")
             .await
             .unwrap_or_default();
+        let zigbee: Vec<HueZigbeeConnectivityResource> = self
+            .get_v2(ip, application_key, "zigbee_connectivity")
+            .await
+            .unwrap_or_default();
         let grouped_map: HashMap<String, &HueGroupedLightResource> =
             grouped.iter().map(|g| (g.id.clone(), g)).collect();
+
+        // device id -> the resource, for accessory metadata lookups.
+        let device_map: HashMap<String, &HueDeviceResource> =
+            devices.iter().map(|device| (device.id.clone(), device)).collect();
+
+        // device id -> reachable, derived from its zigbee connectivity status.
+        let mut reachable_map: HashMap<String, bool> = HashMap::new();
+        for resource in &zigbee {
+            let reachable = resource
+                .status
+                .as_deref()
+                .map(zigbee_status_is_reachable)
+                .unwrap_or(true);
+            reachable_map.insert(resource.owner.rid.clone(), reachable);
+        }
+        let zigbee_known = !zigbee.is_empty();
 
         // device id -> its light service ids
         let device_lights: HashMap<String, Vec<String>> = devices
@@ -1055,11 +1356,57 @@ impl HueClient {
                 let brightness =
                     grouped_light.and_then(|g| g.dimming.as_ref().map(|d| d.brightness));
 
-                let light_ids = room
+                let device_ids = room
                     .children
                     .iter()
                     .filter(|child| child.rtype == "device")
-                    .flat_map(|child| device_lights.get(&child.rid).cloned().unwrap_or_default())
+                    .map(|child| child.rid.clone())
+                    .collect::<Vec<_>>();
+                let light_ids = device_ids
+                    .iter()
+                    .flat_map(|device_id| {
+                        device_lights
+                            .get(device_id)
+                            .cloned()
+                            .unwrap_or_default()
+                    })
+                    .collect::<Vec<_>>();
+
+                let accessories = room
+                    .children
+                    .iter()
+                    .filter(|child| child.rtype == "device")
+                    .filter_map(|child| device_map.get(&child.rid).copied())
+                    .filter_map(|device| {
+                        let service_types: Vec<&str> = device
+                            .services
+                            .iter()
+                            .map(|service| service.rtype.as_str())
+                            .collect();
+                        let kind = device_kind(&service_types)?;
+                        if kind == "light" {
+                            return None;
+                        }
+                        let product = device.product_data.as_ref();
+                        let name = device
+                            .metadata
+                            .as_ref()
+                            .map(|metadata| metadata.name.clone())
+                            .filter(|name| !name.is_empty())
+                            .or_else(|| product.and_then(|product| product.product_name.clone()))
+                            .unwrap_or_else(|| "Hue accessory".to_string());
+                        let reachable = match reachable_map.get(&device.id) {
+                            Some(reachable) => *reachable,
+                            None => true,
+                        };
+                        Some(HueAccessory {
+                            id: device.id.clone(),
+                            name,
+                            kind: kind.to_string(),
+                            product_name: product.and_then(|p| p.product_name.clone()),
+                            reachable: if zigbee_known { reachable } else { true },
+                        })
+                    })
                     .collect::<Vec<_>>();
 
                 HueRoom {
@@ -1075,7 +1422,9 @@ impl HueClient {
                     brightness,
                     light_count: light_ids.len(),
                     light_ids,
+                    device_ids,
                     grouped_light_id,
+                    accessories,
                 }
             })
             .collect())
@@ -1126,7 +1475,9 @@ impl HueClient {
                     brightness,
                     light_count: light_ids.len(),
                     light_ids,
+                    device_ids: Vec::new(),
                     grouped_light_id,
+                    accessories: Vec::new(),
                 }
             })
             .collect())
@@ -1140,12 +1491,14 @@ impl HueClient {
         id: &str,
         on: bool,
         brightness: Option<f64>,
+        transition_ms: Option<u32>,
     ) -> Result<(), String> {
         let mut body = Map::new();
         body.insert("on".to_string(), json!({ "on": on }));
         if let Some(value) = brightness {
             body.insert("dimming".to_string(), json!({ "brightness": value }));
         }
+        insert_v2_transition(&mut body, transition_ms);
         self.put_v2(
             ip,
             application_key,
@@ -1164,38 +1517,33 @@ impl HueClient {
         application_key: &str,
     ) -> Result<Vec<HueScene>, String> {
         let scenes: Vec<HueSceneResource> = self.get_v2(ip, application_key, "scene").await?;
+        let smart_scenes: Vec<HueSceneResource> = self
+            .get_v2(ip, application_key, "smart_scene")
+            .await
+            .unwrap_or_default();
         Ok(scenes
             .into_iter()
-            .map(|scene| {
-                let colors = scene
-                    .actions
+            .map(|scene| scene_to_public(scene, "scene"))
+            .chain(
+                smart_scenes
                     .into_iter()
-                    .filter_map(|entry| entry.action)
-                    .filter_map(|action| {
-                        if let Some(color) = action.color {
-                            Some(SceneColor {
-                                xy: Some([color.xy.x, color.xy.y]),
-                                mirek: None,
-                            })
-                        } else if let Some(mirek) = action.color_temperature.and_then(|ct| ct.mirek)
-                        {
-                            Some(SceneColor {
-                                xy: None,
-                                mirek: Some(mirek),
-                            })
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-                HueScene {
-                    id: scene.id,
-                    name: scene.metadata.name,
-                    group: scene.group.as_ref().map(|g| g.rid.clone()),
-                    scene_type: scene.group.map(|g| g.rtype),
-                    colors,
-                }
-            })
+                    .map(|scene| scene_to_public(scene, "smart_scene")),
+            )
+            .collect())
+    }
+
+    pub async fn get_smart_scenes(
+        &self,
+        ip: &str,
+        application_key: &str,
+    ) -> Result<Vec<HueScene>, String> {
+        let scenes: Vec<HueSceneResource> = self
+            .get_v2(ip, application_key, "smart_scene")
+            .await
+            .unwrap_or_default();
+        Ok(scenes
+            .into_iter()
+            .map(|scene| scene_to_public(scene, "smart_scene"))
             .collect())
     }
 
@@ -1204,10 +1552,798 @@ impl HueClient {
         ip: &str,
         application_key: &str,
         scene_id: &str,
+        transition_ms: Option<u32>,
     ) -> Result<(), String> {
-        let body = json!({ "recall": { "action": "active" } });
-        self.put_v2(ip, application_key, "scene", scene_id, body)
+        let mut body = Map::new();
+        body.insert("recall".to_string(), json!({ "action": "active" }));
+        insert_v2_transition(&mut body, transition_ms);
+
+        match self
+            .put_v2(
+                ip,
+                application_key,
+                "scene",
+                scene_id,
+                Value::Object(body),
+            )
             .await
+        {
+            Ok(()) => Ok(()),
+            Err(error) if transition_ms.is_some() => {
+                let fallback_body = json!({ "recall": { "action": "active" } });
+                self.put_v2(ip, application_key, "scene", scene_id, fallback_body)
+                    .await
+                    .map_err(|fallback_error| {
+                        format!(
+                            "Unable to activate scene: {fallback_error}. First attempt with transition failed with: {error}"
+                        )
+                    })
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub async fn activate_smart_scene(
+        &self,
+        ip: &str,
+        application_key: &str,
+        scene_id: &str,
+        transition_ms: Option<u32>,
+    ) -> Result<(), String> {
+        let mut body = Map::new();
+        body.insert("recall".to_string(), json!({ "action": "active" }));
+        insert_v2_transition(&mut body, transition_ms);
+
+        match self
+            .put_v2(
+                ip,
+                application_key,
+                "smart_scene",
+                scene_id,
+                Value::Object(body),
+            )
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(error) if transition_ms.is_some() => {
+                let fallback_body = json!({ "recall": { "action": "active" } });
+                self.put_v2(ip, application_key, "smart_scene", scene_id, fallback_body)
+                    .await
+                    .map_err(|fallback_error| {
+                        format!(
+                            "Unable to activate smart scene: {fallback_error}. First attempt with transition failed with: {error}"
+                        )
+                    })
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    pub async fn create_scene(
+        &self,
+        ip: &str,
+        application_key: &str,
+        name: &str,
+        group_id: &str,
+        group_type: &str,
+    ) -> Result<String, String> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err("Scene name cannot be empty.".to_string());
+        }
+        if !matches!(group_type, "room" | "zone") {
+            return Err("Scenes can only target a room or zone.".to_string());
+        }
+
+        let light_ids = self
+            .group_light_ids(ip, application_key, group_type, group_id)
+            .await?;
+        if light_ids.is_empty() {
+            return Err("That room or zone has no lights to snapshot.".to_string());
+        }
+
+        let all_lights: Vec<HueLightResource> = self.get_v2(ip, application_key, "light").await?;
+        let wanted = light_ids.into_iter().collect::<std::collections::HashSet<_>>();
+        let lights = all_lights
+            .into_iter()
+            .filter(|light| wanted.contains(&light.id))
+            .collect::<Vec<_>>();
+        if lights.is_empty() {
+            return Err("No current light states were available for that space.".to_string());
+        }
+
+        let body = snapshot_scene_body(trimmed, group_id, group_type, &lights, true);
+        match self.post_v2(ip, application_key, "scene", body).await {
+            Ok(id) => Ok(id),
+            Err(error_with_effects) => {
+                let body = snapshot_scene_body(trimmed, group_id, group_type, &lights, false);
+                self.post_v2(ip, application_key, "scene", body)
+                    .await
+                    .map_err(|fallback_error| {
+                        format!(
+                            "Unable to create scene: {fallback_error}. First attempt with effect state failed with: {error_with_effects}"
+                        )
+                    })
+            }
+        }
+    }
+
+    async fn group_light_ids(
+        &self,
+        ip: &str,
+        application_key: &str,
+        group_type: &str,
+        group_id: &str,
+    ) -> Result<Vec<String>, String> {
+        let groups: Vec<HueRoomZoneResource> = self
+            .get_v2(ip, application_key, &format!("{group_type}/{group_id}"))
+            .await?;
+        let group = groups
+            .into_iter()
+            .next()
+            .ok_or_else(|| "That room or zone no longer exists.".to_string())?;
+
+        if group_type == "zone" {
+            return Ok(group
+                .children
+                .into_iter()
+                .filter(|child| child.rtype == "light")
+                .map(|child| child.rid)
+                .collect());
+        }
+
+        let device_ids = group
+            .children
+            .into_iter()
+            .filter(|child| child.rtype == "device")
+            .map(|child| child.rid)
+            .collect::<std::collections::HashSet<_>>();
+        let devices: Vec<HueDeviceResource> = self
+            .get_v2(ip, application_key, "device")
+            .await
+            .unwrap_or_default();
+        Ok(devices
+            .into_iter()
+            .filter(|device| device_ids.contains(&device.id))
+            .flat_map(|device| {
+                device
+                    .services
+                    .into_iter()
+                    .filter(|service| service.rtype == "light")
+                    .map(|service| service.rid)
+            })
+            .collect())
+    }
+
+    // ---- Settings -----------------------------------------------------------
+
+    pub async fn get_settings_summary(
+        &self,
+        bridge: &StoredBridgeInfo,
+        application_key: &str,
+    ) -> Result<HueSettingsSummary, String> {
+        let devices_result = self
+            .get_v2::<HueDeviceResource>(&bridge.bridge_ip, application_key, "device")
+            .await;
+        // A successful device fetch means the bridge is reachable, which is all
+        // the classic v1 light search needs to run as a discovery fallback.
+        let bridge_reachable = devices_result.is_ok();
+        let devices: Vec<HueDeviceResource> = devices_result.unwrap_or_default();
+        let zigbee: Vec<HueZigbeeConnectivityResource> = self
+            .get_v2(&bridge.bridge_ip, application_key, "zigbee_connectivity")
+            .await
+            .unwrap_or_default();
+        let bridge_resources: Vec<HueBridgeResource> = self
+            .get_v2(&bridge.bridge_ip, application_key, "bridge")
+            .await
+            .unwrap_or_default();
+        let v2_discovery_supported = self
+            .get_v2::<HueDeviceDiscoveryResource>(
+                &bridge.bridge_ip,
+                application_key,
+                "zigbee_device_discovery",
+            )
+            .await
+            .map(|resources| !resources.is_empty())
+            .unwrap_or(false);
+        // Bridges with current v2 firmware expose `zigbee_device_discovery`;
+        // standard bridges may still need the classic v1 search fallback.
+        let device_discovery_supported = v2_discovery_supported || bridge_reachable;
+        let accessory_services = self
+            .get_accessory_services(&bridge.bridge_ip, application_key)
+            .await
+            .unwrap_or_default();
+        let switch_input_configurations = self
+            .get_switch_input_configurations(&bridge.bridge_ip, application_key)
+            .await
+            .unwrap_or_default();
+
+        let reported_bridge_id = bridge_resources
+            .into_iter()
+            .find_map(|resource| resource.bridge_id)
+            .unwrap_or_else(|| bridge.bridge_id.clone());
+
+        let mut zigbee_map: HashMap<String, (bool, Option<String>)> = HashMap::new();
+        for resource in &zigbee {
+            let reachable = resource
+                .status
+                .as_deref()
+                .map(zigbee_status_is_reachable)
+                .unwrap_or(true);
+            zigbee_map.insert(
+                resource.owner.rid.clone(),
+                (reachable, resource.mac_address.clone()),
+            );
+        }
+        let zigbee_known = !zigbee.is_empty();
+
+        let bridge_device = devices.iter().find(|device| {
+            device
+                .services
+                .iter()
+                .any(|service| service.rtype == "bridge")
+                || device
+                    .product_data
+                    .as_ref()
+                    .and_then(|product| product.product_name.as_deref())
+                    .map(|name| name.to_lowercase().contains("bridge"))
+                    .unwrap_or(false)
+        });
+        let bridge_product = bridge_device.and_then(|device| device.product_data.as_ref());
+        let bridge_product_name = bridge_product.and_then(|product| product.product_name.clone());
+        let bridge_model_id = bridge_product.and_then(|product| product.model_id.clone());
+        let bridge_sw_version = bridge_product.and_then(|product| product.software_version.clone());
+
+        let devices = devices
+            .into_iter()
+            .map(|device| {
+                let product = device.product_data.as_ref();
+                let (reachable, unique_id) = zigbee_map
+                    .get(&device.id)
+                    .cloned()
+                    .unwrap_or((true, None));
+                let reachable = if zigbee_known { reachable } else { true };
+                let service_types = device
+                    .services
+                    .iter()
+                    .map(|service| service.rtype.clone())
+                    .collect::<Vec<_>>();
+                let name = device
+                    .metadata
+                    .as_ref()
+                    .map(|metadata| metadata.name.clone())
+                    .filter(|name| !name.is_empty())
+                    .or_else(|| product.and_then(|product| product.product_name.clone()))
+                    .unwrap_or_else(|| "Hue device".to_string());
+
+                HueSettingsDevice {
+                    id: device.id,
+                    name,
+                    product_name: product.and_then(|product| product.product_name.clone()),
+                    model_id: product.and_then(|product| product.model_id.clone()),
+                    product_archetype: product
+                        .and_then(|product| product.product_archetype.clone()),
+                    sw_version: product.and_then(|product| product.software_version.clone()),
+                    reachable,
+                    unique_id,
+                    service_types,
+                }
+            })
+            .collect();
+
+        Ok(HueSettingsSummary {
+            bridge: HueSettingsBridge {
+                bridge_id: reported_bridge_id,
+                bridge_ip: bridge.bridge_ip.clone(),
+                product_name: bridge_product_name,
+                model_id: bridge_model_id,
+                sw_version: bridge_sw_version,
+                application_key_saved: true,
+            },
+            devices,
+            accessory_services,
+            switch_input_configurations,
+            device_discovery_supported,
+        })
+    }
+
+    pub async fn get_accessory_services(
+        &self,
+        ip: &str,
+        application_key: &str,
+    ) -> Result<Vec<HueAccessoryService>, String> {
+        let devices: Vec<HueDeviceResource> = self
+            .get_v2(ip, application_key, "device")
+            .await
+            .unwrap_or_default();
+        let zigbee: Vec<HueZigbeeConnectivityResource> = self
+            .get_v2(ip, application_key, "zigbee_connectivity")
+            .await
+            .unwrap_or_default();
+        let device_map = device_public_map(&devices);
+        let reachable_map = reachable_public_map(&zigbee);
+        let zigbee_known = !zigbee.is_empty();
+
+        let mut services = Vec::new();
+        for resource_type in ACCESSORY_SERVICE_TYPES {
+            let resources: Vec<HueRawResource> = self
+                .get_v2(ip, application_key, resource_type)
+                .await
+                .unwrap_or_default();
+            for resource in resources {
+                let device_id = resource.owner.as_ref().map(|owner| owner.rid.clone());
+                let device = device_id.as_ref().and_then(|id| device_map.get(id));
+                let reachable = device_id
+                    .as_ref()
+                    .and_then(|id| reachable_map.get(id).copied())
+                    .unwrap_or(true);
+                let raw = raw_resource_value(&resource);
+                services.push(HueAccessoryService {
+                    id: resource.id,
+                    resource_type: resource_type.to_string(),
+                    device_id,
+                    device_name: device.map(|entry| entry.0.clone()),
+                    product_name: device.and_then(|entry| entry.1.clone()),
+                    reachable: if zigbee_known { reachable } else { true },
+                    enabled: resource.enabled,
+                    value: summarize_resource_value(&raw),
+                    updated: extract_updated(&raw),
+                    raw,
+                });
+            }
+        }
+        Ok(services)
+    }
+
+    pub async fn get_switch_input_configurations(
+        &self,
+        ip: &str,
+        application_key: &str,
+    ) -> Result<Vec<HueSwitchInputConfiguration>, String> {
+        let devices: Vec<HueDeviceResource> = self
+            .get_v2(ip, application_key, "device")
+            .await
+            .unwrap_or_default();
+        let device_map = device_public_map(&devices);
+        let resources: Vec<HueRawResource> = self
+            .get_v2(ip, application_key, "switch_input_configuration")
+            .await
+            .unwrap_or_default();
+
+        Ok(resources
+            .into_iter()
+            .map(|resource| {
+                let device_id = resource.owner.as_ref().map(|owner| owner.rid.clone());
+                let device = device_id.as_ref().and_then(|id| device_map.get(id));
+                let raw = raw_resource_value(&resource);
+                HueSwitchInputConfiguration {
+                    id: resource.id,
+                    device_id,
+                    device_name: device.map(|entry| entry.0.clone()),
+                    mode: extract_mode(&raw),
+                    raw,
+                }
+            })
+            .collect())
+    }
+
+    pub async fn set_switch_input_configuration(
+        &self,
+        ip: &str,
+        application_key: &str,
+        id: &str,
+        body: Value,
+    ) -> Result<(), String> {
+        self.put_v2(ip, application_key, "switch_input_configuration", id, body)
+            .await
+    }
+
+    pub async fn rename_resource(
+        &self,
+        ip: &str,
+        application_key: &str,
+        resource_type: &str,
+        id: &str,
+        name: &str,
+    ) -> Result<(), String> {
+        match resource_type {
+            "light" | "room" | "zone" | "scene" | "smart_scene" | "device" => {}
+            _ => {
+                return Err(format!(
+                    "Renaming Hue resource type '{resource_type}' is not supported."
+                ));
+            }
+        }
+
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err("Name cannot be empty.".to_string());
+        }
+
+        let body = json!({ "metadata": { "name": trimmed } });
+        self.put_v2(ip, application_key, resource_type, id, body)
+            .await
+    }
+
+    // ---- Placing newly-found devices ----------------------------------------
+
+    pub async fn create_zone(
+        &self,
+        ip: &str,
+        application_key: &str,
+        name: &str,
+        archetype: Option<&str>,
+        light_ids: Vec<String>,
+    ) -> Result<(), String> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err("Zone name cannot be empty.".to_string());
+        }
+        let archetype = archetype.filter(|value| !value.is_empty()).unwrap_or("other");
+        let children = light_ids
+            .into_iter()
+            .filter(|id| !id.trim().is_empty())
+            .map(|id| json!({ "rid": id, "rtype": "light" }))
+            .collect::<Vec<_>>();
+        let body = json!({
+            "type": "zone",
+            "metadata": { "name": trimmed, "archetype": archetype },
+            "children": children,
+        });
+        self.post_v2(ip, application_key, "zone", body)
+            .await
+            .map(|_| ())
+    }
+
+    pub async fn update_room_members(
+        &self,
+        ip: &str,
+        application_key: &str,
+        room_id: &str,
+        device_ids: Vec<String>,
+    ) -> Result<(), String> {
+        let children = device_ids
+            .into_iter()
+            .filter(|id| !id.trim().is_empty())
+            .map(|id| json!({ "rid": id, "rtype": "device" }))
+            .collect::<Vec<_>>();
+        self.put_v2(
+            ip,
+            application_key,
+            "room",
+            room_id,
+            json!({ "children": children }),
+        )
+        .await
+    }
+
+    pub async fn update_zone_members(
+        &self,
+        ip: &str,
+        application_key: &str,
+        zone_id: &str,
+        light_ids: Vec<String>,
+    ) -> Result<(), String> {
+        let children = light_ids
+            .into_iter()
+            .filter(|id| !id.trim().is_empty())
+            .map(|id| json!({ "rid": id, "rtype": "light" }))
+            .collect::<Vec<_>>();
+        self.put_v2(
+            ip,
+            application_key,
+            "zone",
+            zone_id,
+            json!({ "children": children }),
+        )
+        .await
+    }
+
+    /// Reads a single room or zone's current `children` as JSON refs, ready to
+    /// extend and PUT back. `resource` is `"room"` or `"zone"`.
+    async fn get_group_children(
+        &self,
+        ip: &str,
+        application_key: &str,
+        resource: &str,
+        id: &str,
+    ) -> Result<Vec<Value>, String> {
+        let groups: Vec<HueRoomZoneResource> = self
+            .get_v2(ip, application_key, &format!("{resource}/{id}"))
+            .await?;
+        let group = groups
+            .into_iter()
+            .next()
+            .ok_or_else(|| format!("That {resource} no longer exists."))?;
+        Ok(group
+            .children
+            .into_iter()
+            .map(|child| json!({ "rid": child.rid, "rtype": child.rtype }))
+            .collect())
+    }
+
+    /// Adds a device to an existing room (rooms group `device` resources).
+    pub async fn assign_device_to_room(
+        &self,
+        ip: &str,
+        application_key: &str,
+        device_id: &str,
+        room_id: &str,
+    ) -> Result<(), String> {
+        let mut children = self
+            .get_group_children(ip, application_key, "room", room_id)
+            .await?;
+        if children
+            .iter()
+            .any(|child| child.get("rid").and_then(Value::as_str) == Some(device_id))
+        {
+            return Ok(());
+        }
+        children.push(json!({ "rid": device_id, "rtype": "device" }));
+        self.put_v2(
+            ip,
+            application_key,
+            "room",
+            room_id,
+            json!({ "children": children }),
+        )
+        .await
+    }
+
+    /// Adds a device's light services to an existing zone (zones group `light`
+    /// resources). Errors for devices that expose no lights.
+    pub async fn assign_device_to_zone(
+        &self,
+        ip: &str,
+        application_key: &str,
+        device_id: &str,
+        zone_id: &str,
+    ) -> Result<(), String> {
+        let light_rids = self
+            .device_light_rids(ip, application_key, device_id)
+            .await?;
+        if light_rids.is_empty() {
+            return Err("This device has no lights to add to a zone.".to_string());
+        }
+        let mut children = self
+            .get_group_children(ip, application_key, "zone", zone_id)
+            .await?;
+        for rid in light_rids {
+            let already_present = children
+                .iter()
+                .any(|child| child.get("rid").and_then(Value::as_str) == Some(rid.as_str()));
+            if !already_present {
+                children.push(json!({ "rid": rid, "rtype": "light" }));
+            }
+        }
+        self.put_v2(
+            ip,
+            application_key,
+            "zone",
+            zone_id,
+            json!({ "children": children }),
+        )
+        .await
+    }
+
+    /// Creates a room containing the given device. Hue requires an archetype;
+    /// `"other"` is used when the caller supplies none.
+    pub async fn create_room(
+        &self,
+        ip: &str,
+        application_key: &str,
+        name: &str,
+        archetype: Option<&str>,
+        device_id: &str,
+    ) -> Result<String, String> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err("Room name cannot be empty.".to_string());
+        }
+        let archetype = archetype.filter(|value| !value.is_empty()).unwrap_or("other");
+        let body = json!({
+            "type": "room",
+            "metadata": { "name": trimmed, "archetype": archetype },
+            "children": [{ "rid": device_id, "rtype": "device" }],
+        });
+        self.post_v2(ip, application_key, "room", body).await
+    }
+
+    /// Light service rids owned by a device, for zone membership.
+    async fn device_light_rids(
+        &self,
+        ip: &str,
+        application_key: &str,
+        device_id: &str,
+    ) -> Result<Vec<String>, String> {
+        let devices: Vec<HueDeviceResource> = self
+            .get_v2(ip, application_key, &format!("device/{device_id}"))
+            .await?;
+        let device = devices
+            .into_iter()
+            .next()
+            .ok_or_else(|| "That device no longer exists.".to_string())?;
+        Ok(device
+            .services
+            .into_iter()
+            .filter(|service| service.rtype == "light")
+            .map(|service| service.rid)
+            .collect())
+    }
+
+    pub async fn start_device_discovery(
+        &self,
+        ip: &str,
+        application_key: &str,
+    ) -> Result<(), String> {
+        match self
+            .start_zigbee_device_discovery(ip, application_key, "search_allow_default_link_key")
+            .await
+        {
+            Ok(()) => return Ok(()),
+            Err(error) if error == "unsupported" => {}
+            Err(_) => {}
+        }
+
+        // The standard Hue Bridge may have no v2 discovery resource, so fall
+        // back to the classic v1 search for both lights and accessories.
+        self.start_device_discovery_v1(ip, application_key).await
+    }
+
+    pub async fn start_qr_device_discovery(
+        &self,
+        ip: &str,
+        application_key: &str,
+        qr_text: &str,
+    ) -> Result<(), String> {
+        let install_code = parse_hue_qr_install_code(qr_text)?;
+        let resource = self
+            .get_zigbee_device_discovery_resource(ip, application_key)
+            .await?
+            .ok_or_else(|| {
+                "This bridge does not expose Hue v2 Zigbee install-code discovery.".to_string()
+            })?;
+        let body = json!({
+            "add_install_codes": {
+                "install_codes": [{
+                    "mac_address": install_code.mac_address,
+                    "ic": install_code.install_code,
+                }],
+            },
+        });
+        self.put_v2(
+            ip,
+            application_key,
+            "zigbee_device_discovery",
+            &resource.id,
+            body,
+        )
+        .await?;
+        self.start_zigbee_device_discovery(ip, application_key, "search")
+            .await
+    }
+
+    pub async fn start_serial_light_discovery(
+        &self,
+        ip: &str,
+        application_key: &str,
+        serial: &str,
+    ) -> Result<(), String> {
+        let serial = normalize_hue_serial(serial)?;
+        self.search_v1_collection_with_body(
+            ip,
+            application_key,
+            "lights",
+            Some(json!({ "deviceid": [serial] })),
+        )
+        .await
+    }
+
+    async fn get_zigbee_device_discovery_resource(
+        &self,
+        ip: &str,
+        application_key: &str,
+    ) -> Result<Option<HueDeviceDiscoveryResource>, String> {
+        let resources: Vec<HueDeviceDiscoveryResource> = self
+            .get_v2(ip, application_key, "zigbee_device_discovery")
+            .await
+            .unwrap_or_default();
+
+        Ok(resources.into_iter().next())
+    }
+
+    async fn start_zigbee_device_discovery(
+        &self,
+        ip: &str,
+        application_key: &str,
+        action_type: &str,
+    ) -> Result<(), String> {
+        let resource = self
+            .get_zigbee_device_discovery_resource(ip, application_key)
+            .await?;
+        let Some(resource) = resource else {
+            return Err("unsupported".to_string());
+        };
+        let body = json!({ "action": { "action_type": action_type } });
+        self.put_v2(
+            ip,
+            application_key,
+            "zigbee_device_discovery",
+            &resource.id,
+            body,
+        )
+        .await
+        .map_err(|_| "The bridge rejected the device discovery request.".to_string())
+    }
+
+    /// Classic v1 fallback for bridges without the v2 `device_discovery`
+    /// resource. Scans the Zigbee network for new lights and accessories;
+    /// results surface through the normal resource refresh. The application key
+    /// doubles as the v1 username.
+    async fn start_device_discovery_v1(
+        &self,
+        ip: &str,
+        application_key: &str,
+    ) -> Result<(), String> {
+        self.search_v1_collection(ip, application_key, "lights")
+            .await?;
+        self.search_v1_collection(ip, application_key, "sensors")
+            .await
+    }
+
+    /// Triggers a v1 search on a collection via `POST /api/<key>/<collection>`
+    /// (`lights` or `sensors`).
+    async fn search_v1_collection(
+        &self,
+        ip: &str,
+        application_key: &str,
+        collection: &str,
+    ) -> Result<(), String> {
+        self.search_v1_collection_with_body(ip, application_key, collection, None)
+            .await
+    }
+
+    async fn search_v1_collection_with_body(
+        &self,
+        ip: &str,
+        application_key: &str,
+        collection: &str,
+        body: Option<Value>,
+    ) -> Result<(), String> {
+        let url = format!(
+            "http://{}/api/{}/{}",
+            format_host(ip),
+            application_key,
+            collection
+        );
+        let permit = bridge_semaphore().acquire().await.ok();
+        let request = self.client.post(&url);
+        let request = if let Some(body) = body {
+            request.json(&body)
+        } else {
+            request
+        };
+        let text = request
+            .send()
+            .await
+            .map_err(|error| format!("Failed to start {collection} search: {error}"))?
+            .text()
+            .await
+            .map_err(|error| format!("Failed to read {collection} search response: {error}"))?;
+        drop(permit);
+
+        // The v1 API reports failures as `[{ "error": { "description": ... } }]`.
+        if let Ok(entries) = serde_json::from_str::<Vec<Value>>(&text) {
+            if let Some(description) = entries.iter().find_map(|entry| {
+                entry
+                    .get("error")
+                    .and_then(|error| error.get("description"))
+                    .and_then(|description| description.as_str())
+            }) {
+                return Err(format!("Hue bridge error: {description}"));
+            }
+        }
+        Ok(())
     }
 
     // ---- Real-time event stream ---------------------------------------------
@@ -1280,6 +2416,395 @@ impl HueClient {
     }
 }
 
+fn ensure_supported_resource_type(resource_type: &str) -> Result<(), String> {
+    match resource_type {
+        "light"
+        | "room"
+        | "zone"
+        | "grouped_light"
+        | "scene"
+        | "smart_scene"
+        | "device"
+        | "button"
+        | "relative_rotary"
+        | "motion"
+        | "camera_motion"
+        | "temperature"
+        | "light_level"
+        | "contact"
+        | "tamper"
+        | "device_power"
+        | "zigbee_connectivity"
+        | "switch_input_configuration"
+        | "device_discovery" => Ok(()),
+        _ => Err(format!(
+            "Hue resource type '{resource_type}' is not supported by this app."
+        )),
+    }
+}
+
+fn insert_v2_transition(body: &mut Map<String, Value>, transition_ms: Option<u32>) {
+    if let Some(duration) = transition_ms {
+        body.insert("dynamics".to_string(), json!({ "duration": duration }));
+    }
+}
+
+#[allow(dead_code)]
+fn transition_ms_to_v1_transitiontime(transition_ms: u32) -> u32 {
+    ((transition_ms as f64) / 100.0).round() as u32
+}
+
+#[allow(dead_code)]
+fn brightness_pct_to_v1_bri(brightness_pct: f64) -> u8 {
+    if brightness_pct <= 0.0 {
+        return 0;
+    }
+
+    ((brightness_pct.clamp(0.0, 100.0) / 100.0) * 254.0)
+        .round()
+        .clamp(1.0, 254.0) as u8
+}
+
+fn scene_to_public(scene: HueSceneResource, fallback_type: &str) -> HueScene {
+    let resource_type = scene.rtype.clone().unwrap_or_else(|| fallback_type.to_string());
+    let status = extract_scene_status(&scene.extra);
+    let dynamic = scene.extra.contains_key("speed")
+        || scene.extra.contains_key("palette")
+        || scene.extra.contains_key("auto_dynamic")
+        || scene.extra.contains_key("dynamics");
+    let smart = resource_type == "smart_scene";
+    let group = scene.group.as_ref().map(|g| g.rid.clone());
+    let scene_type = scene.group.as_ref().map(|g| g.rtype.clone());
+    let colors = scene
+        .actions
+        .into_iter()
+        .filter_map(|entry| entry.action)
+        .filter_map(|action| {
+            if let Some(color) = action.color {
+                Some(SceneColor {
+                    xy: Some([color.xy.x, color.xy.y]),
+                    mirek: None,
+                })
+            } else if let Some(mirek) = action.color_temperature.and_then(|ct| ct.mirek) {
+                Some(SceneColor {
+                    xy: None,
+                    mirek: Some(mirek),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    HueScene {
+        id: scene.id,
+        name: scene.metadata.name,
+        resource_type,
+        group,
+        scene_type,
+        status,
+        dynamic,
+        smart,
+        colors,
+    }
+}
+
+fn snapshot_scene_body(
+    name: &str,
+    group_id: &str,
+    group_type: &str,
+    lights: &[HueLightResource],
+    include_effects: bool,
+) -> Value {
+    let actions = lights
+        .iter()
+        .map(|light| light_scene_action(light, include_effects))
+        .collect::<Vec<_>>();
+    json!({
+        "type": "scene",
+        "metadata": { "name": name },
+        "group": { "rid": group_id, "rtype": group_type },
+        "actions": actions,
+    })
+}
+
+fn light_scene_action(light: &HueLightResource, include_effects: bool) -> Value {
+    let mut action = Map::new();
+    action.insert("on".to_string(), json!({ "on": light.on.on }));
+    if let Some(dimming) = &light.dimming {
+        action.insert(
+            "dimming".to_string(),
+            json!({ "brightness": dimming.brightness }),
+        );
+    }
+    if let Some(color) = &light.color {
+        action.insert(
+            "color".to_string(),
+            json!({ "xy": { "x": color.xy.x, "y": color.xy.y } }),
+        );
+    }
+    if let Some(mirek) = light.color_temperature.as_ref().and_then(|ct| ct.mirek) {
+        action.insert("color_temperature".to_string(), json!({ "mirek": mirek }));
+    }
+    if include_effects {
+        if let Some(effect) = light
+            .effects_v2
+            .as_ref()
+            .and_then(|effects| extract_effect_id(effects.status.as_ref().or(effects.action.as_ref())))
+        {
+            action.insert(
+                "effects_v2".to_string(),
+                json!({ "action": { "effect": effect } }),
+            );
+        } else if let Some(effect) = light.effects.as_ref().and_then(|effects| effects.status.clone())
+        {
+            action.insert("effects".to_string(), json!({ "effect": effect }));
+        }
+    }
+
+    json!({
+        "target": { "rid": light.id, "rtype": "light" },
+        "action": action,
+    })
+}
+
+fn raw_resource_value(resource: &HueRawResource) -> Value {
+    let mut object = resource.extra.clone();
+    object.insert("id".to_string(), json!(resource.id.clone()));
+    if let Some(rtype) = &resource.rtype {
+        object.insert("type".to_string(), json!(rtype.clone()));
+    }
+    if let Some(owner) = &resource.owner {
+        object.insert(
+            "owner".to_string(),
+            json!({ "rid": owner.rid.clone(), "rtype": owner.rtype.clone() }),
+        );
+    }
+    if let Some(metadata) = &resource.metadata {
+        object.insert(
+            "metadata".to_string(),
+            json!({
+                "name": metadata.name.clone(),
+                "archetype": metadata.archetype.clone(),
+            }),
+        );
+    }
+    if let Some(enabled) = resource.enabled {
+        object.insert("enabled".to_string(), json!(enabled));
+    }
+    Value::Object(object)
+}
+
+fn device_public_map(devices: &[HueDeviceResource]) -> HashMap<String, (String, Option<String>)> {
+    devices
+        .iter()
+        .map(|device| {
+            let product = device.product_data.as_ref();
+            let name = device
+                .metadata
+                .as_ref()
+                .map(|metadata| metadata.name.clone())
+                .filter(|name| !name.is_empty())
+                .or_else(|| product.and_then(|product| product.product_name.clone()))
+                .unwrap_or_else(|| "Hue device".to_string());
+            (
+                device.id.clone(),
+                (name, product.and_then(|product| product.product_name.clone())),
+            )
+        })
+        .collect()
+}
+
+fn reachable_public_map(resources: &[HueZigbeeConnectivityResource]) -> HashMap<String, bool> {
+    resources
+        .iter()
+        .map(|resource| {
+            (
+                resource.owner.rid.clone(),
+                resource
+                    .status
+                    .as_deref()
+                    .map(zigbee_status_is_reachable)
+                    .unwrap_or(true),
+            )
+        })
+        .collect()
+}
+
+fn extract_scene_status(extra: &Map<String, Value>) -> Option<String> {
+    extra
+        .get("status")
+        .and_then(value_to_compact_string)
+        .or_else(|| extra.get("state").and_then(value_to_compact_string))
+        .or_else(|| extra.get("recall").and_then(value_to_compact_string))
+}
+
+fn extract_effect_id(value: Option<&Value>) -> Option<String> {
+    let value = value?;
+    if let Some(text) = value.as_str() {
+        return Some(text.to_string());
+    }
+    if let Some(object) = value.as_object() {
+        for key in ["effect", "status", "active", "active_effect", "action"] {
+            if let Some(found) = object.get(key).and_then(|entry| {
+                entry
+                    .as_str()
+                    .map(ToString::to_string)
+                    .or_else(|| extract_effect_id(Some(entry)))
+            }) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn summarize_resource_value(raw: &Value) -> Option<String> {
+    let rtype = raw.get("type").and_then(Value::as_str).unwrap_or_default();
+    match rtype {
+        "button" => find_nested_string(raw, "last_event")
+            .or_else(|| find_nested_string(raw, "event"))
+            .map(humanize_hue_value),
+        "relative_rotary" => find_nested_string(raw, "last_event")
+            .or_else(|| find_nested_string(raw, "action"))
+            .map(humanize_hue_value),
+        "motion" | "camera_motion" => find_nested_bool(raw, "motion")
+            .map(|motion| if motion { "Motion" } else { "No motion" }.to_string()),
+        "temperature" => find_nested_number(raw, "temperature")
+            .map(|value| format!("{:.1} °C", normalize_temperature(value))),
+        "light_level" => find_nested_number(raw, "light_level")
+            .or_else(|| find_nested_number(raw, "light_level_report"))
+            .map(|value| format!("{value:.0}")),
+        "contact" => find_nested_string(raw, "state")
+            .or_else(|| find_nested_bool(raw, "contact").map(|closed| {
+                if closed {
+                    "Closed".to_string()
+                } else {
+                    "Open".to_string()
+                }
+            })),
+        "tamper" => find_nested_string(raw, "state")
+            .or_else(|| find_nested_bool(raw, "tampered").map(|tampered| {
+                if tampered {
+                    "Tampered".to_string()
+                } else {
+                    "Clear".to_string()
+                }
+            })),
+        "device_power" => find_nested_number(raw, "battery_level")
+            .map(|value| format!("Battery {value:.0}%"))
+            .or_else(|| find_nested_string(raw, "battery_state").map(humanize_hue_value)),
+        _ => None,
+    }
+}
+
+fn extract_updated(raw: &Value) -> Option<String> {
+    find_nested_string(raw, "last_updated")
+        .or_else(|| find_nested_string(raw, "updated"))
+        .or_else(|| find_nested_string(raw, "time"))
+}
+
+fn extract_mode(raw: &Value) -> Option<String> {
+    find_nested_string(raw, "mode")
+        .or_else(|| find_nested_string(raw, "device_mode"))
+        .or_else(|| find_nested_string(raw, "switch_mode"))
+        .map(humanize_hue_value)
+}
+
+fn value_to_compact_string(value: &Value) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        return Some(humanize_hue_value(text.to_string()));
+    }
+    if let Some(bool_value) = value.as_bool() {
+        return Some(if bool_value { "Active" } else { "Inactive" }.to_string());
+    }
+    if let Some(number) = value.as_f64() {
+        return Some(format!("{number:.0}"));
+    }
+    if let Some(object) = value.as_object() {
+        for key in ["status", "state", "action", "active"] {
+            if let Some(found) = object.get(key).and_then(value_to_compact_string) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn find_nested_string(value: &Value, key: &str) -> Option<String> {
+    match value {
+        Value::Object(object) => {
+            if let Some(found) = object.get(key).and_then(Value::as_str) {
+                return Some(found.to_string());
+            }
+            object
+                .values()
+                .find_map(|nested| find_nested_string(nested, key))
+        }
+        Value::Array(items) => items
+            .iter()
+            .find_map(|nested| find_nested_string(nested, key)),
+        _ => None,
+    }
+}
+
+fn find_nested_bool(value: &Value, key: &str) -> Option<bool> {
+    match value {
+        Value::Object(object) => {
+            if let Some(found) = object.get(key).and_then(Value::as_bool) {
+                return Some(found);
+            }
+            object.values().find_map(|nested| find_nested_bool(nested, key))
+        }
+        Value::Array(items) => items.iter().find_map(|nested| find_nested_bool(nested, key)),
+        _ => None,
+    }
+}
+
+fn find_nested_number(value: &Value, key: &str) -> Option<f64> {
+    match value {
+        Value::Object(object) => {
+            if let Some(found) = object.get(key).and_then(Value::as_f64) {
+                return Some(found);
+            }
+            object
+                .values()
+                .find_map(|nested| find_nested_number(nested, key))
+        }
+        Value::Array(items) => items
+            .iter()
+            .find_map(|nested| find_nested_number(nested, key)),
+        _ => None,
+    }
+}
+
+fn normalize_temperature(value: f64) -> f64 {
+    if value.abs() > 100.0 {
+        value / 100.0
+    } else {
+        value
+    }
+}
+
+fn humanize_hue_value(value: String) -> String {
+    let mut result = String::new();
+    for (index, part) in value.split('_').filter(|part| !part.is_empty()).enumerate() {
+        if index > 0 {
+            result.push(' ');
+        }
+        let mut chars = part.chars();
+        if let Some(first) = chars.next() {
+            result.extend(first.to_uppercase());
+            result.push_str(chars.as_str());
+        }
+    }
+    if result.is_empty() {
+        value
+    } else {
+        result
+    }
+}
+
 fn bridge_matches(left: &str, right: &str) -> bool {
     left.eq_ignore_ascii_case(right)
 }
@@ -1331,13 +2856,55 @@ fn parse_event_block(block: &str) -> Option<Vec<HueEventUpdate>> {
     let mut updates = Vec::new();
     for container in containers {
         for resource in container.data {
+            let rtype = resource
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let id = resource
+                .get("id")
+                .and_then(Value::as_str)
+                .map(ToString::to_string);
+            let xy = resource
+                .pointer("/color/xy")
+                .and_then(|xy| {
+                    Some([
+                        xy.get("x")?.as_f64()?,
+                        xy.get("y")?.as_f64()?,
+                    ])
+                });
             updates.push(HueEventUpdate {
-                rtype: resource.rtype.unwrap_or_default(),
-                id: resource.id,
-                on: resource.on.map(|state| state.on),
-                brightness: resource.dimming.map(|state| state.brightness),
-                xy: resource.color.map(|c| [c.xy.x, c.xy.y]),
-                mirek: resource.color_temperature.and_then(|c| c.mirek),
+                rtype,
+                id,
+                on: resource.pointer("/on/on").and_then(Value::as_bool),
+                brightness: resource
+                    .pointer("/dimming/brightness")
+                    .and_then(Value::as_f64),
+                xy,
+                mirek: resource
+                    .pointer("/color_temperature/mirek")
+                    .and_then(Value::as_u64)
+                    .and_then(|value| u16::try_from(value).ok()),
+                effect: resource
+                    .get("effects")
+                    .and_then(|effects| {
+                        effects
+                            .get("status")
+                            .and_then(Value::as_str)
+                            .or_else(|| effects.get("effect").and_then(Value::as_str))
+                    })
+                    .map(ToString::to_string),
+                effect_v2: resource
+                    .get("effects_v2")
+                    .and_then(|effects| {
+                        extract_effect_id(
+                            effects
+                                .get("status")
+                                .or_else(|| effects.get("action"))
+                                .or(Some(effects)),
+                        )
+                    }),
+                value: summarize_resource_value(&resource),
             });
         }
     }
@@ -1347,6 +2914,85 @@ fn parse_event_block(block: &str) -> Option<Vec<HueEventUpdate>> {
 
 fn zigbee_status_is_reachable(status: &str) -> bool {
     matches!(status, "connected")
+}
+
+fn parse_hue_qr_install_code(qr_text: &str) -> Result<HueQrInstallCode, String> {
+    let trimmed = qr_text.trim();
+    if !trimmed.starts_with("HUE:") {
+        return Err("That QR code is not a Hue Zigbee QR code.".to_string());
+    }
+
+    let mut install_code: Option<String> = None;
+    let mut mac_address: Option<String> = None;
+    for part in trimmed.split_whitespace() {
+        if let Some(value) = part.strip_prefix("HUE:Z:").or_else(|| part.strip_prefix("Z:")) {
+            install_code = Some(value.to_ascii_uppercase());
+        } else if let Some(value) = part.strip_prefix("M:") {
+            mac_address = Some(value.to_ascii_uppercase());
+        }
+    }
+
+    let install_code = install_code.ok_or_else(|| {
+        "Hue QR code is missing a Zigbee install code.".to_string()
+    })?;
+    let mac_address =
+        mac_address.ok_or_else(|| "Hue QR code is missing a Zigbee MAC address.".to_string())?;
+
+    if install_code.len() != 36 || !install_code.chars().all(|char| char.is_ascii_hexdigit()) {
+        return Err("Hue QR install code must be 36 hexadecimal characters.".to_string());
+    }
+    if mac_address.len() != 16 || !mac_address.chars().all(|char| char.is_ascii_hexdigit()) {
+        return Err("Hue QR MAC address must be 16 hexadecimal characters.".to_string());
+    }
+
+    Ok(HueQrInstallCode {
+        mac_address,
+        install_code,
+    })
+}
+
+fn normalize_hue_serial(serial: &str) -> Result<String, String> {
+    let normalized = serial
+        .trim()
+        .chars()
+        .filter(|char| !char.is_whitespace() && *char != '-' && *char != ':')
+        .collect::<String>()
+        .to_ascii_uppercase();
+    if normalized.is_empty() {
+        return Err("Enter a Hue device serial number.".to_string());
+    }
+    if normalized.len() > 32 || !normalized.chars().all(|char| char.is_ascii_alphanumeric()) {
+        return Err("Hue serial number should contain only letters and numbers.".to_string());
+    }
+    Ok(normalized)
+}
+
+/// Buckets a device by its v2 service types for UI grouping. Lights take
+/// precedence, then switches/remotes (buttons and rotary dials), then sensors.
+/// Returns `None` for devices that are neither (e.g. the bridge itself).
+fn device_kind(service_types: &[&str]) -> Option<&'static str> {
+    if service_types.contains(&"light") {
+        Some("light")
+    } else if service_types
+        .iter()
+        .any(|rtype| matches!(*rtype, "button" | "relative_rotary"))
+    {
+        Some("switch")
+    } else if service_types.iter().any(|rtype| {
+        matches!(
+            *rtype,
+            "motion"
+                | "camera_motion"
+                | "temperature"
+                | "light_level"
+                | "contact"
+                | "tamper"
+        )
+    }) {
+        Some("sensor")
+    } else {
+        None
+    }
 }
 
 fn extract_hue_username(value: &Value) -> Result<String, String> {

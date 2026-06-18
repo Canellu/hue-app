@@ -65,8 +65,15 @@ export const LightDrawer: React.FC<LightDrawerProps> = ({
   onLightColor,
 }) => {
   const hasEffects = useMemo(
-    () => (light.effects ?? []).some((e) => e !== "no_effect"),
-    [light.effects],
+    () =>
+      [...(light.effectsV2 ?? []), ...(light.effects ?? [])].some(
+        (e) => e !== "no_effect",
+      ),
+    [light.effects, light.effectsV2],
+  );
+  const effectOptions = useMemo(
+    () => Array.from(new Set([...(light.effectsV2 ?? []), ...(light.effects ?? [])])),
+    [light.effects, light.effectsV2],
   );
 
   const availableTabs = useMemo<Tab[]>(() => {
@@ -177,11 +184,13 @@ export const LightDrawer: React.FC<LightDrawerProps> = ({
               {hasEffects && (
                 <TabsContent value="effects" className="py-4">
                   <div className="grid grid-cols-2 gap-2">
-                    {light.effects.map((effect) => (
+                    {effectOptions.map((effect) => (
                       <Button
                         key={effect}
                         variant={
-                          light.effect === effect ? "default" : "outline"
+                          light.effect === effect || light.effectV2 === effect
+                            ? "default"
+                            : "outline"
                         }
                         className="justify-start gap-2"
                         onClick={() => onLightColor(light, { effect })}

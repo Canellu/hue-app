@@ -1,10 +1,10 @@
+import { DebouncedSlider } from "@/components/DebouncedSlider";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
-import { DebouncedSlider } from "@/components/DebouncedSlider";
 import { roomZoneTileColor } from "@/features/space-screen/utils/color-state";
-import { getRoomZoneIcon } from "./room-zone-icons";
+import { cn } from "@/lib/utils";
 import type { HueLight, HueRoomZone } from "@/types/hue";
+import { getRoomZoneIcon } from "./room-zone-icons";
 
 interface SpaceTileProps {
   roomZone: HueRoomZone;
@@ -15,6 +15,24 @@ interface SpaceTileProps {
   onRoomZoneToggle: (roomZone: HueRoomZone, nextOn: boolean) => void;
   onRoomZoneBrightness: (roomZone: HueRoomZone, pct: number) => void;
 }
+
+// Pin the tile to the light-theme palette (mirrors the `:root` tokens in
+// App.css) so it renders identically in light and dark mode. Defining these
+// custom properties on the card overrides the inherited `.dark` values for the
+// whole subtree, including the Switch/Slider/Card child components.
+const LIGHT_THEME = {
+  "--background": "oklch(0.99 0 0)",
+  "--foreground": "oklch(0.145 0 0)",
+  "--card": "oklch(1 0 0)",
+  "--card-foreground": "oklch(0.145 0 0)",
+  "--muted": "oklch(0.97 0 0)",
+  "--muted-foreground": "oklch(0.556 0 0)",
+  "--accent": "oklch(0.97 0 0)",
+  "--accent-foreground": "oklch(0.205 0 0)",
+  "--border": "oklch(0.922 0 0)",
+  "--input": "oklch(0.922 0 0)",
+  "--ring": "oklch(0.708 0 0)",
+} as React.CSSProperties;
 
 /**
  * Presentational room/zone tile. Used directly on the Home screen and
@@ -29,7 +47,6 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
   onRoomZoneBrightness,
 }) => {
   const Icon = getRoomZoneIcon(roomZone.class);
-  const on = members.filter((light) => light.isOn).length;
   const pct = roomZone.brightness ?? 0;
   const tile = roomZoneTileColor(members);
   const controlsDisabled = editing || !roomZone.groupedLightId;
@@ -52,36 +69,32 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
             }
       }
       className={cn(
-        "min-h-36 justify-center gap-4 border-border/70 bg-card outline-none ring-0 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring dark:border-border/80 dark:bg-muted/55",
-        !editing && "cursor-pointer hover:bg-accent/70 dark:hover:bg-accent/55",
-        roomZone.anyOn && "bg-accent/80 dark:bg-accent/65",
+        "justify-center gap-6 transition-colors",
+        !editing && "cursor-pointer",
+        !editing && !tile.active && "hover:bg-accent/70",
       )}
+      style={
+        tile.active && tile.background
+          ? { ...LIGHT_THEME, background: tile.background }
+          : LIGHT_THEME
+      }
     >
-      <div className="flex items-center gap-4 px-5">
+      <div className="flex items-center gap-4 px-(--card-spacing)">
         <span
           className={cn(
-            "flex size-12 shrink-0 items-center justify-center rounded-full ring-1 ring-foreground/10",
-            tile.active ? "text-white" : "bg-muted text-muted-foreground",
+            "flex size-12 shrink-0 items-center justify-center",
+            tile.active ? "text-foreground" : "text-muted-foreground",
           )}
-          style={
-            tile.active && tile.background
-              ? { background: tile.background }
-              : undefined
-          }
         >
-          <Icon size={26} />
+          <Icon size={26} strokeWidth={2.5} />
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-medium">{roomZone.name}</p>
-          <p className="text-sm text-muted-foreground">
-            {roomZone.lightCount}{" "}
-            {roomZone.lightCount === 1 ? "light" : "lights"}
-            {on > 0 ? ` · ${on} on` : ""}
-          </p>
         </div>
         <div onClick={(e) => e.stopPropagation()}>
           <Switch
-            size="lg"
+            size="xl"
+            className="dark:data-checked:bg-foreground/35 dark:data-unchecked:bg-input dark:**:data-[slot=switch-thumb]:data-unchecked:bg-background"
             checked={roomZone.anyOn}
             disabled={controlsDisabled}
             aria-label={`Toggle ${roomZone.name}`}
@@ -90,12 +103,13 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
         </div>
       </div>
 
-      <div className="px-5" onClick={(e) => e.stopPropagation()}>
+      <div className="px-(--card-spacing)" onClick={(e) => e.stopPropagation()}>
         <DebouncedSlider
           value={roomZone.anyOn ? pct : 0}
           disabled={controlsDisabled}
           ariaLabel={`${roomZone.name} brightness`}
-          size="lg"
+          className="w-full **:data-[slot=slider-thumb]:size-5 **:data-[slot=slider-track]:bg-foreground/35 **:data-[slot=slider-range]:bg-transparent **:data-[slot=slider-range]:bg-linear-to-r **:data-[slot=slider-range]:from-white/50 **:data-[slot=slider-range]:to-white/90"
+          size="default"
           debounceMs={300}
           onCommit={(value) => onRoomZoneBrightness(roomZone, value)}
         />

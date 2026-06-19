@@ -167,7 +167,7 @@ export const LayoutSection: React.FC<LayoutSectionProps> = ({
         strategy={rectSortingStrategy}
         disabled={!editing}
       >
-        <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4">
           {roomZones.length === 0 ? (
             <div
               className={cn(

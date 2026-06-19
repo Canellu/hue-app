@@ -345,7 +345,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     {activeSectionCountText}
                   </span>
                 </header>
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4">
                   {activeSection.roomZones.length === 0 ? (
                     // Mirror LayoutSection's empty placeholder so a dragged empty
                     // section looks identical to its resting state.

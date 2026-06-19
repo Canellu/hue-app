@@ -112,10 +112,7 @@ export const RootLayout: React.FC = () => {
           className="min-h-0 flex-1"
           viewportClassName="px-12 py-6"
         >
-          {/* Named so route changes animate as a slide (see App.css). */}
-          <div className="[view-transition-name:page]">
-            <Outlet />
-          </div>
+          <Outlet />
         </ScrollArea>
       </div>
     </>

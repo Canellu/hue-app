@@ -1,3 +1,10 @@
+import { SensorReadingPill } from "@/components/SensorReadingPill";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -9,12 +16,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -25,6 +26,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -32,9 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import { SensorReadingPill } from "@/components/SensorReadingPill";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
@@ -47,9 +47,8 @@ import type {
   HueSettingsSummary,
   HueSwitchInputConfiguration,
 } from "@/types/hue";
-import { invoke } from "@tauri-apps/api/core";
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { toast } from "sonner";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Boxes,
   Check,
@@ -74,6 +73,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { toast } from "sonner";
 import { useHue } from "../../context/HueContext";
 import type { ThemeMode } from "../../context/ThemeContext";
 import { classifyDevice } from "./utils/devices";
@@ -453,8 +453,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
         void navigate({ to: "/settings", search: { tab } })
       }
       orientation="vertical"
+      className="min-h-full w-full"
     >
-      <div className="flex w-full flex-1 gap-6">
+      <div className="flex h-full w-full flex-1 items-start gap-6">
         <aside className="sticky top-0 flex w-16 shrink-0 flex-col gap-1 self-start rounded-2xl bg-muted/45 p-2 sm:w-60 dark:bg-muted/30">
           <TabsList
             className="h-auto w-full flex-col items-stretch gap-1 rounded-none bg-transparent p-0"
@@ -465,7 +466,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 key={value}
                 value={value}
                 title={label}
-                className="h-10 justify-start gap-2 rounded-xl px-3 data-active:bg-background max-sm:justify-center max-sm:px-0"
+                className="h-10 w-full flex-none justify-start gap-2 rounded-xl px-3 data-active:bg-background max-sm:justify-center max-sm:px-0"
               >
                 <Icon size={16} />
                 <span className="truncate max-sm:hidden">{label}</span>
@@ -474,378 +475,386 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           </TabsList>
         </aside>
         <div className="min-w-0 flex-1 space-y-5">
-        <div className="min-w-0">
-          {settingsError ? (
-            <p className="text-sm text-destructive">{settingsError}</p>
-          ) : actionMessage ? (
-            <p className="text-sm text-muted-foreground">{actionMessage}</p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Bridge and Hue setup details from your local network.
-            </p>
-          )}
-        </div>
+          <div className="min-w-0">
+            {settingsError ? (
+              <p className="text-sm text-destructive">{settingsError}</p>
+            ) : actionMessage ? (
+              <p className="text-sm text-muted-foreground">{actionMessage}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                Bridge and Hue setup details from your local network.
+              </p>
+            )}
+          </div>
 
-      <TabsContent value="bridge" className="space-y-5">
-        <BridgeHeader
-          connected={connected}
-          bridgeId={bridgeDetails?.bridgeId ?? bridgeId}
-          bridgeIp={bridgeDetails?.bridgeIp ?? bridgeIp}
-          productName={bridgeDetails?.productName}
-          isLoading={isLoadingSummary}
-        />
-        <Panel title="Bridge Details">
-          <dl className="grid gap-3 text-sm">
-            <MetaRow
-              label="Bridge ID"
-              value={bridgeDetails?.bridgeId ?? bridgeId}
+          <TabsContent value="bridge" className="space-y-5">
+            <BridgeHeader
+              connected={connected}
+              bridgeId={bridgeDetails?.bridgeId ?? bridgeId}
+              bridgeIp={bridgeDetails?.bridgeIp ?? bridgeIp}
+              productName={bridgeDetails?.productName}
+              isLoading={isLoadingSummary}
             />
-            <MetaRow
-              label="IP address"
-              value={bridgeDetails?.bridgeIp ?? bridgeIp}
-            />
-            <MetaRow label="Product" value={bridgeDetails?.productName} />
-            <MetaRow label="Model ID" value={bridgeDetails?.modelId} />
-            <MetaRow label="Firmware" value={bridgeDetails?.swVersion} />
-            <MetaRow
-              label="Application key"
-              value={
-                bridgeDetails?.applicationKeySaved
-                  ? "Saved on this device"
-                  : "Unknown"
-              }
-            />
-          </dl>
-        </Panel>
-      </TabsContent>
+            <Panel title="Bridge Details">
+              <dl className="grid gap-3 text-sm">
+                <MetaRow
+                  label="Bridge ID"
+                  value={bridgeDetails?.bridgeId ?? bridgeId}
+                />
+                <MetaRow
+                  label="IP address"
+                  value={bridgeDetails?.bridgeIp ?? bridgeIp}
+                />
+                <MetaRow label="Product" value={bridgeDetails?.productName} />
+                <MetaRow label="Model ID" value={bridgeDetails?.modelId} />
+                <MetaRow label="Firmware" value={bridgeDetails?.swVersion} />
+                <MetaRow
+                  label="Application key"
+                  value={
+                    bridgeDetails?.applicationKeySaved
+                      ? "Saved on this device"
+                      : "Unknown"
+                  }
+                />
+              </dl>
+            </Panel>
+          </TabsContent>
 
-      <TabsContent value="devices" className="space-y-5">
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative flex-1">
-              <Search
-                size={16}
-                className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
-              />
-              <Input
-                value={deviceQuery}
-                onChange={(event) => setDeviceQuery(event.target.value)}
-                placeholder="Search by name, product, or capability"
-                aria-label="Search devices"
-                className="pl-9 pr-9"
-              />
-              {deviceQuery && (
-                <button
-                  type="button"
-                  onClick={() => setDeviceQuery("")}
-                  aria-label="Clear search"
-                  className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
-                >
-                  <CircleX size={16} />
-                </button>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                type="button"
-                size="lg"
-                className="gap-2"
-                onClick={() =>
-                  void navigate({ to: "/settings/device-discovery" })
-                }
-                disabled={!summary?.deviceDiscoverySupported}
-              >
-                <Plus size={16} />
-                Add devices
-              </Button>
-              <Select
-                items={deviceStatusItems}
-                value={deviceStatus}
-                onValueChange={(value) =>
-                  setDeviceStatus(value as DeviceStatusFilter)
-                }
-              >
-                <SelectTrigger className="w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(
-                    Object.entries(deviceStatusItems) as Array<
-                      [DeviceStatusFilter, string]
+          <TabsContent value="devices" className="space-y-5">
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="relative flex-1">
+                  <Search
+                    size={16}
+                    className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <Input
+                    value={deviceQuery}
+                    onChange={(event) => setDeviceQuery(event.target.value)}
+                    placeholder="Search by name, product, or capability"
+                    aria-label="Search devices"
+                    className="pl-9 pr-9"
+                  />
+                  {deviceQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setDeviceQuery("")}
+                      aria-label="Clear search"
+                      className="absolute top-1/2 right-2 flex size-6 -translate-y-1/2 items-center justify-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
                     >
-                  ).map(([value, label]) => (
-                    <SelectItem key={value} value={value}>
-                      {label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                      <CircleX size={16} />
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="gap-2"
+                    onClick={() =>
+                      void navigate({ to: "/settings/device-discovery" })
+                    }
+                    disabled={!summary?.deviceDiscoverySupported}
+                  >
+                    <Plus size={16} />
+                    Add devices
+                  </Button>
+                  <Select
+                    items={deviceStatusItems}
+                    value={deviceStatus}
+                    onValueChange={(value) =>
+                      setDeviceStatus(value as DeviceStatusFilter)
+                    }
+                  >
+                    <SelectTrigger className="w-40">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(
+                        Object.entries(deviceStatusItems) as Array<
+                          [DeviceStatusFilter, string]
+                        >
+                      ).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Tabs
+                    value={deviceGrouping}
+                    onValueChange={(value) =>
+                      setDeviceGrouping(value as DeviceGrouping)
+                    }
+                    orientation="horizontal"
+                  >
+                    <TabsList aria-label="Device grouping">
+                      {deviceGroupingOptions.map(({ value, label }) => (
+                        <TabsTrigger key={value} value={value}>
+                          {label}
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-muted-foreground">
+                  Showing{" "}
+                  <span className="font-medium text-foreground">
+                    {matchCount}
+                  </span>{" "}
+                  of {totalCount} devices
+                  {(query || deviceStatus !== "all") && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="ml-2 h-7 gap-1.5 px-2 text-xs"
+                      onClick={() => {
+                        setDeviceQuery("");
+                        setDeviceStatus("all");
+                      }}
+                    >
+                      <FilterX size={14} />
+                      Clear filters
+                    </Button>
+                  )}
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={expandAllSections}
+                  >
+                    Expand all
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={collapseAllSections}
+                  >
+                    Collapse all
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {deviceGrouping === "type" ? (
+              matchCount === 0 ? (
+                <Panel title="Devices">
+                  <EmptyText>{emptyDevicesMessage}</EmptyText>
+                </Panel>
+              ) : (
+                <>
+                  {filteredLights.length > 0 && (
+                    <CollapsibleSection
+                      title="Lights"
+                      count={filteredLights.length}
+                      open={isSectionOpen("Lights")}
+                      onToggle={() => toggleSection("Lights")}
+                    >
+                      <div className="grid gap-3">
+                        {filteredLights.map((light) => (
+                          <EditableLightRow
+                            key={light.id}
+                            light={light}
+                            onRename={renameResource}
+                            onDelete={deleteResource}
+                          />
+                        ))}
+                      </div>
+                    </CollapsibleSection>
+                  )}
+
+                  {deviceGroups.switches.length > 0 && (
+                    <DeviceGroupPanel
+                      title="Switches"
+                      devices={deviceGroups.switches}
+                      servicesByDevice={accessoryServicesByDevice}
+                      switchConfigsByDevice={switchConfigsByDevice}
+                      isLoading={isLoadingSummary}
+                      open={isSectionOpen("Switches")}
+                      onToggle={() => toggleSection("Switches")}
+                      onDelete={deleteResource}
+                      onSaveSwitchConfig={saveSwitchConfig}
+                    />
+                  )}
+                  {deviceGroups.sensors.length > 0 && (
+                    <DeviceGroupPanel
+                      title="Sensors"
+                      devices={deviceGroups.sensors}
+                      servicesByDevice={accessoryServicesByDevice}
+                      switchConfigsByDevice={switchConfigsByDevice}
+                      isLoading={isLoadingSummary}
+                      open={isSectionOpen("Sensors")}
+                      onToggle={() => toggleSection("Sensors")}
+                      onDelete={deleteResource}
+                      onSaveSwitchConfig={saveSwitchConfig}
+                    />
+                  )}
+                  {deviceGroups.other.length > 0 && (
+                    <DeviceGroupPanel
+                      title="Other Devices"
+                      devices={deviceGroups.other}
+                      servicesByDevice={accessoryServicesByDevice}
+                      switchConfigsByDevice={switchConfigsByDevice}
+                      isLoading={isLoadingSummary}
+                      open={isSectionOpen("Other Devices")}
+                      onToggle={() => toggleSection("Other Devices")}
+                      onDelete={deleteResource}
+                      onSaveSwitchConfig={saveSwitchConfig}
+                    />
+                  )}
+                </>
+              )
+            ) : deviceRoomGroups.length === 0 ? (
+              <Panel title="Rooms">
+                <EmptyText>
+                  {isLoadingSummary
+                    ? "Loading devices..."
+                    : query || deviceStatus !== "all"
+                      ? "No devices match your filters."
+                      : "No devices are placed in a room yet."}
+                </EmptyText>
+              </Panel>
+            ) : (
+              deviceRoomGroups.map((group) => (
+                <DeviceGroupPanel
+                  key={group.title}
+                  title={group.title}
+                  devices={group.devices}
+                  servicesByDevice={accessoryServicesByDevice}
+                  switchConfigsByDevice={switchConfigsByDevice}
+                  isLoading={isLoadingSummary}
+                  open={isSectionOpen(group.title)}
+                  onToggle={() => toggleSection(group.title)}
+                  onDelete={deleteResource}
+                  onSaveSwitchConfig={saveSwitchConfig}
+                />
+              ))
+            )}
+          </TabsContent>
+
+          <TabsContent value="spaces" className="space-y-5">
+            <Panel title="Create Zone">
+              <CreateZoneForm
+                lights={lights}
+                name={zoneName}
+                selectedLightIds={zoneLightIds}
+                isSaving={isCreatingZone}
+                onNameChange={setZoneName}
+                onSelectedLightIdsChange={setZoneLightIds}
+                onSubmit={createZone}
+              />
+            </Panel>
+            <Panel title="Rooms & Zones">
+              <div className="grid gap-3">
+                {roomZones.map((roomZone) => (
+                  <SpaceManagementRow
+                    key={roomZone.id}
+                    roomZone={roomZone}
+                    devices={summary?.devices ?? []}
+                    lights={lights}
+                    onRename={renameResource}
+                    onDelete={deleteResource}
+                    onUpdateMembers={updateMembers}
+                  />
+                ))}
+                {roomZones.length === 0 && (
+                  <EmptyText>No rooms or zones loaded.</EmptyText>
+                )}
+              </div>
+            </Panel>
+          </TabsContent>
+
+          <TabsContent value="scenes" className="space-y-5">
+            <Panel title="Create Scene">
+              <CreateSceneForm
+                roomZones={roomZones}
+                name={sceneName}
+                selectedSpaceId={sceneSpaceId}
+                isSaving={isCreatingScene}
+                onNameChange={setSceneName}
+                onSpaceChange={setSceneSpaceId}
+                onSubmit={createScene}
+              />
+            </Panel>
+            <Panel title="Scenes">
+              <div className="grid gap-3">
+                {scenes.map((scene) => (
+                  <EditableSceneRow
+                    key={scene.id}
+                    scene={scene}
+                    space={
+                      scene.group ? spacesById.get(scene.group) : undefined
+                    }
+                    onRename={renameResource}
+                    onDelete={deleteResource}
+                  />
+                ))}
+                {scenes.length === 0 && (
+                  <EmptyText>No scenes loaded.</EmptyText>
+                )}
+              </div>
+            </Panel>
+          </TabsContent>
+
+          <TabsContent value="app" className="space-y-5">
+            <Panel title="Theme">
               <Tabs
-                value={deviceGrouping}
-                onValueChange={(value) =>
-                  setDeviceGrouping(value as DeviceGrouping)
-                }
+                value={themeMode}
+                onValueChange={(value) => onThemeModeChange(value as ThemeMode)}
+                orientation="horizontal"
               >
-                <TabsList aria-label="Device grouping">
-                  {deviceGroupingOptions.map(({ value, label }) => (
-                    <TabsTrigger key={value} value={value}>
+                <TabsList aria-label="Theme mode">
+                  {themeOptions.map(({ value, label, icon: Icon }) => (
+                    <TabsTrigger key={value} value={value} className="gap-2">
+                      <Icon size={16} />
                       {label}
                     </TabsTrigger>
                   ))}
                 </TabsList>
               </Tabs>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground">
-              Showing{" "}
-              <span className="font-medium text-foreground">{matchCount}</span>{" "}
-              of {totalCount} devices
-              {(query || deviceStatus !== "all") && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="ml-2 h-7 gap-1.5 px-2 text-xs"
-                  onClick={() => {
-                    setDeviceQuery("");
-                    setDeviceStatus("all");
-                  }}
-                >
-                  <FilterX size={14} />
-                  Clear filters
-                </Button>
-              )}
-            </p>
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={expandAllSections}
-              >
-                Expand all
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={collapseAllSections}
-              >
-                Collapse all
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        {deviceGrouping === "type" ? (
-          matchCount === 0 ? (
-            <Panel title="Devices">
-              <EmptyText>{emptyDevicesMessage}</EmptyText>
             </Panel>
-          ) : (
-            <>
-              {filteredLights.length > 0 && (
-                <CollapsibleSection
-                  title="Lights"
-                  count={filteredLights.length}
-                  open={isSectionOpen("Lights")}
-                  onToggle={() => toggleSection("Lights")}
+
+            <Panel title="Advanced">
+              <AlertDialog>
+                <AlertDialogTrigger
+                  render={
+                    <Button variant="destructive" className="gap-2" />
+                  }
                 >
-                  <div className="grid gap-3">
-                    {filteredLights.map((light) => (
-                      <EditableLightRow
-                        key={light.id}
-                        light={light}
-                        onRename={renameResource}
-                        onDelete={deleteResource}
-                      />
-                    ))}
-                  </div>
-                </CollapsibleSection>
-              )}
-
-              {deviceGroups.switches.length > 0 && (
-                <DeviceGroupPanel
-                  title="Switches"
-                  devices={deviceGroups.switches}
-                  servicesByDevice={accessoryServicesByDevice}
-                  switchConfigsByDevice={switchConfigsByDevice}
-                  isLoading={isLoadingSummary}
-                  open={isSectionOpen("Switches")}
-                  onToggle={() => toggleSection("Switches")}
-                  onDelete={deleteResource}
-                  onSaveSwitchConfig={saveSwitchConfig}
-                />
-              )}
-              {deviceGroups.sensors.length > 0 && (
-                <DeviceGroupPanel
-                  title="Sensors"
-                  devices={deviceGroups.sensors}
-                  servicesByDevice={accessoryServicesByDevice}
-                  switchConfigsByDevice={switchConfigsByDevice}
-                  isLoading={isLoadingSummary}
-                  open={isSectionOpen("Sensors")}
-                  onToggle={() => toggleSection("Sensors")}
-                  onDelete={deleteResource}
-                  onSaveSwitchConfig={saveSwitchConfig}
-                />
-              )}
-              {deviceGroups.other.length > 0 && (
-                <DeviceGroupPanel
-                  title="Other Devices"
-                  devices={deviceGroups.other}
-                  servicesByDevice={accessoryServicesByDevice}
-                  switchConfigsByDevice={switchConfigsByDevice}
-                  isLoading={isLoadingSummary}
-                  open={isSectionOpen("Other Devices")}
-                  onToggle={() => toggleSection("Other Devices")}
-                  onDelete={deleteResource}
-                  onSaveSwitchConfig={saveSwitchConfig}
-                />
-              )}
-            </>
-          )
-        ) : deviceRoomGroups.length === 0 ? (
-          <Panel title="Rooms">
-            <EmptyText>
-              {isLoadingSummary
-                ? "Loading devices..."
-                : query || deviceStatus !== "all"
-                  ? "No devices match your filters."
-                  : "No devices are placed in a room yet."}
-            </EmptyText>
-          </Panel>
-        ) : (
-          deviceRoomGroups.map((group) => (
-            <DeviceGroupPanel
-              key={group.title}
-              title={group.title}
-              devices={group.devices}
-              servicesByDevice={accessoryServicesByDevice}
-              switchConfigsByDevice={switchConfigsByDevice}
-              isLoading={isLoadingSummary}
-              open={isSectionOpen(group.title)}
-              onToggle={() => toggleSection(group.title)}
-              onDelete={deleteResource}
-              onSaveSwitchConfig={saveSwitchConfig}
-            />
-          ))
-        )}
-      </TabsContent>
-
-      <TabsContent value="spaces" className="space-y-5">
-        <Panel title="Create Zone">
-          <CreateZoneForm
-            lights={lights}
-            name={zoneName}
-            selectedLightIds={zoneLightIds}
-            isSaving={isCreatingZone}
-            onNameChange={setZoneName}
-            onSelectedLightIdsChange={setZoneLightIds}
-            onSubmit={createZone}
-          />
-        </Panel>
-        <Panel title="Rooms & Zones">
-          <div className="grid gap-3">
-            {roomZones.map((roomZone) => (
-              <SpaceManagementRow
-                key={roomZone.id}
-                roomZone={roomZone}
-                devices={summary?.devices ?? []}
-                lights={lights}
-                onRename={renameResource}
-                onDelete={deleteResource}
-                onUpdateMembers={updateMembers}
-              />
-            ))}
-            {roomZones.length === 0 && (
-              <EmptyText>No rooms or zones loaded.</EmptyText>
-            )}
-          </div>
-        </Panel>
-      </TabsContent>
-
-      <TabsContent value="scenes" className="space-y-5">
-        <Panel title="Create Scene">
-          <CreateSceneForm
-            roomZones={roomZones}
-            name={sceneName}
-            selectedSpaceId={sceneSpaceId}
-            isSaving={isCreatingScene}
-            onNameChange={setSceneName}
-            onSpaceChange={setSceneSpaceId}
-            onSubmit={createScene}
-          />
-        </Panel>
-        <Panel title="Scenes">
-          <div className="grid gap-3">
-            {scenes.map((scene) => (
-              <EditableSceneRow
-                key={scene.id}
-                scene={scene}
-                space={scene.group ? spacesById.get(scene.group) : undefined}
-                onRename={renameResource}
-                onDelete={deleteResource}
-              />
-            ))}
-            {scenes.length === 0 && <EmptyText>No scenes loaded.</EmptyText>}
-          </div>
-        </Panel>
-      </TabsContent>
-
-      <TabsContent value="app" className="space-y-5">
-        <Panel title="Theme">
-          <Tabs
-            value={themeMode}
-            onValueChange={(value) => onThemeModeChange(value as ThemeMode)}
-          >
-            <TabsList size="xl" aria-label="Theme mode">
-              {themeOptions.map(({ value, label, icon: Icon }) => (
-                <TabsTrigger key={value} value={value} className="gap-2">
-                  <Icon size={18} />
-                  {label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-        </Panel>
-
-        <Panel title="Advanced">
-          <AlertDialog>
-            <AlertDialogTrigger
-              render={
-                <Button variant="destructive" size="xl" className="gap-2" />
-              }
-            >
-              <Power size={18} />
-              Remove bridge & reset
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Remove bridge?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This removes the saved bridge and credentials from this
-                  device. You'll need to pair again to control your lights.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel size="xl">Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  variant="destructive"
-                  size="xl"
-                  className="gap-2"
-                  onClick={() => void resetSession()}
-                >
-                  <Power size={18} />
-                  Remove bridge
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </Panel>
-      </TabsContent>
+                  <Power size={16} />
+                  Remove bridge & reset
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Remove bridge?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This removes the saved bridge and credentials from this
+                      device. You'll need to pair again to control your lights.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel size="xl">Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      variant="destructive"
+                      size="xl"
+                      className="gap-2"
+                      onClick={() => void resetSession()}
+                    >
+                      <Power size={18} />
+                      Remove bridge
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </Panel>
+          </TabsContent>
         </div>
       </div>
     </Tabs>
@@ -1421,25 +1430,25 @@ const ResourceChecklist = ({
       viewportClassName="p-2"
     >
       <div className="grid gap-2">
-      {options.map((option) => (
-        <label
-          key={option.id}
-          className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-muted/60"
-        >
-          <input
-            type="checkbox"
-            className="size-4 accent-primary"
-            checked={selected.has(option.id)}
-            onChange={() => onToggle(option.id)}
-          />
-          <span className="min-w-0 flex-1">
-            <span className="block truncate font-medium">{option.name}</span>
-            <span className="block truncate text-xs text-muted-foreground">
-              {resourceOptionMeta(option)}
+        {options.map((option) => (
+          <label
+            key={option.id}
+            className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-muted/60"
+          >
+            <input
+              type="checkbox"
+              className="size-4 accent-primary"
+              checked={selected.has(option.id)}
+              onChange={() => onToggle(option.id)}
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate font-medium">{option.name}</span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {resourceOptionMeta(option)}
+              </span>
             </span>
-          </span>
-        </label>
-      ))}
+          </label>
+        ))}
       </div>
     </ScrollArea>
   );
@@ -1575,95 +1584,95 @@ const DeviceRow = ({
 }) => (
   <Card size="sm" className="bg-background/70">
     <CardContent>
-    <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        <p className="text-xs text-muted-foreground">
-          {device.productArchetype
-            ? humanize(device.productArchetype)
-            : "Hue device"}
-        </p>
-        <p className="truncate font-medium">{device.name}</p>
-      </div>
-      <div className="flex shrink-0 items-center gap-1">
-        <Badge variant={device.reachable ? "secondary" : "destructive"}>
-          {device.reachable ? "Reachable" : "Unreachable"}
-        </Badge>
-        {!isBridgeDevice(device) && (
-          <DeleteResourceButton
-            label={device.name}
-            description={`Delete device "${device.name}" from the bridge.`}
-            onDelete={() => onDelete("device", device.id)}
-          />
-        )}
-      </div>
-    </div>
-
-    {(() => {
-      const readings = services.filter((service) => service.value);
-      if (readings.length === 0) return null;
-      return (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {readings.map((service) => (
-            <SensorReadingPill key={service.id} service={service} />
-          ))}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-xs text-muted-foreground">
+            {device.productArchetype
+              ? humanize(device.productArchetype)
+              : "Hue device"}
+          </p>
+          <p className="truncate font-medium">{device.name}</p>
         </div>
-      );
-    })()}
-
-    <dl className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">
-      <DeviceField label="Product" value={device.productName} />
-      <DeviceField label="Model" value={device.modelId} />
-      <DeviceField label="Firmware" value={device.swVersion} />
-      <DeviceField label="Zigbee ID" value={device.uniqueId} mono />
-    </dl>
-
-    {device.serviceTypes.length > 0 && (
-      <div className="mt-3">
-        <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-          Capabilities
-        </p>
-        <div className="flex flex-wrap gap-1">
-          {device.serviceTypes.map((serviceType) => (
-            <Badge key={serviceType} variant="outline">
-              {humanize(serviceType)}
-            </Badge>
-          ))}
+        <div className="flex shrink-0 items-center gap-1">
+          <Badge variant={device.reachable ? "secondary" : "destructive"}>
+            {device.reachable ? "Reachable" : "Unreachable"}
+          </Badge>
+          {!isBridgeDevice(device) && (
+            <DeleteResourceButton
+              label={device.name}
+              description={`Delete device "${device.name}" from the bridge.`}
+              onDelete={() => onDelete("device", device.id)}
+            />
+          )}
         </div>
       </div>
-    )}
 
-    {(services.length > 0 || switchConfigs.length > 0) && (
-      <Accordion className="mt-3">
-        {services.length > 0 && (
-          <AccordionItem value="services">
-            <AccordionTrigger>Accessory state</AccordionTrigger>
-            <AccordionContent>
-              <div className="grid gap-2">
-                {services.map((service) => (
-                  <AccessoryServiceRow key={service.id} service={service} />
-                ))}
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-        )}
-        {switchConfigs.length > 0 && (
-          <AccordionItem value="switch-config">
-            <AccordionTrigger>Switch input configuration</AccordionTrigger>
-            <AccordionContent>
-              <div className="grid gap-2">
-                {switchConfigs.map((config) => (
-                  <SwitchConfigEditor
-                    key={config.id}
-                    config={config}
-                    onSave={onSaveSwitchConfig}
-                  />
-                ))}
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-        )}
-      </Accordion>
-    )}
+      {(() => {
+        const readings = services.filter((service) => service.value);
+        if (readings.length === 0) return null;
+        return (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {readings.map((service) => (
+              <SensorReadingPill key={service.id} service={service} />
+            ))}
+          </div>
+        );
+      })()}
+
+      <dl className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">
+        <DeviceField label="Product" value={device.productName} />
+        <DeviceField label="Model" value={device.modelId} />
+        <DeviceField label="Firmware" value={device.swVersion} />
+        <DeviceField label="Zigbee ID" value={device.uniqueId} mono />
+      </dl>
+
+      {device.serviceTypes.length > 0 && (
+        <div className="mt-3">
+          <p className="mb-1.5 text-xs font-medium text-muted-foreground">
+            Capabilities
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {device.serviceTypes.map((serviceType) => (
+              <Badge key={serviceType} variant="outline">
+                {humanize(serviceType)}
+              </Badge>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(services.length > 0 || switchConfigs.length > 0) && (
+        <Accordion className="mt-3">
+          {services.length > 0 && (
+            <AccordionItem value="services">
+              <AccordionTrigger>Accessory state</AccordionTrigger>
+              <AccordionContent>
+                <div className="grid gap-2">
+                  {services.map((service) => (
+                    <AccessoryServiceRow key={service.id} service={service} />
+                  ))}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          )}
+          {switchConfigs.length > 0 && (
+            <AccordionItem value="switch-config">
+              <AccordionTrigger>Switch input configuration</AccordionTrigger>
+              <AccordionContent>
+                <div className="grid gap-2">
+                  {switchConfigs.map((config) => (
+                    <SwitchConfigEditor
+                      key={config.id}
+                      config={config}
+                      onSave={onSaveSwitchConfig}
+                    />
+                  ))}
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          )}
+        </Accordion>
+      )}
     </CardContent>
   </Card>
 );

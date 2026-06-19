@@ -108,7 +108,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
             This room or zone has no individual lights.
           </p>
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-3">
             {lights.map((light) => (
               <LightCard
                 key={light.id}

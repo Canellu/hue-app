@@ -2,8 +2,14 @@
 
 import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
 import { cva, type VariantProps } from "class-variance-authority";
+import { createContext, useContext } from "react";
 
 import { cn } from "@/lib/utils";
+
+type TabsOrientation = NonNullable<TabsPrimitive.Root.Props["orientation"]>;
+
+const TabsOrientationContext =
+  createContext<TabsOrientation>("horizontal");
 
 function Tabs({
   className,
@@ -11,20 +17,19 @@ function Tabs({
   ...props
 }: TabsPrimitive.Root.Props) {
   return (
-    <TabsPrimitive.Root
-      data-slot="tabs"
-      data-orientation={orientation}
-      className={cn(
-        "group/tabs flex gap-2 data-horizontal:flex-col",
-        className,
-      )}
-      {...props}
-    />
+    <TabsOrientationContext.Provider value={orientation}>
+      <TabsPrimitive.Root
+        data-slot="tabs"
+        data-orientation={orientation}
+        className={cn("flex gap-2 data-horizontal:flex-col", className)}
+        {...props}
+      />
+    </TabsOrientationContext.Provider>
   );
 }
 
 const tabsListVariants = cva(
-  "group/tabs-list inline-flex w-fit items-center justify-center rounded-4xl text-muted-foreground group-data-vertical/tabs:h-fit group-data-vertical/tabs:flex-col group-data-vertical/tabs:rounded-2xl data-[variant=line]:rounded-none",
+  "group/tabs-list inline-flex w-fit items-center justify-center rounded-4xl text-muted-foreground data-[orientation=vertical]:h-fit data-[orientation=vertical]:flex-col data-[orientation=vertical]:rounded-2xl data-[variant=line]:rounded-none",
   {
     variants: {
       variant: {
@@ -32,9 +37,9 @@ const tabsListVariants = cva(
         line: "gap-1 bg-transparent",
       },
       size: {
-        default: "p-[3px] group-data-horizontal/tabs:h-9",
-        lg: "p-1 group-data-horizontal/tabs:h-10",
-        xl: "rounded-3xl p-1 group-data-horizontal/tabs:h-12",
+        default: "p-[3px] data-[orientation=horizontal]:h-9",
+        lg: "p-1 data-[orientation=horizontal]:h-10",
+        xl: "rounded-3xl p-1 data-[orientation=horizontal]:h-12",
       },
     },
     defaultVariants: {
@@ -50,9 +55,12 @@ function TabsList({
   size = "default",
   ...props
 }: TabsPrimitive.List.Props & VariantProps<typeof tabsListVariants>) {
+  const orientation = useContext(TabsOrientationContext);
+
   return (
     <TabsPrimitive.List
       data-slot="tabs-list"
+      data-orientation={orientation}
       data-variant={variant}
       data-size={size}
       className={cn(tabsListVariants({ variant, size }), className)}
@@ -62,14 +70,17 @@ function TabsList({
 }
 
 function TabsTrigger({ className, ...props }: TabsPrimitive.Tab.Props) {
+  const orientation = useContext(TabsOrientationContext);
+
   return (
     <TabsPrimitive.Tab
       data-slot="tabs-trigger"
+      data-orientation={orientation}
       className={cn(
-        "relative inline-flex h-full flex-1 items-center justify-center gap-1.5 rounded-xl border border-transparent px-2 py-1 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-[size=lg]/tabs-list:gap-1.5 group-data-[size=lg]/tabs-list:rounded-2xl group-data-[size=lg]/tabs-list:px-3 group-data-[size=xl]/tabs-list:gap-2 group-data-[size=xl]/tabs-list:rounded-[1.25rem] group-data-[size=xl]/tabs-list:px-4 group-data-[size=xl]/tabs-list:text-base group-data-vertical/tabs:w-full group-data-vertical/tabs:justify-start group-data-vertical/tabs:px-2.5 group-data-vertical/tabs:py-1.5 hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 group-data-[size=xl]/tabs-list:has-data-[icon=inline-end]:pr-3 group-data-[size=xl]/tabs-list:has-data-[icon=inline-start]:pl-3 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground group-data-[variant=default]/tabs-list:data-active:shadow-sm dark:group-data-[variant=default]/tabs-list:data-active:shadow-none group-data-[variant=line]/tabs-list:data-active:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[size=xl]/tabs-list:[&_svg:not([class*='size-'])]:size-5",
+        "relative inline-flex h-full flex-1 items-center justify-center gap-1.5 rounded-xl border border-transparent px-2 py-1 text-sm font-medium whitespace-nowrap text-foreground/60 transition-all group-data-[size=lg]/tabs-list:gap-1.5 group-data-[size=lg]/tabs-list:rounded-2xl group-data-[size=lg]/tabs-list:px-3 group-data-[size=xl]/tabs-list:gap-2 group-data-[size=xl]/tabs-list:rounded-[1.25rem] group-data-[size=xl]/tabs-list:px-4 group-data-[size=xl]/tabs-list:text-base data-[orientation=vertical]:w-full data-[orientation=vertical]:justify-start data-[orientation=vertical]:px-2.5 data-[orientation=vertical]:py-1.5 hover:text-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 focus-visible:outline-ring disabled:pointer-events-none disabled:opacity-50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 group-data-[size=xl]/tabs-list:has-data-[icon=inline-end]:pr-3 group-data-[size=xl]/tabs-list:has-data-[icon=inline-start]:pl-3 aria-disabled:pointer-events-none aria-disabled:opacity-50 dark:text-muted-foreground dark:hover:text-foreground group-data-[variant=default]/tabs-list:data-active:shadow-sm dark:group-data-[variant=default]/tabs-list:data-active:shadow-none group-data-[variant=line]/tabs-list:data-active:shadow-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 group-data-[size=xl]/tabs-list:[&_svg:not([class*='size-'])]:size-5",
         "group-data-[variant=line]/tabs-list:bg-transparent group-data-[variant=line]/tabs-list:data-active:bg-transparent dark:group-data-[variant=line]/tabs-list:data-active:border-transparent dark:group-data-[variant=line]/tabs-list:data-active:bg-transparent",
         "data-active:bg-background data-active:text-foreground dark:data-active:border-input dark:data-active:bg-input/30 dark:data-active:text-foreground",
-        "after:absolute after:bg-foreground after:opacity-0 after:transition-opacity group-data-horizontal/tabs:after:inset-x-0 group-data-horizontal/tabs:after:bottom-[-5px] group-data-horizontal/tabs:after:h-0.5 group-data-vertical/tabs:after:inset-y-0 group-data-vertical/tabs:after:-right-1 group-data-vertical/tabs:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100",
+        "after:absolute after:bg-foreground after:opacity-0 after:transition-opacity data-[orientation=horizontal]:after:inset-x-0 data-[orientation=horizontal]:after:bottom-[-5px] data-[orientation=horizontal]:after:h-0.5 data-[orientation=vertical]:after:inset-y-0 data-[orientation=vertical]:after:-right-1 data-[orientation=vertical]:after:w-0.5 group-data-[variant=line]/tabs-list:data-active:after:opacity-100",
         className,
       )}
       {...props}

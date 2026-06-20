@@ -4,9 +4,16 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import {
+  sceneBrightness,
   sceneBubbleCss,
   sceneHexes,
 } from "@/features/space-screen/utils/color-state";
+import {
+  HUE_DYNAMIC_SPEED_MAX_STEP,
+  HUE_DYNAMIC_SPEED_MIN_STEP,
+  hueDynamicSpeedStepToValue,
+  hueDynamicSpeedValueToStep,
+} from "@/lib/hue-speed";
 import { activeTileTheme } from "@/lib/tile-theme";
 import { cn } from "@/lib/utils";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
@@ -17,26 +24,6 @@ import { SidePane } from "./SidePane";
 
 // The Hue bridge rejects resource names longer than 32 characters.
 const MAX_NAME_LENGTH = 32;
-const SPEED_MIN = 1;
-const SPEED_MAX = 12;
-
-const sceneBrightness = (scene: HueScene): number => {
-  const max = scene.actions.reduce(
-    (acc, action) => Math.max(acc, action.brightness ?? 0),
-    0,
-  );
-  return Math.round(max > 0 ? max : 100);
-};
-
-const sceneSpeedToStep = (speed: number | null | undefined): number =>
-  Math.min(
-    SPEED_MAX,
-    Math.max(SPEED_MIN, Math.round((speed ?? 0.5) * (SPEED_MAX - 1)) + 1),
-  );
-
-const sceneSpeedFromStep = (step: number): number =>
-  (Math.min(SPEED_MAX, Math.max(SPEED_MIN, Math.round(step))) - 1) /
-  (SPEED_MAX - 1);
 
 interface ScenePaneProps {
   scene: HueScene;
@@ -85,7 +72,7 @@ export const ScenePane: React.FC<ScenePaneProps> = ({ scene, onClose }) => {
         {scene.dynamic && (
           <PresetRow
             label="Speed"
-            value={`${sceneSpeedToStep(scene.speed)} of ${SPEED_MAX}`}
+            value={`${hueDynamicSpeedValueToStep(scene.speed)} of ${HUE_DYNAMIC_SPEED_MAX_STEP}`}
           />
         )}
         {scene.dynamic && (
@@ -166,7 +153,9 @@ const SceneEditPane: React.FC<{
   const [brightness, setBrightness] = useState(() =>
     Math.round(sceneBrightness(scene)),
   );
-  const [speed, setSpeed] = useState(sceneSpeedToStep(scene.speed));
+  const [speed, setSpeed] = useState(() =>
+    hueDynamicSpeedValueToStep(scene.speed),
+  );
   const [autoDynamic, setAutoDynamic] = useState(scene.autoDynamic);
   const [renaming, setRenaming] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
@@ -187,7 +176,7 @@ const SceneEditPane: React.FC<{
     if (!active) return;
     setName(scene.name);
     setBrightness(Math.round(sceneBrightness(scene)));
-    setSpeed(sceneSpeedToStep(scene.speed));
+    setSpeed(hueDynamicSpeedValueToStep(scene.speed));
     setAutoDynamic(scene.autoDynamic);
     setRenaming(false);
     setDeletePending(false);
@@ -218,8 +207,8 @@ const SceneEditPane: React.FC<{
       if (brightness !== Math.round(sceneBrightness(scene))) {
         setSceneBrightness(scene, brightness);
       }
-      if (scene.dynamic && speed !== sceneSpeedToStep(scene.speed)) {
-        await setSceneSpeed(scene, sceneSpeedFromStep(speed));
+      if (scene.dynamic && speed !== hueDynamicSpeedValueToStep(scene.speed)) {
+        await setSceneSpeed(scene, hueDynamicSpeedStepToValue(speed));
       }
       if (scene.dynamic && autoDynamic !== scene.autoDynamic) {
         await setSceneAutoplay(scene, autoDynamic);
@@ -347,8 +336,8 @@ const SceneEditPane: React.FC<{
                 </div>
                 <PacedSlider
                   value={speed}
-                  min={SPEED_MIN}
-                  max={SPEED_MAX}
+                  min={HUE_DYNAMIC_SPEED_MIN_STEP}
+                  max={HUE_DYNAMIC_SPEED_MAX_STEP}
                   step={1}
                   disabled={isSaving || deletePending}
                   ariaLabel={`${scene.name} dynamic speed`}

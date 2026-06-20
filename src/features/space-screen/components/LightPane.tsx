@@ -28,23 +28,20 @@ import { lightColorHex } from "@/features/space-screen/utils/color-state";
 import { activeTileTheme } from "@/lib/tile-theme";
 import { cn } from "@/lib/utils";
 import {
+  getLightIcon,
+  LIGHT_ICON_OPTIONS,
+} from "@/features/space-screen/utils/light-icons";
+import {
   type LightColorChange,
   useHueResourcesStore,
 } from "@/stores/HueResourcesStore";
 import type { HueLight, HueRoomZone } from "@/types/hue";
 import { invoke } from "@tauri-apps/api/core";
 import {
-  Flame,
-  Lamp,
-  LampCeiling,
-  LampDesk,
-  LampFloor,
   Lightbulb,
   Loader2,
-  type LucideIcon,
   Pencil,
   Sparkles,
-  Spotlight,
   Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -92,21 +89,6 @@ const TAB_LABELS: Record<Tab, string> = {
   effects: "Effects",
 };
 
-const ICON_OPTIONS: { value: string; label: string; Icon: LucideIcon }[] = [
-  { value: "classic_bulb", label: "Classic bulb", Icon: Lightbulb },
-  { value: "sultan_bulb", label: "Bulb", Icon: Lightbulb },
-  { value: "candle_bulb", label: "Candle bulb", Icon: Flame },
-  { value: "spot_bulb", label: "Spot bulb", Icon: Spotlight },
-  { value: "recessed_ceiling", label: "Recessed ceiling", Icon: LampCeiling },
-  { value: "ceiling_round", label: "Round ceiling", Icon: LampCeiling },
-  { value: "ceiling_square", label: "Square ceiling", Icon: LampCeiling },
-  { value: "pendant_round", label: "Pendant", Icon: Lamp },
-  { value: "floor_shade", label: "Floor lamp", Icon: LampFloor },
-  { value: "table_shade", label: "Table lamp", Icon: LampDesk },
-  { value: "light_strip", label: "Light strip", Icon: Lightbulb },
-  { value: "hue_go", label: "Hue Go", Icon: Lightbulb },
-];
-
 // What the light is used for. Hue uses this when assigning scene colors:
 // task ("functional") lights get usable whites, decorative lights get ambiance.
 const FUNCTION_OPTIONS = [
@@ -118,11 +100,6 @@ const FUNCTION_OPTIONS = [
 const effectLabel = (id: string): string =>
   EFFECT_LABELS[id] ??
   id.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-
-// Resolves a fixture's v2 archetype (e.g. "table_shade") to its icon, falling
-// back to a generic bulb for anything unmapped.
-const getLightIcon = (archetype: string | null): LucideIcon =>
-  ICON_OPTIONS.find((option) => option.value === archetype)?.Icon ?? Lightbulb;
 
 export const LightPane: React.FC<LightPaneProps> = ({
   light,
@@ -355,12 +332,12 @@ const EditPane: React.FC<{
   }, [light, active, roomZones]);
 
   const iconOptions = useMemo(() => {
-    if (!icon || ICON_OPTIONS.some((option) => option.value === icon)) {
-      return ICON_OPTIONS;
+    if (!icon || LIGHT_ICON_OPTIONS.some((option) => option.value === icon)) {
+      return LIGHT_ICON_OPTIONS;
     }
     return [
       { value: icon, label: labelFromHueId(icon), Icon: Lightbulb },
-      ...ICON_OPTIONS,
+      ...LIGHT_ICON_OPTIONS,
     ];
   }, [icon]);
 

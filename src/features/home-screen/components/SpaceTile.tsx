@@ -2,7 +2,10 @@ import { PacedSlider } from "@/components/PacedSlider";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { roomZoneTileColor } from "@/features/space-screen/utils/color-state";
-import { activeTileTheme, TILE_BRIGHTNESS_SLIDER_CLASS } from "@/lib/tile-theme";
+import {
+  activeTileTheme,
+  TILE_BRIGHTNESS_SLIDER_CLASS,
+} from "@/lib/tile-theme";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { cn } from "@/lib/utils";
 import type { HueLight, HueRoomZone } from "@/types/hue";
@@ -67,7 +70,11 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
         {
           "--tile-ease": `${UI_EASE_MS.tileBackground}ms`,
           ...(tile.active && tile.background
-            ? activeTileTheme(tile.background, tile.glow ?? tile.background, pct)
+            ? activeTileTheme(
+                tile.background,
+                tile.glow ?? tile.background,
+                pct,
+              )
             : null),
         } as React.CSSProperties
       }

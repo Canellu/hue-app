@@ -25,6 +25,7 @@ export const SpaceRoute: React.FC = () => {
     setRoomZoneState,
     setLightState,
     createGalleryScene,
+    setGallerySceneOnce,
     previewGalleryScene,
     endGalleryPreview,
     activateScene,
@@ -41,6 +42,7 @@ export const SpaceRoute: React.FC = () => {
       setRoomZoneState: state.setRoomZoneState,
       setLightState: state.setLightState,
       createGalleryScene: state.createGalleryScene,
+      setGallerySceneOnce: state.setGallerySceneOnce,
       previewGalleryScene: state.previewGalleryScene,
       endGalleryPreview: state.endGalleryPreview,
       activateScene: state.activateScene,
@@ -148,6 +150,9 @@ export const SpaceRoute: React.FC = () => {
       onSceneTogglePlay={(scene) => void activateScene(scene, "dynamic")}
       onDynamicSpeedLive={(scene, step) => setDynamicSpeedLive(scene, step)}
       onGallerySceneCreate={(preset) => createGalleryScene(roomZone, preset)}
+      onGallerySceneApplyOnce={(preset) =>
+        setGallerySceneOnce(roomZone, preset)
+      }
       onGalleryScenePreview={(preset) => previewGalleryScene(roomZone, preset)}
       onGalleryScenePreviewEnd={() => endGalleryPreview()}
     />

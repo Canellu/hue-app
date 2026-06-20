@@ -206,5 +206,9 @@ export interface HueEventUpdate {
   colorMode: string | null;
   effect: string | null;
   effectV2: string | null;
+  /** Dynamic-palette speed (0-1), when a scene or live dynamics update carries it. */
+  speed: number | null;
+  /** Whether a dynamic scene auto-starts when recalled as active. */
+  autoDynamic: boolean | null;
   value: string | null;
 }

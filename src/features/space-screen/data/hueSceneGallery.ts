@@ -3,6 +3,7 @@ import {
   distinctHexes,
   paletteToCss,
 } from "@/features/space-screen/utils/color";
+import { hueDynamicSpeedStepToValue } from "@/lib/hue-speed";
 
 export interface HueGallerySceneColor {
   xy: [number, number] | null;
@@ -15,7 +16,18 @@ export interface HueGalleryScenePreset {
   name: string;
   brightness: number;
   colors: HueGallerySceneColor[];
+  /** Multi-color palettes play as dynamic scenes on the bridge. */
+  dynamic: boolean;
+  /** Raw bridge speed value (only meaningful when `dynamic`). */
+  speed: number;
 }
+
+/**
+ * Default playback speed for dynamic gallery presets. Step 4 matches the
+ * bridge's own default for a freshly created gallery scene, so the gallery
+ * label agrees with what the scene reads back as once saved.
+ */
+const DEFAULT_DYNAMIC_SPEED = hueDynamicSpeedStepToValue(4);
 
 export interface HueGallerySceneSection {
   id: string;
@@ -41,7 +53,15 @@ const preset = (
   name: string,
   brightness: number,
   colors: HueGallerySceneColor[],
-): HueGalleryScenePreset => ({ id, name, brightness, colors });
+  speed: number = DEFAULT_DYNAMIC_SPEED,
+): HueGalleryScenePreset => ({
+  id,
+  name,
+  brightness,
+  colors,
+  dynamic: colors.length > 1,
+  speed,
+});
 
 export const gallerySceneBubbleCss = (
   preset: HueGalleryScenePreset,

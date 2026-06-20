@@ -12,6 +12,10 @@ import {
   writeStoredHomeLayout,
 } from "@/features/home-screen/utils/homeLayout";
 import type { HueGalleryScenePreset } from "@/features/space-screen/data/hueSceneGallery";
+import {
+  hueDynamicSpeedStepToValue,
+  hueDynamicSpeedValueToStep,
+} from "@/lib/hue-speed";
 import { TRANSITION_MS } from "@/lib/transitions";
 import type { HomeGroupingMode, HomeLayout } from "@/types/app-layout";
 import type {
@@ -108,11 +112,20 @@ export interface HueResourcesState extends LayoutState {
   ) => void;
   /** Restores the pre-preview light state, if a preview is still pending. */
   endGalleryPreview: () => void;
+  /**
+   * Applies a gallery preset to the room's lights and keeps it — like a preview
+   * that's committed rather than reverted. Does not create a scene resource.
+   */
+  setGallerySceneOnce: (
+    roomZone: HueRoomZone,
+    preset: HueGalleryScenePreset,
+  ) => void;
   activateScene: (scene: HueScene, intent?: SceneIntent) => Promise<void>;
   /**
-   * Transiently changes the speed of a currently-playing dynamic scene by
-   * re-recalling its palette with a new duration. Does not persist onto the
-   * scene — it only reflects the current playback.
+   * Changes the cadence of a currently-playing dynamic scene by writing its
+   * `speed` property and re-recalling the palette so the new speed takes effect
+   * immediately. The bridge has no transient/live speed separate from the
+   * scene's stored `speed`, so this also persists onto the scene.
    */
   setDynamicSpeedLive: (scene: HueScene, step: number) => void;
   renameScene: (scene: HueScene, name: string) => Promise<void>;
@@ -325,28 +338,6 @@ const sceneInvokeCommand = (scene: HueScene, intent: SceneIntent): string =>
         : "start-dynamic-scene"
       : "activate-scene";
 
-// Live dynamic-palette speed. The bridge animates the palette over the recall
-// `duration`, so a faster step maps to a shorter transition. This is a transient
-// playback tweak (re-recall with a new duration); it never edits the saved scene.
-const DYNAMIC_LIVE_SPEED_MIN_STEP = 1;
-const DYNAMIC_LIVE_SPEED_MAX_STEP = 12;
-const DYNAMIC_LIVE_SPEED_SLOW_MS = 8000;
-const DYNAMIC_LIVE_SPEED_FAST_MS = 600;
-
-const dynamicLiveSpeedDurationMs = (step: number): number => {
-  const clamped = Math.min(
-    DYNAMIC_LIVE_SPEED_MAX_STEP,
-    Math.max(DYNAMIC_LIVE_SPEED_MIN_STEP, Math.round(step)),
-  );
-  const t =
-    (clamped - DYNAMIC_LIVE_SPEED_MIN_STEP) /
-    (DYNAMIC_LIVE_SPEED_MAX_STEP - DYNAMIC_LIVE_SPEED_MIN_STEP);
-  return Math.round(
-    DYNAMIC_LIVE_SPEED_SLOW_MS +
-      (DYNAMIC_LIVE_SPEED_FAST_MS - DYNAMIC_LIVE_SPEED_SLOW_MS) * t,
-  );
-};
-
 const sceneActionHasColor = (action: HueScene["actions"][number]): boolean =>
   action.xy != null || action.mirek != null;
 
@@ -485,6 +476,8 @@ const coalesceHueEvents = (updates: HueEventUpdate[]): HueEventUpdate[] => {
       colorMode: update.colorMode ?? previous.colorMode,
       effect: update.effect ?? previous.effect,
       effectV2: update.effectV2 ?? previous.effectV2,
+      speed: update.speed ?? previous.speed,
+      autoDynamic: update.autoDynamic ?? previous.autoDynamic,
       value: update.value ?? previous.value,
     });
   }
@@ -724,12 +717,36 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
                 (sum, light) => sum + (light.brightness ?? 0),
                 0,
               ) / onMembers.length
-            : roomZone.brightness,
+          : roomZone.brightness,
         };
       });
 
+      const liveDynamicSpeedByGroupId = new Map<string, number>();
+      for (const roomZone of state.roomZones) {
+        const groupedChange = changes.find(
+          (u) =>
+            u.type === "grouped_light" &&
+            u.id === roomZone.groupedLightId &&
+            u.speed != null,
+        );
+        if (groupedChange?.speed != null) {
+          liveDynamicSpeedByGroupId.set(roomZone.id, groupedChange.speed);
+          continue;
+        }
+
+        const memberChange = changes.find(
+          (u) =>
+            u.type === "light" &&
+            u.speed != null &&
+            roomZone.lightIds.includes(u.id ?? ""),
+        );
+        if (memberChange?.speed != null) {
+          liveDynamicSpeedByGroupId.set(roomZone.id, memberChange.speed);
+        }
+      }
+
       const scenes =
-        sceneChanges.length === 0
+        sceneChanges.length === 0 && liveDynamicSpeedByGroupId.size === 0
           ? state.scenes
           : state.scenes.map((scene) => {
               const change = sceneChanges.find(
@@ -737,7 +754,20 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
                   candidate.id === scene.id &&
                   candidate.type === scene.resourceType,
               );
-              return change?.value ? { ...scene, status: change.value } : scene;
+              const liveDynamicSpeed =
+                scene.group != null && isSceneDynamicActive(scene)
+                  ? liveDynamicSpeedByGroupId.get(scene.group)
+                  : undefined;
+              if (!change && liveDynamicSpeed == null) return scene;
+              return {
+                ...scene,
+                ...(change?.value ? { status: change.value } : {}),
+                ...(change?.speed != null ? { speed: change.speed } : {}),
+                ...(liveDynamicSpeed != null ? { speed: liveDynamicSpeed } : {}),
+                ...(change?.autoDynamic != null
+                  ? { autoDynamic: change.autoDynamic }
+                  : {}),
+              };
             });
 
       return { lights, roomZones, scenes };
@@ -935,6 +965,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
         groupType: roomZone.resourceType,
         brightness: preset.brightness,
         colors: preset.colors.map(({ xy, mirek }) => ({ xy, mirek })),
+        speed: preset.dynamic ? preset.speed : null,
       });
 
       set((state) => ({
@@ -1019,6 +1050,13 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
         setLightState(light, false, null, "final");
       }
     }
+  },
+
+  setGallerySceneOnce: (roomZone, preset) => {
+    // Apply the preset to the real lights, then drop the restore snapshot so the
+    // state sticks instead of reverting when the gallery is dismissed.
+    get().previewGalleryScene(roomZone, preset);
+    galleryPreviewSnapshot = null;
   },
 
   activateScene: async (scene, intent = "apply") => {
@@ -1171,12 +1209,22 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   },
 
   setDynamicSpeedLive: (scene, step) => {
-    void invoke("start-dynamic-scene", {
-      sceneId: scene.id,
-      transitionMs: dynamicLiveSpeedDurationMs(step),
-    }).catch((e) => {
-      set({ error: String(e) || "Unable to change dynamic speed." });
-    });
+    const speed = hueDynamicSpeedStepToValue(step);
+    patchSceneLocal(set, scene, { speed });
+    void (async () => {
+      try {
+        await invoke("update-hue-resource", {
+          resourceType: scene.resourceType,
+          id: scene.id,
+          body: { speed },
+        });
+        // Updating `speed` only re-paces the palette once the scene is recalled
+        // again; without this the running animation keeps its old cadence.
+        await invoke("start-dynamic-scene", { sceneId: scene.id });
+      } catch (e) {
+        set({ error: String(e) || "Unable to change dynamic speed." });
+      }
+    })();
   },
 
   renameScene: async (scene, name) => {
@@ -1206,13 +1254,15 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   },
 
   setSceneSpeed: async (scene, speed) => {
-    const clamped = Math.min(1, Math.max(0, speed));
-    patchSceneLocal(set, scene, { speed: clamped });
+    const stepped = hueDynamicSpeedStepToValue(
+      hueDynamicSpeedValueToStep(speed),
+    );
+    patchSceneLocal(set, scene, { speed: stepped });
     try {
       await invoke("update-hue-resource", {
         resourceType: scene.resourceType,
         id: scene.id,
-        body: { speed: clamped },
+        body: { speed: stepped },
       });
     } catch (e) {
       set({ error: String(e) || "Unable to set scene speed." });

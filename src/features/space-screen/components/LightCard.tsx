@@ -1,4 +1,3 @@
-import { Lightbulb } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -9,6 +8,7 @@ import {
 } from "@/lib/tile-theme";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { lightColorHex } from "@/features/space-screen/utils/color-state";
+import { getLightIcon } from "@/features/space-screen/utils/light-icons";
 import type { HueLight } from "@/types/hue";
 
 type ControlCommitPhase = "live" | "final";
@@ -38,6 +38,7 @@ export const LightCard: React.FC<LightCardProps> = ({
   const color = light.isOn ? lightColorHex(light) : null;
   const active = color != null;
   const unreachable = !light.reachable;
+  const DeviceIcon = getLightIcon(light.typeName);
 
   return (
     <Card
@@ -73,7 +74,7 @@ export const LightCard: React.FC<LightCardProps> = ({
             active ? "text-foreground" : "text-muted-foreground",
           )}
         >
-          <Lightbulb size={26} strokeWidth={2.5} />
+          <DeviceIcon size={26} strokeWidth={2.5} />
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-medium" title={light.name}>

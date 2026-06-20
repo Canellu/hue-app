@@ -47,7 +47,13 @@ function ScrollArea({
         ref={viewportRef}
         data-slot="scroll-area-viewport"
         className={cn(
-          "size-full overscroll-contain rounded-[inherit] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          "size-full rounded-[inherit] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          // Only contain overscroll on the axis we actually own so cross-axis
+          // wheel events chain up to the page (e.g. vertical scroll over a
+          // horizontal rail).
+          orientation === "vertical" && "overscroll-y-contain",
+          orientation === "horizontal" && "overscroll-x-contain",
+          orientation === "both" && "overscroll-contain",
           // Only fades an edge once there's content to scroll toward, driven by
           // the Root's data-overflow-{x,y}-{start,end} attributes.
           (fadeTop || fadeBottom) &&

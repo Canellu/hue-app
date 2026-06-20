@@ -306,10 +306,7 @@ export const mirekToXy = (mireds: number): [number, number] => {
   const t = 1_000_000 / mireds; // kelvin
   const x =
     t <= 4000
-      ? -0.2661239e9 / t ** 3 -
-        0.2343589e6 / t ** 2 +
-        0.8776956e3 / t +
-        0.17991
+      ? -0.2661239e9 / t ** 3 - 0.2343589e6 / t ** 2 + 0.8776956e3 / t + 0.17991
       : -3.0258469e9 / t ** 3 +
         2.1070379e6 / t ** 2 +
         0.2226347e3 / t +

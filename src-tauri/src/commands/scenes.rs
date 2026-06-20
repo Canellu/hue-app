@@ -156,6 +156,7 @@ pub async fn create_hue_gallery_scene(
     group_type: String,
     colors: Vec<HueSceneRecipeColor>,
     brightness: f64,
+    speed: Option<f64>,
 ) -> Result<HueScene, String> {
     let client = HueClient::new()?;
     let stored_bridge = client.get_stored_bridge(&app)?;
@@ -169,6 +170,7 @@ pub async fn create_hue_gallery_scene(
             &group_type,
             &colors,
             brightness,
+            speed,
         )
         .await
 }

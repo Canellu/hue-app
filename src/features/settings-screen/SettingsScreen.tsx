@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { hueDynamicSpeedValueToStep } from "@/lib/hue-speed";
 import { cn } from "@/lib/utils";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type {
@@ -1071,7 +1072,7 @@ const EditableSceneRow = ({
       scene.status,
       scene.dynamic
         ? scene.speed != null
-          ? `Dynamic speed ${Math.round(scene.speed * 11) + 1}`
+          ? `Dynamic speed ${hueDynamicSpeedValueToStep(scene.speed)}`
           : "Dynamic"
         : null,
       `${scene.colors.length} ${scene.colors.length === 1 ? "color" : "colors"}`,

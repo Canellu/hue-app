@@ -35,6 +35,19 @@ export const sceneBubbleCss = (scene: HueScene): string | null =>
   paletteToCss(sceneHexes(scene));
 
 /**
+ * The scene's overall brightness (0–100): the brightest of its per-light
+ * actions, since that's what reads as the scene's intensity. Falls back to 100
+ * when no action carries a brightness.
+ */
+export const sceneBrightness = (scene: HueScene): number => {
+  const max = scene.actions.reduce(
+    (acc, action) => Math.max(acc, action.brightness ?? 0),
+    0,
+  );
+  return Math.round(max > 0 ? max : 100);
+};
+
+/**
  * Visual state for a Room/Zone tile, derived from the live color of its
  * currently-on lights.
  *

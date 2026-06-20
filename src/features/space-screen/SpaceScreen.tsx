@@ -15,6 +15,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import {
   roomZoneTileColor,
+  sceneBrightness,
   sceneBubbleCss,
   sceneHexes,
 } from "@/features/space-screen/utils/color-state";
@@ -22,6 +23,11 @@ import {
   activeTileTheme,
   TILE_BRIGHTNESS_SLIDER_CLASS,
 } from "@/lib/tile-theme";
+import {
+  HUE_DYNAMIC_SPEED_MAX_STEP,
+  HUE_DYNAMIC_SPEED_MIN_STEP,
+  hueDynamicSpeedValueToStep,
+} from "@/lib/hue-speed";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { cn } from "@/lib/utils";
 import type {
@@ -54,15 +60,6 @@ import {
 
 const WHEEL_DELTA_LINE = 1;
 const WHEEL_DELTA_PAGE = 2;
-
-const SPEED_MIN = 1;
-const SPEED_MAX = 12;
-
-const sceneSpeedToStep = (speed: number | null | undefined): number =>
-  Math.min(
-    SPEED_MAX,
-    Math.max(SPEED_MIN, Math.round((speed ?? 0.5) * (SPEED_MAX - 1)) + 1),
-  );
 
 const normalizeSceneStatus = (status: string | null | undefined): string =>
   status?.trim().toLowerCase().replace(/_/g, " ") ?? "";
@@ -147,6 +144,8 @@ interface SpaceScreenProps {
   /** Transient speed change for the scene that is currently playing. */
   onDynamicSpeedLive: (scene: HueScene, step: number) => void;
   onGallerySceneCreate: (preset: HueGalleryScenePreset) => Promise<void>;
+  /** Apply a gallery preset to the room's lights once, without saving a scene. */
+  onGallerySceneApplyOnce: (preset: HueGalleryScenePreset) => void;
   /** Live-preview a gallery preset on the room's real lights (no save). */
   onGalleryScenePreview: (preset: HueGalleryScenePreset) => void;
   /** Revert the live preview when the gallery is dismissed without adding. */
@@ -170,6 +169,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
   onSceneTogglePlay,
   onDynamicSpeedLive,
   onGallerySceneCreate,
+  onGallerySceneApplyOnce,
   onGalleryScenePreview,
   onGalleryScenePreviewEnd,
 }) => {
@@ -190,12 +190,13 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
   useAnimateOnResize(lightsGridRef);
 
   const showScenes = scenes.length > 0 || lights.length > 0;
+  // Saving keeps the gallery open — closing is explicit (the X or backdrop) so
+  // the user can keep auditioning presets and add several without reopening.
   const handleGallerySceneCreate = async (preset: HueGalleryScenePreset) => {
     if (pendingGallerySceneId != null) return;
     setPendingGallerySceneId(preset.id);
     try {
       await onGallerySceneCreate(preset);
-      setSceneGalleryOpen(false);
     } finally {
       setPendingGallerySceneId(null);
     }
@@ -307,6 +308,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
             pendingSceneId={pendingGallerySceneId}
             onOpenChange={handleGalleryOpenChange}
             onScenePreview={onGalleryScenePreview}
+            onSceneApplyOnce={onGallerySceneApplyOnce}
             onSceneCreate={handleGallerySceneCreate}
           />
         </div>
@@ -363,15 +365,21 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
 
 /**
  * Live speed control for the dynamic scene currently playing in this space.
- * Seeded from the scene's saved speed but its changes are transient — they only
- * re-pace the running playback and are never written back to the scene.
+ * Seeded from the scene's saved speed; changes re-pace the running playback and
+ * are written back to the scene (the bridge has no speed separate from `speed`).
  */
 const DynamicSpeedControl: React.FC<{
   scene: HueScene;
   active: boolean;
   onSpeedLive: (scene: HueScene, step: number) => void;
 }> = ({ scene, active, onSpeedLive }) => {
-  const [step, setStep] = useState(() => sceneSpeedToStep(scene.speed));
+  const [step, setStep] = useState(() =>
+    hueDynamicSpeedValueToStep(scene.speed),
+  );
+
+  useEffect(() => {
+    setStep(hueDynamicSpeedValueToStep(scene.speed));
+  }, [scene.id, scene.speed]);
 
   return (
     <div className="flex flex-col gap-2 border-t border-foreground/10 px-6 pt-4">
@@ -396,8 +404,8 @@ const DynamicSpeedControl: React.FC<{
       </div>
       <PacedSlider
         value={step}
-        min={SPEED_MIN}
-        max={SPEED_MAX}
+        min={HUE_DYNAMIC_SPEED_MIN_STEP}
+        max={HUE_DYNAMIC_SPEED_MAX_STEP}
         step={1}
         ariaLabel={`${scene.name} live dynamic speed`}
         className={TILE_BRIGHTNESS_SLIDER_CLASS}
@@ -431,6 +439,8 @@ const SceneTile: React.FC<{
   fullWidth?: boolean;
   /** Small label pinned to the top-right corner (e.g. brightness). */
   cornerLabel?: React.ReactNode;
+  /** Small label pinned to the top-left corner (e.g. dynamic speed). */
+  cornerLabelLeft?: React.ReactNode;
   disabled?: boolean;
   ariaPressed?: boolean;
   className?: string;
@@ -442,6 +452,7 @@ const SceneTile: React.FC<{
   activeBackground = false,
   fullWidth = false,
   cornerLabel,
+  cornerLabelLeft,
   disabled = false,
   ariaPressed,
   className,
@@ -487,6 +498,18 @@ const SceneTile: React.FC<{
         {cornerLabel}
       </span>
     )}
+    {cornerLabelLeft != null && (
+      <span
+        className={cn(
+          "pointer-events-none absolute top-3 left-3 flex items-center gap-0.5 text-xs font-medium tabular-nums",
+          activeBackground
+            ? "text-foreground/80 drop-shadow"
+            : "text-muted-foreground",
+        )}
+      >
+        {cornerLabelLeft}
+      </span>
+    )}
     <div className="mt-2 flex">{visual}</div>
     <span className="flex h-10 min-w-0 flex-col items-center justify-center">
       <span
@@ -527,7 +550,11 @@ const SceneCard: React.FC<{
       }
       style={
         activeBackground && bubble
-          ? activeTileTheme(bubble, sceneHexes(scene)[0] ?? bubble)
+          ? activeTileTheme(
+              bubble,
+              sceneHexes(scene)[0] ?? bubble,
+              sceneBrightness(scene),
+            )
           : undefined
       }
       onActivate={() => onApply(scene)}
@@ -584,12 +611,12 @@ const SceneCardVisual: React.FC<{
         }}
         onKeyDown={(event) => event.stopPropagation()}
         className={cn(
-          "flex aspect-square shrink-0 items-center justify-center rounded-full ring-1 backdrop-blur-sm outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring",
+          "flex aspect-square shrink-0 items-center justify-center rounded-full shadow-sm ring-1 ring-foreground/15 backdrop-blur-sm outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring",
           showBubble
-            ? "text-white ring-white/25 shadow-sm"
+            ? "text-white"
             : active || bubble
-              ? "bg-white/30 text-white ring-white/20"
-              : "bg-foreground/15 text-foreground ring-foreground/10",
+              ? "bg-white/30 text-white"
+              : "bg-foreground/15 text-foreground",
           size,
         )}
         style={showBubble ? { background: bubble } : undefined}
@@ -643,7 +670,7 @@ const SceneGalleryCard: React.FC<{
         onOpen();
       }
     }}
-    className="h-40 w-36 shrink-0 cursor-pointer items-center justify-center gap-4 rounded-[1.75rem] border border-border bg-background px-4 text-center outline-none transition-colors hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring"
+    className="h-40 w-36 shrink-0 cursor-pointer items-center justify-center gap-4 rounded-[1.75rem] border-2 border-border bg-background px-4 text-center shadow-none outline-none transition-colors hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring"
   >
     <span className="flex items-center -space-x-3">
       {HUE_SCENE_GALLERY_PREVIEWS.map((preset, index) => {
@@ -683,6 +710,7 @@ const SceneGalleryDialog: React.FC<{
   pendingSceneId: string | null;
   onOpenChange: (open: boolean) => void;
   onScenePreview: (preset: HueGalleryScenePreset) => void;
+  onSceneApplyOnce: (preset: HueGalleryScenePreset) => void;
   onSceneCreate: (preset: HueGalleryScenePreset) => Promise<void>;
 }> = ({
   open,
@@ -690,21 +718,62 @@ const SceneGalleryDialog: React.FC<{
   pendingSceneId,
   onOpenChange,
   onScenePreview,
+  onSceneApplyOnce,
   onSceneCreate,
 }) => {
   const [previewedPreset, setPreviewedPreset] =
     useState<HueGalleryScenePreset | null>(null);
+  // Brief acknowledgement shown on a button after an action lands, since the
+  // gallery stays open (closing is explicit) and otherwise nothing would change.
+  const [confirmation, setConfirmation] = useState<null | "saved" | "set">(
+    null,
+  );
+  const confirmationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flashConfirmation = (kind: "saved" | "set") => {
+    setConfirmation(kind);
+    if (confirmationTimer.current) clearTimeout(confirmationTimer.current);
+    confirmationTimer.current = setTimeout(() => setConfirmation(null), 1400);
+  };
 
   // Forget the in-modal selection when the gallery closes; the parent's
   // onOpenChange is what reverts the lights themselves.
   useEffect(() => {
-    if (!open) setPreviewedPreset(null);
+    if (!open) {
+      setPreviewedPreset(null);
+      setConfirmation(null);
+      if (confirmationTimer.current) clearTimeout(confirmationTimer.current);
+    }
   }, [open]);
+
+  useEffect(
+    () => () => {
+      if (confirmationTimer.current) clearTimeout(confirmationTimer.current);
+    },
+    [],
+  );
 
   const adding = pendingSceneId != null;
   const handlePreview = (preset: HueGalleryScenePreset) => {
+    setConfirmation(null);
     setPreviewedPreset(preset);
     onScenePreview(preset);
+  };
+
+  const handleSetOnce = () => {
+    if (!previewedPreset) return;
+    onSceneApplyOnce(previewedPreset);
+    flashConfirmation("set");
+  };
+
+  const handleSave = async () => {
+    if (!previewedPreset || adding) return;
+    try {
+      await onSceneCreate(previewedPreset);
+      flashConfirmation("saved");
+    } catch {
+      // The store surfaces the error in the space view; leave the modal open.
+    }
   };
 
   return (
@@ -713,7 +782,8 @@ const SceneGalleryDialog: React.FC<{
         <DialogHeader>
           <DialogTitle>Hue scene gallery</DialogTitle>
           <DialogDescription>
-            Tap a preset to preview it live in {roomZoneName}, then add it.
+            Tap a preset to preview it live in {roomZoneName}. Set once applies
+            it now; Save to {roomZoneName} keeps it as a scene.
           </DialogDescription>
         </DialogHeader>
         <ScrollArea
@@ -739,14 +809,16 @@ const SceneGalleryDialog: React.FC<{
                   </Badge>
                 </div>
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">
-                  {section.scenes.map((preset) => (
-                    <GalleryPresetCard
-                      key={preset.id}
-                      preset={preset}
-                      previewed={preset.id === previewedPreset?.id}
-                      onPreview={handlePreview}
-                    />
-                  ))}
+                  {[...section.scenes]
+                    .sort((a, b) => a.brightness - b.brightness)
+                    .map((preset) => (
+                      <GalleryPresetCard
+                        key={preset.id}
+                        preset={preset}
+                        previewed={preset.id === previewedPreset?.id}
+                        onPreview={handlePreview}
+                      />
+                    ))}
                 </div>
               </section>
             ))}
@@ -758,18 +830,25 @@ const SceneGalleryDialog: React.FC<{
               ? `Previewing ${previewedPreset.name}`
               : "Tap a preset to preview it live."}
           </p>
-          <Button
-            disabled={!previewedPreset || adding}
-            onClick={() => {
-              if (previewedPreset) void onSceneCreate(previewedPreset);
-            }}
-          >
-            {adding
-              ? "Adding…"
-              : previewedPreset
-                ? `Add to ${roomZoneName}`
-                : "Add to room"}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              disabled={!previewedPreset || adding}
+              onClick={handleSetOnce}
+            >
+              {confirmation === "set" ? "Set" : "Set once"}
+            </Button>
+            <Button
+              disabled={!previewedPreset || adding}
+              onClick={() => void handleSave()}
+            >
+              {adding
+                ? "Saving…"
+                : confirmation === "saved"
+                  ? "Saved"
+                  : `Save to ${roomZoneName}`}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -791,7 +870,16 @@ const GalleryPresetCard: React.FC<{
       ariaPressed={previewed}
       activeBackground={activeBackground}
       cornerLabel={`${Math.round(preset.brightness)}%`}
-      className={activeBackground ? "text-foreground" : "hover:bg-accent/70"}
+      cornerLabelLeft={
+        preset.dynamic
+          ? hueDynamicSpeedValueToStep(preset.speed)
+          : undefined
+      }
+      className={
+        activeBackground
+          ? "text-foreground"
+          : "border border-border bg-transparent shadow-none hover:bg-accent/70"
+      }
       style={
         activeBackground && bubble
           ? activeTileTheme(bubble, preset.colors[0]?.hex ?? bubble)

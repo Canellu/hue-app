@@ -330,6 +330,10 @@ pub struct HueEventUpdate {
     pub effect: Option<String>,
     /// Active `effects_v2` identifier when the event carries one.
     pub effect_v2: Option<String>,
+    /// Dynamic-palette speed (0–1), when a scene or live dynamics update carries it.
+    pub speed: Option<f64>,
+    /// Whether a dynamic scene auto-starts when recalled as active.
+    pub auto_dynamic: Option<bool>,
     /// Compact display value for accessory/sensor events.
     pub value: Option<String>,
 }
@@ -1856,6 +1860,7 @@ impl HueClient {
         group_type: &str,
         colors: &[HueSceneRecipeColor],
         brightness: f64,
+        requested_speed: Option<f64>,
     ) -> Result<HueScene, String> {
         let trimmed = name.trim();
         if trimmed.is_empty() {
@@ -1894,8 +1899,11 @@ impl HueClient {
         // makes even a plain `active` recall start the animation.
         let palette = gallery_palette(colors, brightness);
         let dynamic = palette.is_some();
+        // Honor the speed the gallery asked for; fall back to the bridge's own
+        // default (step 4) when none was supplied so an unspecified create still
+        // reads back consistently.
         let speed = if dynamic {
-            Some(GALLERY_DYNAMIC_SPEED)
+            Some(requested_speed.unwrap_or(GALLERY_DYNAMIC_SPEED))
         } else {
             None
         };
@@ -1911,7 +1919,10 @@ impl HueClient {
                 .as_object_mut()
                 .expect("gallery scene body is a JSON object");
             map.insert("palette".to_string(), palette);
-            map.insert("speed".to_string(), json!(GALLERY_DYNAMIC_SPEED));
+            map.insert(
+                "speed".to_string(),
+                json!(speed.unwrap_or(GALLERY_DYNAMIC_SPEED)),
+            );
             map.insert("auto_dynamic".to_string(), json!(true));
         }
         let id = self.post_v2(ip, application_key, "scene", body).await?;
@@ -2900,8 +2911,9 @@ fn scene_action_to_public(entry: HueSceneActionEntry) -> Option<SceneLightAction
     })
 }
 
-/// Default animation speed (0..1) for a freshly created dynamic gallery scene.
-/// Roughly the mid-pace the Hue app uses for its built-in palettes.
+/// Default animation speed (0..1) for a freshly created dynamic gallery scene
+/// when the caller doesn't specify one. 0.5 corresponds to step 4 of the UI's
+/// 12-step scale, matching the gallery's default label.
 const GALLERY_DYNAMIC_SPEED: f64 = 0.5;
 
 /// Builds the `palette` object the bridge cycles when a scene plays
@@ -3457,6 +3469,11 @@ fn parse_event_block(block: &str) -> Option<Vec<HueEventUpdate>> {
                             .or(Some(effects)),
                     )
                 }),
+                speed: resource
+                    .get("speed")
+                    .and_then(Value::as_f64)
+                    .or_else(|| resource.pointer("/dynamics/speed").and_then(Value::as_f64)),
+                auto_dynamic: resource.get("auto_dynamic").and_then(Value::as_bool),
                 value: summarize_resource_value(&resource),
             });
         }

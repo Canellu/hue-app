@@ -37,6 +37,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LayoutSection } from "./components/LayoutSection";
 import { SpaceTile } from "./components/SpaceTile";
 
+type ControlCommitPhase = "live" | "final";
+
 interface HomeScreenProps {
   roomZones: HueRoomZone[];
   lights: HueLight[];
@@ -48,7 +50,11 @@ interface HomeScreenProps {
   onLayoutChange: (next: HomeLayout) => void;
   onOpenSpace: (id: string) => void;
   onRoomZoneToggle: (roomZone: HueRoomZone, nextOn: boolean) => void;
-  onRoomZoneBrightness: (roomZone: HueRoomZone, pct: number) => void;
+  onRoomZoneBrightness: (
+    roomZone: HueRoomZone,
+    pct: number,
+    phase: ControlCommitPhase,
+  ) => void;
   /** Create-section dialog state, lifted so the header can trigger it. */
   isCreatingSection: boolean;
   onCreateSection: (name: string) => void;

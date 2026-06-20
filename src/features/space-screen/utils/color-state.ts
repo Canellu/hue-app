@@ -12,7 +12,7 @@ export const lightColorHex = (light: HueLight): string | null => {
     return convertHueColorToCss({ mirek: light.ct });
   }
   if (light.xy) {
-    return convertHueColorToCss({ xy: light.xy });
+    return convertHueColorToCss({ xy: light.xy, gamut: light.gamut });
   }
   if (light.ct != null) {
     return convertHueColorToCss({ mirek: light.ct });

@@ -16,7 +16,7 @@ pub async fn get_hue_lights(app: AppHandle) -> Result<Vec<HueLight>, String> {
 pub async fn set_light_state(
     app: AppHandle,
     id: String,
-    on: bool,
+    on: Option<bool>,
     brightness: Option<f64>,
     transition_ms: Option<u32>,
 ) -> Result<(), String> {

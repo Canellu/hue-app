@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Runtime};
 use tauri_plugin_store::StoreExt;
@@ -45,6 +45,22 @@ const ACCESSORY_SERVICE_TYPES: &[&str] = &[
 fn bridge_semaphore() -> &'static Semaphore {
     static SEM: OnceLock<Semaphore> = OnceLock::new();
     SEM.get_or_init(|| Semaphore::new(MAX_CONCURRENT_BRIDGE_REQUESTS))
+}
+
+/// Builds (once) and returns a clone of a shared `reqwest::Client` stored in the
+/// caller's `OnceLock`. All bridge clients accept the bridge's self-signed cert;
+/// `configure` layers on per-variant options (e.g. a request timeout).
+fn shared_client(
+    cell: &'static OnceLock<Client>,
+    configure: impl FnOnce(reqwest::ClientBuilder) -> reqwest::ClientBuilder,
+) -> Result<Client, reqwest::Error> {
+    if let Some(client) = cell.get() {
+        return Ok(client.clone());
+    }
+    let client = configure(Client::builder().danger_accept_invalid_certs(true)).build()?;
+    // A racing thread may have set it first; either way the stored client wins.
+    let _ = cell.set(client);
+    Ok(cell.get().expect("client just set").clone())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -87,6 +103,8 @@ pub struct StoredBridgeInfo {
 pub struct HueLight {
     /// v2 resource UUID.
     pub id: String,
+    /// Owning v2 device UUID.
+    pub device_id: Option<String>,
     pub name: String,
     pub is_on: bool,
     /// Dimming percentage, 0–100.
@@ -115,6 +133,8 @@ pub struct HueLight {
     pub type_name: Option<String>,
     pub sw_version: Option<String>,
     pub unique_id: Option<String>,
+    /// Light function: one of `functional`, `decorative`, `mixed`, `unknown`.
+    pub function: Option<String>,
 }
 
 /// A non-light accessory (switch/remote or sensor) belonging to a room. Rooms
@@ -189,10 +209,14 @@ pub struct HueScene {
     pub scene_type: Option<String>,
     pub status: Option<String>,
     pub dynamic: bool,
+    pub speed: Option<f64>,
+    pub auto_dynamic: bool,
     pub smart: bool,
     /// Preset color palette from the scene's per-light actions. Each entry
     /// carries either an `xy` chromaticity or a `mirek` color temperature.
     pub colors: Vec<SceneColor>,
+    /// Per-light scene targets used by the UI for immediate optimistic recall.
+    pub actions: Vec<SceneLightAction>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -263,11 +287,34 @@ pub struct SceneColor {
     pub mirek: Option<u16>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HueSceneRecipeColor {
+    #[serde(default)]
+    pub xy: Option<[f64; 2]>,
+    #[serde(default)]
+    pub mirek: Option<u16>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SceneLightAction {
+    pub target_id: String,
+    pub on: Option<bool>,
+    pub brightness: Option<f64>,
+    pub xy: Option<[f64; 2]>,
+    pub mirek: Option<u16>,
+    pub effect: Option<String>,
+    pub effect_v2: Option<String>,
+}
+
 /// A single resource change pushed to the frontend from the event stream.
 /// `brightness` is the dimming percentage (0–100).
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HueEventUpdate {
+    /// SSE container kind: `update`, `add`, `delete`, or `error`.
+    pub event_type: Option<String>,
     #[serde(rename = "type")]
     pub rtype: String,
     pub id: Option<String>,
@@ -277,6 +324,8 @@ pub struct HueEventUpdate {
     pub xy: Option<[f64; 2]>,
     /// Live color temperature in mireds, when the change includes one.
     pub mirek: Option<u16>,
+    /// Active live color mode, derived from `mirek_valid` when present.
+    pub color_mode: Option<String>,
     /// Active legacy effect identifier when the event carries one.
     pub effect: Option<String>,
     /// Active `effects_v2` identifier when the event carries one.
@@ -314,6 +363,9 @@ struct HueMetadata {
     name: String,
     #[serde(default)]
     archetype: Option<String>,
+    /// Light function: one of `functional`, `decorative`, `mixed`, `unknown`.
+    #[serde(default)]
+    function: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -497,15 +549,25 @@ struct HueSceneResource {
 #[derive(Debug, Deserialize)]
 struct HueSceneActionEntry {
     #[serde(default)]
+    target: Option<HueResourceRef>,
+    #[serde(default)]
     action: Option<HueSceneAction>,
 }
 
 #[derive(Debug, Deserialize)]
 struct HueSceneAction {
     #[serde(default)]
+    on: Option<HueOn>,
+    #[serde(default)]
+    dimming: Option<HueDimming>,
+    #[serde(default)]
     color: Option<HueColor>,
     #[serde(default)]
     color_temperature: Option<HueColorTemperature>,
+    #[serde(default)]
+    effects: Option<Value>,
+    #[serde(default)]
+    effects_v2: Option<Value>,
 }
 
 // ---------------------------------------------------------------------------
@@ -514,6 +576,8 @@ struct HueSceneAction {
 
 #[derive(Debug, Deserialize)]
 struct EventContainer {
+    #[serde(rename = "type", default)]
+    event_type: Option<String>,
     #[serde(default)]
     data: Vec<Value>,
 }
@@ -565,24 +629,26 @@ pub struct HueClient {
 impl HueClient {
     /// Standard client for v2 calls: a request timeout plus acceptance of the
     /// bridge's self-signed certificate (v2 is HTTPS-only on the local bridge).
+    ///
+    /// The underlying `reqwest::Client` owns a connection pool and TLS config, so
+    /// it is built once and shared process-wide. Rebuilding it per command (this
+    /// runs on every slider tick / toggle) added needless latency and dropped
+    /// keep-alive connections. `Client` clones are cheap (internally an `Arc`).
     pub fn new() -> Result<Self, String> {
-        let client = Client::builder()
-            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-            .danger_accept_invalid_certs(true)
-            .build()
-            .map_err(|error| format!("Failed to create HTTP client: {error}"))?;
-
+        static CLIENT: OnceLock<Client> = OnceLock::new();
+        let client = shared_client(&CLIENT, |builder| {
+            builder.timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+        })
+        .map_err(|error| format!("Failed to create HTTP client: {error}"))?;
         Ok(Self { client })
     }
 
     /// Client tuned for the long-lived event stream: no request timeout so the
     /// connection can stay open indefinitely.
     pub fn new_streaming() -> Result<Self, String> {
-        let client = Client::builder()
-            .danger_accept_invalid_certs(true)
-            .build()
+        static CLIENT: OnceLock<Client> = OnceLock::new();
+        let client = shared_client(&CLIENT, |builder| builder)
             .map_err(|error| format!("Failed to create streaming HTTP client: {error}"))?;
-
         Ok(Self { client })
     }
 
@@ -649,8 +715,9 @@ impl HueClient {
                         }
                         Ok(_) => {
                             // Non-success with a body: surface it as-is.
-                            last_error =
-                                format!("Failed to fetch {resource}: bridge returned HTTP {status}");
+                            last_error = format!(
+                                "Failed to fetch {resource}: bridge returned HTTP {status}"
+                            );
                             status.as_u16() == 429 || status.is_server_error()
                         }
                         Err(error) => {
@@ -682,23 +749,34 @@ impl HueClient {
     ) -> Result<(), String> {
         let url = format!("https://{ip}/clip/v2/resource/{resource}/{id}");
         let permit = bridge_semaphore().acquire().await.ok();
-        let text = self
+        let response = self
             .client
             .put(&url)
             .header("hue-application-key", application_key)
             .json(&body)
             .send()
             .await
-            .map_err(|error| format!("Failed to update {resource}: {error}"))?
+            .map_err(|error| format!("Failed to update {resource}: {error}"))?;
+        let status = response.status();
+        let text = response
             .text()
             .await
             .map_err(|error| format!("Failed to read {resource} update response: {error}"))?;
         drop(permit);
 
-        let response = serde_json::from_str::<HueApiResponse<Value>>(&text)
-            .map_err(|error| format!("Invalid {resource} update response: {error}"))?;
-        if let Some(error) = response.errors.first() {
-            return Err(format!("Hue bridge error: {}", error.description));
+        let parsed = serde_json::from_str::<HueApiResponse<Value>>(&text).ok();
+
+        // Only a non-2xx status is a real failure. A 207 (multi-status) carries
+        // per-light errors — e.g. one unreachable bulb in a room — while the
+        // reachable lights still updated; treating that as a hard error made the
+        // UI refetch and revert the whole tile even though the change applied.
+        if !status.is_success() {
+            let detail = parsed
+                .as_ref()
+                .and_then(|response| response.errors.first())
+                .map(|error| error.description.clone())
+                .unwrap_or_else(|| format!("HTTP {status}"));
+            return Err(format!("Hue bridge error: {detail}"));
         }
         Ok(())
     }
@@ -1203,9 +1281,11 @@ impl HueClient {
                 let effect = effect_v2.clone().or(legacy_effect);
 
                 let archetype = light.metadata.archetype.clone();
+                let function = light.metadata.function.clone();
 
                 HueLight {
                     id: light.id,
+                    device_id: Some(light.owner.rid),
                     name: light.metadata.name,
                     is_on: light.on.on,
                     brightness: light.dimming.as_ref().map(|d| d.brightness),
@@ -1228,6 +1308,7 @@ impl HueClient {
                         .or_else(|| product.and_then(|p| p.product_archetype.clone())),
                     sw_version: product.and_then(|p| p.software_version.clone()),
                     unique_id: mac,
+                    function,
                 }
             })
             .collect())
@@ -1238,12 +1319,17 @@ impl HueClient {
         ip: &str,
         application_key: &str,
         id: &str,
-        on: bool,
+        on: Option<bool>,
         brightness: Option<f64>,
         transition_ms: Option<u32>,
     ) -> Result<(), String> {
         let mut body = Map::new();
-        body.insert("on".to_string(), json!({ "on": on }));
+        // Omit `on` when the caller isn't changing it: each parameter becomes a
+        // separate ZigBee message, so sending a redundant `on` slows the write
+        // (see docs/HUE/hue-system-performance.md).
+        if let Some(on) = on {
+            body.insert("on".to_string(), json!({ "on": on }));
+        }
         if let Some(value) = brightness {
             body.insert("dimming".to_string(), json!({ "brightness": value }));
         }
@@ -1314,8 +1400,10 @@ impl HueClient {
             grouped.iter().map(|g| (g.id.clone(), g)).collect();
 
         // device id -> the resource, for accessory metadata lookups.
-        let device_map: HashMap<String, &HueDeviceResource> =
-            devices.iter().map(|device| (device.id.clone(), device)).collect();
+        let device_map: HashMap<String, &HueDeviceResource> = devices
+            .iter()
+            .map(|device| (device.id.clone(), device))
+            .collect();
 
         // device id -> reachable, derived from its zigbee connectivity status.
         let mut reachable_map: HashMap<String, bool> = HashMap::new();
@@ -1364,12 +1452,7 @@ impl HueClient {
                     .collect::<Vec<_>>();
                 let light_ids = device_ids
                     .iter()
-                    .flat_map(|device_id| {
-                        device_lights
-                            .get(device_id)
-                            .cloned()
-                            .unwrap_or_default()
-                    })
+                    .flat_map(|device_id| device_lights.get(device_id).cloned().unwrap_or_default())
                     .collect::<Vec<_>>();
 
                 let accessories = room
@@ -1489,12 +1572,16 @@ impl HueClient {
         ip: &str,
         application_key: &str,
         id: &str,
-        on: bool,
+        on: Option<bool>,
         brightness: Option<f64>,
         transition_ms: Option<u32>,
     ) -> Result<(), String> {
         let mut body = Map::new();
-        body.insert("on".to_string(), json!({ "on": on }));
+        // Group commands broadcast on ZigBee and are capped near 1/s, so dropping
+        // a redundant `on` (when only dimming changes) matters even more here.
+        if let Some(on) = on {
+            body.insert("on".to_string(), json!({ "on": on }));
+        }
         if let Some(value) = brightness {
             body.insert("dimming".to_string(), json!({ "brightness": value }));
         }
@@ -1554,28 +1641,59 @@ impl HueClient {
         scene_id: &str,
         transition_ms: Option<u32>,
     ) -> Result<(), String> {
-        let mut body = Map::new();
-        body.insert("recall".to_string(), json!({ "action": "active" }));
-        insert_v2_transition(&mut body, transition_ms);
+        self.recall_scene(ip, application_key, scene_id, "active", transition_ms)
+            .await
+    }
 
+    pub async fn start_dynamic_scene(
+        &self,
+        ip: &str,
+        application_key: &str,
+        scene_id: &str,
+        transition_ms: Option<u32>,
+    ) -> Result<(), String> {
+        self.recall_scene(
+            ip,
+            application_key,
+            scene_id,
+            "dynamic_palette",
+            transition_ms,
+        )
+        .await
+    }
+
+    pub async fn stop_dynamic_scene(
+        &self,
+        ip: &str,
+        application_key: &str,
+        scene_id: &str,
+        transition_ms: Option<u32>,
+    ) -> Result<(), String> {
+        self.recall_scene(ip, application_key, scene_id, "static", transition_ms)
+            .await
+    }
+
+    async fn recall_scene(
+        &self,
+        ip: &str,
+        application_key: &str,
+        scene_id: &str,
+        action: &str,
+        transition_ms: Option<u32>,
+    ) -> Result<(), String> {
+        let body = scene_recall_body(action, transition_ms);
         match self
-            .put_v2(
-                ip,
-                application_key,
-                "scene",
-                scene_id,
-                Value::Object(body),
-            )
+            .put_v2(ip, application_key, "scene", scene_id, body)
             .await
         {
             Ok(()) => Ok(()),
             Err(error) if transition_ms.is_some() => {
-                let fallback_body = json!({ "recall": { "action": "active" } });
+                let fallback_body = json!({ "recall": { "action": action } });
                 self.put_v2(ip, application_key, "scene", scene_id, fallback_body)
                     .await
                     .map_err(|fallback_error| {
                         format!(
-                            "Unable to activate scene: {fallback_error}. First attempt with transition failed with: {error}"
+                            "Unable to recall scene: {fallback_error}. First attempt with transition failed with: {error}"
                         )
                     })
             }
@@ -1588,35 +1706,94 @@ impl HueClient {
         ip: &str,
         application_key: &str,
         scene_id: &str,
-        transition_ms: Option<u32>,
+        _transition_ms: Option<u32>,
     ) -> Result<(), String> {
-        let mut body = Map::new();
-        body.insert("recall".to_string(), json!({ "action": "active" }));
-        insert_v2_transition(&mut body, transition_ms);
+        self.put_v2(
+            ip,
+            application_key,
+            "smart_scene",
+            scene_id,
+            json!({ "recall": { "action": "activate" } }),
+        )
+        .await
+    }
 
-        match self
-            .put_v2(
-                ip,
-                application_key,
-                "smart_scene",
-                scene_id,
-                Value::Object(body),
-            )
-            .await
-        {
-            Ok(()) => Ok(()),
-            Err(error) if transition_ms.is_some() => {
-                let fallback_body = json!({ "recall": { "action": "active" } });
-                self.put_v2(ip, application_key, "smart_scene", scene_id, fallback_body)
-                    .await
-                    .map_err(|fallback_error| {
-                        format!(
-                            "Unable to activate smart scene: {fallback_error}. First attempt with transition failed with: {error}"
-                        )
-                    })
-            }
-            Err(error) => Err(error),
+    pub async fn deactivate_smart_scene(
+        &self,
+        ip: &str,
+        application_key: &str,
+        scene_id: &str,
+    ) -> Result<(), String> {
+        self.put_v2(
+            ip,
+            application_key,
+            "smart_scene",
+            scene_id,
+            json!({ "recall": { "action": "deactivate" } }),
+        )
+        .await
+    }
+
+    /// Sets a scene's overall brightness by rescaling every stored action's
+    /// dimming. A scene has no single brightness field in v2 — each action
+    /// carries its own — so we scale them proportionally from the brightest
+    /// light, preserving the relative differences the scene was designed with.
+    pub async fn set_scene_brightness(
+        &self,
+        ip: &str,
+        application_key: &str,
+        scene_id: &str,
+        brightness: f64,
+    ) -> Result<(), String> {
+        if !brightness.is_finite() {
+            return Err("Invalid scene brightness.".to_string());
         }
+        let target = brightness.clamp(1.0, 100.0);
+
+        let scenes: Vec<Value> = self.get_v2(ip, application_key, "scene").await?;
+        let mut scene = scenes
+            .into_iter()
+            .find(|scene| scene.get("id").and_then(Value::as_str) == Some(scene_id))
+            .ok_or_else(|| "Scene not found on the bridge.".to_string())?;
+
+        let updated_actions = {
+            let actions = scene
+                .get_mut("actions")
+                .and_then(Value::as_array_mut)
+                .ok_or_else(|| "Scene has no actions to adjust.".to_string())?;
+
+            let max = actions
+                .iter()
+                .filter_map(|entry| {
+                    entry
+                        .pointer("/action/dimming/brightness")
+                        .and_then(Value::as_f64)
+                })
+                .fold(0.0_f64, f64::max);
+            let factor = if max > 0.0 { target / max } else { 1.0 };
+
+            for entry in actions.iter_mut() {
+                let Some(current) = entry
+                    .pointer("/action/dimming/brightness")
+                    .and_then(Value::as_f64)
+                else {
+                    continue;
+                };
+                if let Some(slot) = entry.pointer_mut("/action/dimming/brightness") {
+                    *slot = json!((current * factor).clamp(1.0, 100.0));
+                }
+            }
+            actions.clone()
+        };
+
+        self.put_v2(
+            ip,
+            application_key,
+            "scene",
+            scene_id,
+            json!({ "actions": updated_actions }),
+        )
+        .await
     }
 
     pub async fn create_scene(
@@ -1643,7 +1820,9 @@ impl HueClient {
         }
 
         let all_lights: Vec<HueLightResource> = self.get_v2(ip, application_key, "light").await?;
-        let wanted = light_ids.into_iter().collect::<std::collections::HashSet<_>>();
+        let wanted = light_ids
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>();
         let lights = all_lights
             .into_iter()
             .filter(|light| wanted.contains(&light.id))
@@ -1666,6 +1845,108 @@ impl HueClient {
                     })
             }
         }
+    }
+
+    pub async fn create_gallery_scene(
+        &self,
+        ip: &str,
+        application_key: &str,
+        name: &str,
+        group_id: &str,
+        group_type: &str,
+        colors: &[HueSceneRecipeColor],
+        brightness: f64,
+    ) -> Result<HueScene, String> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err("Scene name cannot be empty.".to_string());
+        }
+        if !matches!(group_type, "room" | "zone") {
+            return Err("Scenes can only target a room or zone.".to_string());
+        }
+        if colors.is_empty() {
+            return Err("Scene gallery presets need at least one color.".to_string());
+        }
+
+        let light_ids = self
+            .group_light_ids(ip, application_key, group_type, group_id)
+            .await?;
+        if light_ids.is_empty() {
+            return Err("That room or zone has no lights for a gallery scene.".to_string());
+        }
+
+        let all_lights: Vec<HueLightResource> = self.get_v2(ip, application_key, "light").await?;
+        let wanted = light_ids
+            .into_iter()
+            .collect::<std::collections::HashSet<_>>();
+        let lights = all_lights
+            .into_iter()
+            .filter(|light| wanted.contains(&light.id))
+            .collect::<Vec<_>>();
+        if lights.is_empty() {
+            return Err("No current light resources were available for that space.".to_string());
+        }
+
+        let (actions, public_actions) = gallery_scene_actions(&lights, colors, brightness);
+        // A multi-color preset must carry a `palette` so the bridge can cycle
+        // the colors when recalled dynamically. Without it the scene is static
+        // and the play/speed controls have nothing to drive. `auto_dynamic`
+        // makes even a plain `active` recall start the animation.
+        let palette = gallery_palette(colors, brightness);
+        let dynamic = palette.is_some();
+        let speed = if dynamic {
+            Some(GALLERY_DYNAMIC_SPEED)
+        } else {
+            None
+        };
+
+        let mut body = json!({
+            "type": "scene",
+            "metadata": { "name": trimmed },
+            "group": { "rid": group_id, "rtype": group_type },
+            "actions": actions,
+        });
+        if let Some(palette) = palette {
+            let map = body
+                .as_object_mut()
+                .expect("gallery scene body is a JSON object");
+            map.insert("palette".to_string(), palette);
+            map.insert("speed".to_string(), json!(GALLERY_DYNAMIC_SPEED));
+            map.insert("auto_dynamic".to_string(), json!(true));
+        }
+        let id = self.post_v2(ip, application_key, "scene", body).await?;
+        let public_colors = public_actions
+            .iter()
+            .filter_map(|action| {
+                action
+                    .xy
+                    .map(|xy| SceneColor {
+                        xy: Some(xy),
+                        mirek: None,
+                    })
+                    .or_else(|| {
+                        action.mirek.map(|mirek| SceneColor {
+                            xy: None,
+                            mirek: Some(mirek),
+                        })
+                    })
+            })
+            .collect();
+
+        Ok(HueScene {
+            id,
+            name: trimmed.to_string(),
+            resource_type: "scene".to_string(),
+            group: Some(group_id.to_string()),
+            scene_type: Some(group_type.to_string()),
+            status: Some("Inactive".to_string()),
+            dynamic,
+            speed,
+            auto_dynamic: dynamic,
+            smart: false,
+            colors: public_colors,
+            actions: public_actions,
+        })
     }
 
     async fn group_light_ids(
@@ -1798,10 +2079,8 @@ impl HueClient {
             .into_iter()
             .map(|device| {
                 let product = device.product_data.as_ref();
-                let (reachable, unique_id) = zigbee_map
-                    .get(&device.id)
-                    .cloned()
-                    .unwrap_or((true, None));
+                let (reachable, unique_id) =
+                    zigbee_map.get(&device.id).cloned().unwrap_or((true, None));
                 let reachable = if zigbee_known { reachable } else { true };
                 let service_types = device
                     .services
@@ -1979,7 +2258,9 @@ impl HueClient {
         if trimmed.is_empty() {
             return Err("Zone name cannot be empty.".to_string());
         }
-        let archetype = archetype.filter(|value| !value.is_empty()).unwrap_or("other");
+        let archetype = archetype
+            .filter(|value| !value.is_empty())
+            .unwrap_or("other");
         let children = light_ids
             .into_iter()
             .filter(|id| !id.trim().is_empty())
@@ -2140,7 +2421,9 @@ impl HueClient {
         if trimmed.is_empty() {
             return Err("Room name cannot be empty.".to_string());
         }
-        let archetype = archetype.filter(|value| !value.is_empty()).unwrap_or("other");
+        let archetype = archetype
+            .filter(|value| !value.is_empty())
+            .unwrap_or("other");
         let body = json!({
             "type": "room",
             "metadata": { "name": trimmed, "archetype": archetype },
@@ -2449,6 +2732,17 @@ fn insert_v2_transition(body: &mut Map<String, Value>, transition_ms: Option<u32
     }
 }
 
+fn scene_recall_body(action: &str, transition_ms: Option<u32>) -> Value {
+    let mut recall = Map::new();
+    recall.insert("action".to_string(), json!(action));
+    if let Some(duration) = transition_ms {
+        recall.insert("duration".to_string(), json!(duration));
+    }
+    let mut body = Map::new();
+    body.insert("recall".to_string(), Value::Object(recall));
+    Value::Object(body)
+}
+
 #[allow(dead_code)]
 fn transition_ms_to_v1_transitiontime(transition_ms: u32) -> u32 {
     ((transition_ms as f64) / 100.0).round() as u32
@@ -2466,35 +2760,61 @@ fn brightness_pct_to_v1_bri(brightness_pct: f64) -> u8 {
 }
 
 fn scene_to_public(scene: HueSceneResource, fallback_type: &str) -> HueScene {
-    let resource_type = scene.rtype.clone().unwrap_or_else(|| fallback_type.to_string());
+    let resource_type = scene
+        .rtype
+        .clone()
+        .unwrap_or_else(|| fallback_type.to_string());
     let status = extract_scene_status(&scene.extra);
-    let dynamic = scene.extra.contains_key("speed")
-        || scene.extra.contains_key("palette")
-        || scene.extra.contains_key("auto_dynamic")
-        || scene.extra.contains_key("dynamics");
+    // The bridge stores a `palette` on every scene — including a single-color
+    // one for static scenes — so "has a palette" is not enough. A scene only
+    // animates (and earns the play/speed controls) when its palette holds at
+    // least two colors.
+    let palette = scene.extra.get("palette");
+    let dynamic_color_count = palette.map(palette_dynamic_color_count).unwrap_or(0);
+    let speed = scene.extra.get("speed").and_then(Value::as_f64);
+    let dynamic = resource_type == "scene" && dynamic_color_count >= 2;
+    let auto_dynamic = scene
+        .extra
+        .get("auto_dynamic")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
     let smart = resource_type == "smart_scene";
     let group = scene.group.as_ref().map(|g| g.rid.clone());
     let scene_type = scene.group.as_ref().map(|g| g.rtype.clone());
-    let colors = scene
+    // Prefer the palette's colors for the preview bubble: for a dynamic scene
+    // the per-light actions are only the static fallback and may all share one
+    // color, whereas the palette is the set the bridge actually cycles.
+    let palette_preview = if dynamic {
+        palette.map(palette_colors).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    let actions = scene
         .actions
         .into_iter()
-        .filter_map(|entry| entry.action)
-        .filter_map(|action| {
-            if let Some(color) = action.color {
-                Some(SceneColor {
-                    xy: Some([color.xy.x, color.xy.y]),
-                    mirek: None,
-                })
-            } else if let Some(mirek) = action.color_temperature.and_then(|ct| ct.mirek) {
-                Some(SceneColor {
-                    xy: None,
-                    mirek: Some(mirek),
-                })
-            } else {
-                None
-            }
-        })
-        .collect();
+        .filter_map(scene_action_to_public)
+        .collect::<Vec<_>>();
+    let colors = if palette_preview.is_empty() {
+        actions
+            .iter()
+            .filter_map(|action| {
+                action
+                    .xy
+                    .map(|xy| SceneColor {
+                        xy: Some(xy),
+                        mirek: None,
+                    })
+                    .or_else(|| {
+                        action.mirek.map(|mirek| SceneColor {
+                            xy: None,
+                            mirek: Some(mirek),
+                        })
+                    })
+            })
+            .collect()
+    } else {
+        palette_preview
+    };
 
     HueScene {
         id: scene.id,
@@ -2504,9 +2824,216 @@ fn scene_to_public(scene: HueSceneResource, fallback_type: &str) -> HueScene {
         scene_type,
         status,
         dynamic,
+        speed,
+        auto_dynamic,
         smart,
         colors,
+        actions,
     }
+}
+
+/// The number of swatches a scene's palette would animate through. The bridge
+/// stores a single-swatch palette even on static scenes — and the built-in warm
+/// scenes (Nightlight, Rest) pair a single `color` swatch with a single
+/// `color_temperature` swatch so both color and white bulbs have a target — so
+/// summing the two arrays would wrongly flag those static scenes as dynamic. A
+/// scene only animates when one swatch *kind* on its own holds at least two
+/// entries, so take the larger of the two counts rather than their sum.
+fn palette_dynamic_color_count(palette: &Value) -> usize {
+    let len = |key: &str| palette.get(key).and_then(Value::as_array).map_or(0, Vec::len);
+    len("color").max(len("color_temperature"))
+}
+
+/// Extracts a palette's colors for the preview bubble: chromaticities from
+/// `color[].color.xy` and color temperatures from
+/// `color_temperature[].color_temperature.mirek`.
+fn palette_colors(palette: &Value) -> Vec<SceneColor> {
+    let mut colors = Vec::new();
+    if let Some(items) = palette.get("color").and_then(Value::as_array) {
+        for item in items {
+            let x = item.pointer("/color/xy/x").and_then(Value::as_f64);
+            let y = item.pointer("/color/xy/y").and_then(Value::as_f64);
+            if let (Some(x), Some(y)) = (x, y) {
+                colors.push(SceneColor {
+                    xy: Some([x, y]),
+                    mirek: None,
+                });
+            }
+        }
+    }
+    if let Some(items) = palette.get("color_temperature").and_then(Value::as_array) {
+        for item in items {
+            if let Some(mirek) = item
+                .pointer("/color_temperature/mirek")
+                .and_then(Value::as_u64)
+            {
+                colors.push(SceneColor {
+                    xy: None,
+                    mirek: Some(mirek as u16),
+                });
+            }
+        }
+    }
+    colors
+}
+
+fn scene_action_to_public(entry: HueSceneActionEntry) -> Option<SceneLightAction> {
+    let target = entry.target?;
+    if target.rtype != "light" {
+        return None;
+    }
+    let action = entry.action?;
+    Some(SceneLightAction {
+        target_id: target.rid,
+        on: action.on.as_ref().map(|on| on.on),
+        brightness: action.dimming.as_ref().map(|dimming| dimming.brightness),
+        xy: action.color.as_ref().map(|color| [color.xy.x, color.xy.y]),
+        mirek: action.color_temperature.as_ref().and_then(|ct| ct.mirek),
+        effect: action
+            .effects
+            .as_ref()
+            .and_then(|effects| extract_effect_id(Some(effects))),
+        effect_v2: action
+            .effects_v2
+            .as_ref()
+            .and_then(|effects| extract_effect_id(Some(effects))),
+    })
+}
+
+/// Default animation speed (0..1) for a freshly created dynamic gallery scene.
+/// Roughly the mid-pace the Hue app uses for its built-in palettes.
+const GALLERY_DYNAMIC_SPEED: f64 = 0.5;
+
+/// Builds the `palette` object the bridge cycles when a scene plays
+/// dynamically. Returns `None` for single-color presets, which stay static.
+///
+/// The v2 palette has three required arrays: `color` (up to 9 chromaticity
+/// entries), `color_temperature` (at most 1), and `dimming` (at most 1). We
+/// only treat a preset as dynamic when it yields at least two palette colors —
+/// a one-color "palette" would animate to nothing.
+fn gallery_palette(colors: &[HueSceneRecipeColor], brightness: f64) -> Option<Value> {
+    let brightness = if brightness.is_finite() {
+        brightness.clamp(1.0, 100.0)
+    } else {
+        100.0
+    };
+
+    let color_entries = colors
+        .iter()
+        .filter_map(|color| color.xy.and_then(sanitize_xy))
+        .take(9)
+        .map(|xy| {
+            json!({
+                "color": { "xy": { "x": xy[0], "y": xy[1] } },
+                "dimming": { "brightness": brightness },
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let ct_entries = colors
+        .iter()
+        .filter_map(|color| color.mirek)
+        .take(1)
+        .map(|mirek| {
+            json!({
+                "color_temperature": { "mirek": mirek },
+                "dimming": { "brightness": brightness },
+            })
+        })
+        .collect::<Vec<_>>();
+
+    if color_entries.len() + ct_entries.len() < 2 {
+        return None;
+    }
+
+    Some(json!({
+        "color": color_entries,
+        "dimming": [ { "brightness": brightness } ],
+        "color_temperature": ct_entries,
+    }))
+}
+
+fn gallery_scene_actions(
+    lights: &[HueLightResource],
+    colors: &[HueSceneRecipeColor],
+    brightness: f64,
+) -> (Vec<Value>, Vec<SceneLightAction>) {
+    let brightness = if brightness.is_finite() {
+        brightness.clamp(1.0, 100.0)
+    } else {
+        100.0
+    };
+
+    lights
+        .iter()
+        .enumerate()
+        .map(|(index, light)| {
+            gallery_light_scene_action(light, &colors[index % colors.len()], brightness)
+        })
+        .unzip()
+}
+
+fn gallery_light_scene_action(
+    light: &HueLightResource,
+    color: &HueSceneRecipeColor,
+    brightness: f64,
+) -> (Value, SceneLightAction) {
+    let mut action = Map::new();
+    action.insert("on".to_string(), json!({ "on": true }));
+
+    let mut public = SceneLightAction {
+        target_id: light.id.clone(),
+        on: Some(true),
+        brightness: None,
+        xy: None,
+        mirek: None,
+        effect: None,
+        effect_v2: None,
+    };
+
+    if light.dimming.is_some() {
+        action.insert("dimming".to_string(), json!({ "brightness": brightness }));
+        public.brightness = Some(brightness);
+    }
+
+    if let Some(mirek) = color.mirek {
+        if let Some(color_temperature) = &light.color_temperature {
+            let mirek = color_temperature
+                .mirek_schema
+                .as_ref()
+                .map(|schema| mirek.clamp(schema.mirek_minimum, schema.mirek_maximum))
+                .unwrap_or(mirek);
+            action.insert("color_temperature".to_string(), json!({ "mirek": mirek }));
+            public.mirek = Some(mirek);
+        }
+    }
+
+    if public.mirek.is_none() {
+        if let Some(xy) = color.xy.and_then(sanitize_xy) {
+            if light.color.is_some() {
+                action.insert(
+                    "color".to_string(),
+                    json!({ "xy": { "x": xy[0], "y": xy[1] } }),
+                );
+                public.xy = Some(xy);
+            }
+        }
+    }
+
+    (
+        json!({
+            "target": { "rid": light.id, "rtype": "light" },
+            "action": action,
+        }),
+        public,
+    )
+}
+
+fn sanitize_xy([x, y]: [f64; 2]) -> Option<[f64; 2]> {
+    if !x.is_finite() || !y.is_finite() {
+        return None;
+    }
+    Some([x.clamp(0.0, 1.0), y.clamp(0.0, 1.0)])
 }
 
 fn snapshot_scene_body(
@@ -2547,16 +3074,17 @@ fn light_scene_action(light: &HueLightResource, include_effects: bool) -> Value 
         action.insert("color_temperature".to_string(), json!({ "mirek": mirek }));
     }
     if include_effects {
-        if let Some(effect) = light
-            .effects_v2
-            .as_ref()
-            .and_then(|effects| extract_effect_id(effects.status.as_ref().or(effects.action.as_ref())))
-        {
+        if let Some(effect) = light.effects_v2.as_ref().and_then(|effects| {
+            extract_effect_id(effects.status.as_ref().or(effects.action.as_ref()))
+        }) {
             action.insert(
                 "effects_v2".to_string(),
                 json!({ "action": { "effect": effect } }),
             );
-        } else if let Some(effect) = light.effects.as_ref().and_then(|effects| effects.status.clone())
+        } else if let Some(effect) = light
+            .effects
+            .as_ref()
+            .and_then(|effects| effects.status.clone())
         {
             action.insert("effects".to_string(), json!({ "effect": effect }));
         }
@@ -2609,7 +3137,10 @@ fn device_public_map(devices: &[HueDeviceResource]) -> HashMap<String, (String, 
                 .unwrap_or_else(|| "Hue device".to_string());
             (
                 device.id.clone(),
-                (name, product.and_then(|product| product.product_name.clone())),
+                (
+                    name,
+                    product.and_then(|product| product.product_name.clone()),
+                ),
             )
         })
         .collect()
@@ -2675,25 +3206,34 @@ fn summarize_resource_value(raw: &Value) -> Option<String> {
         "light_level" => find_nested_number(raw, "light_level")
             .or_else(|| find_nested_number(raw, "light_level_report"))
             .map(|value| format!("{value:.0}")),
-        "contact" => find_nested_string(raw, "state")
-            .or_else(|| find_nested_bool(raw, "contact").map(|closed| {
+        "contact" => find_nested_string(raw, "state").or_else(|| {
+            find_nested_bool(raw, "contact").map(|closed| {
                 if closed {
                     "Closed".to_string()
                 } else {
                     "Open".to_string()
                 }
-            })),
-        "tamper" => find_nested_string(raw, "state")
-            .or_else(|| find_nested_bool(raw, "tampered").map(|tampered| {
+            })
+        }),
+        "tamper" => find_nested_string(raw, "state").or_else(|| {
+            find_nested_bool(raw, "tampered").map(|tampered| {
                 if tampered {
                     "Tampered".to_string()
                 } else {
                     "Clear".to_string()
                 }
-            })),
+            })
+        }),
         "device_power" => find_nested_number(raw, "battery_level")
             .map(|value| format!("Battery {value:.0}%"))
             .or_else(|| find_nested_string(raw, "battery_state").map(humanize_hue_value)),
+        "scene" => raw
+            .get("status")
+            .and_then(value_to_compact_string)
+            .or_else(|| raw.get("recall").and_then(value_to_compact_string)),
+        "smart_scene" => find_nested_string(raw, "state")
+            .map(humanize_hue_value)
+            .or_else(|| raw.get("recall").and_then(value_to_compact_string)),
         _ => None,
     }
 }
@@ -2754,9 +3294,13 @@ fn find_nested_bool(value: &Value, key: &str) -> Option<bool> {
             if let Some(found) = object.get(key).and_then(Value::as_bool) {
                 return Some(found);
             }
-            object.values().find_map(|nested| find_nested_bool(nested, key))
+            object
+                .values()
+                .find_map(|nested| find_nested_bool(nested, key))
         }
-        Value::Array(items) => items.iter().find_map(|nested| find_nested_bool(nested, key)),
+        Value::Array(items) => items
+            .iter()
+            .find_map(|nested| find_nested_bool(nested, key)),
         _ => None,
     }
 }
@@ -2855,6 +3399,7 @@ fn parse_event_block(block: &str) -> Option<Vec<HueEventUpdate>> {
     let containers = serde_json::from_str::<Vec<EventContainer>>(&payload).ok()?;
     let mut updates = Vec::new();
     for container in containers {
+        let event_type = container.event_type;
         for resource in container.data {
             let rtype = resource
                 .get("type")
@@ -2867,13 +3412,25 @@ fn parse_event_block(block: &str) -> Option<Vec<HueEventUpdate>> {
                 .map(ToString::to_string);
             let xy = resource
                 .pointer("/color/xy")
-                .and_then(|xy| {
-                    Some([
-                        xy.get("x")?.as_f64()?,
-                        xy.get("y")?.as_f64()?,
-                    ])
-                });
+                .and_then(|xy| Some([xy.get("x")?.as_f64()?, xy.get("y")?.as_f64()?]));
+            let mirek = resource
+                .pointer("/color_temperature/mirek")
+                .and_then(Value::as_u64)
+                .and_then(|value| u16::try_from(value).ok());
+            let color_mode = if resource
+                .pointer("/color_temperature/mirek_valid")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+                && mirek.is_some()
+            {
+                Some("ct".to_string())
+            } else if xy.is_some() {
+                Some("xy".to_string())
+            } else {
+                None
+            };
             updates.push(HueEventUpdate {
+                event_type: event_type.clone(),
                 rtype,
                 id,
                 on: resource.pointer("/on/on").and_then(Value::as_bool),
@@ -2881,10 +3438,8 @@ fn parse_event_block(block: &str) -> Option<Vec<HueEventUpdate>> {
                     .pointer("/dimming/brightness")
                     .and_then(Value::as_f64),
                 xy,
-                mirek: resource
-                    .pointer("/color_temperature/mirek")
-                    .and_then(Value::as_u64)
-                    .and_then(|value| u16::try_from(value).ok()),
+                mirek,
+                color_mode,
                 effect: resource
                     .get("effects")
                     .and_then(|effects| {
@@ -2894,16 +3449,14 @@ fn parse_event_block(block: &str) -> Option<Vec<HueEventUpdate>> {
                             .or_else(|| effects.get("effect").and_then(Value::as_str))
                     })
                     .map(ToString::to_string),
-                effect_v2: resource
-                    .get("effects_v2")
-                    .and_then(|effects| {
-                        extract_effect_id(
-                            effects
-                                .get("status")
-                                .or_else(|| effects.get("action"))
-                                .or(Some(effects)),
-                        )
-                    }),
+                effect_v2: resource.get("effects_v2").and_then(|effects| {
+                    extract_effect_id(
+                        effects
+                            .get("status")
+                            .or_else(|| effects.get("action"))
+                            .or(Some(effects)),
+                    )
+                }),
                 value: summarize_resource_value(&resource),
             });
         }
@@ -2925,16 +3478,18 @@ fn parse_hue_qr_install_code(qr_text: &str) -> Result<HueQrInstallCode, String> 
     let mut install_code: Option<String> = None;
     let mut mac_address: Option<String> = None;
     for part in trimmed.split_whitespace() {
-        if let Some(value) = part.strip_prefix("HUE:Z:").or_else(|| part.strip_prefix("Z:")) {
+        if let Some(value) = part
+            .strip_prefix("HUE:Z:")
+            .or_else(|| part.strip_prefix("Z:"))
+        {
             install_code = Some(value.to_ascii_uppercase());
         } else if let Some(value) = part.strip_prefix("M:") {
             mac_address = Some(value.to_ascii_uppercase());
         }
     }
 
-    let install_code = install_code.ok_or_else(|| {
-        "Hue QR code is missing a Zigbee install code.".to_string()
-    })?;
+    let install_code =
+        install_code.ok_or_else(|| "Hue QR code is missing a Zigbee install code.".to_string())?;
     let mac_address =
         mac_address.ok_or_else(|| "Hue QR code is missing a Zigbee MAC address.".to_string())?;
 
@@ -2981,12 +3536,7 @@ fn device_kind(service_types: &[&str]) -> Option<&'static str> {
     } else if service_types.iter().any(|rtype| {
         matches!(
             *rtype,
-            "motion"
-                | "camera_motion"
-                | "temperature"
-                | "light_level"
-                | "contact"
-                | "tamper"
+            "motion" | "camera_motion" | "temperature" | "light_level" | "contact" | "tamper"
         )
     }) {
         Some("sensor")
@@ -3060,21 +3610,39 @@ fn keyring_entry() -> Result<Entry, String> {
         .map_err(|error| format!("Failed to access secure keyring: {error}"))
 }
 
+/// In-memory cache of the application key. The OS keyring read (Windows
+/// Credential Manager `CredRead`, etc.) is a blocking syscall, and control
+/// commands resolve the key on every call — caching keeps that off the hot path
+/// so dimming/toggling isn't gated on keyring latency.
+fn app_key_cache() -> &'static Mutex<Option<String>> {
+    static CACHE: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
+
 fn save_application_key(application_key: &str) -> Result<(), String> {
     keyring_entry()?
         .set_password(application_key)
-        .map_err(|error| format!("Failed to save application key: {error}"))
+        .map_err(|error| format!("Failed to save application key: {error}"))?;
+    *app_key_cache().lock().unwrap() = Some(application_key.to_string());
+    Ok(())
 }
 
 fn load_application_key() -> Result<Option<String>, String> {
+    if let Some(key) = app_key_cache().lock().unwrap().clone() {
+        return Ok(Some(key));
+    }
     match keyring_entry()?.get_password() {
-        Ok(password) => Ok(Some(password)),
+        Ok(password) => {
+            *app_key_cache().lock().unwrap() = Some(password.clone());
+            Ok(Some(password))
+        }
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(format!("Failed to read application key: {error}")),
     }
 }
 
 fn clear_application_key() -> Result<(), String> {
+    *app_key_cache().lock().unwrap() = None;
     match keyring_entry()?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(error) => Err(format!("Failed to clear application key: {error}")),

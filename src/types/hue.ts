@@ -73,6 +73,8 @@ export type HueRoomZone = HueRoom | HueZone;
 
 export interface HueLight {
   id: string;
+  /** Owning v2 device UUID. */
+  deviceId: string | null;
   name: string;
   isOn: boolean;
   brightness: number | null;
@@ -99,6 +101,8 @@ export interface HueLight {
   typeName: string | null;
   swVersion: string | null;
   uniqueId: string | null;
+  /** What the light is used for: "functional", "decorative", "mixed", or "unknown". */
+  function: string | null;
 }
 
 /** One preset color from a scene action — exactly one field is set. */
@@ -106,6 +110,17 @@ export interface SceneColor {
   xy: [number, number] | null;
   /** Color temperature in mireds. */
   mirek: number | null;
+}
+
+export interface SceneLightAction {
+  targetId: string;
+  on: boolean | null;
+  brightness: number | null;
+  xy: [number, number] | null;
+  /** Color temperature in mireds. */
+  mirek: number | null;
+  effect: string | null;
+  effectV2: string | null;
 }
 
 export interface HueScene {
@@ -117,9 +132,13 @@ export interface HueScene {
   sceneType: string | null;
   status: string | null;
   dynamic: boolean;
+  speed: number | null;
+  autoDynamic: boolean;
   smart: boolean;
   /** Preset color palette parsed from the scene's per-light actions. */
   colors: SceneColor[];
+  /** Per-light scene targets for optimistic scene recall in the UI. */
+  actions: SceneLightAction[];
 }
 
 export interface HueSettingsSummary {
@@ -174,6 +193,8 @@ export interface HueSwitchInputConfiguration {
 
 /** Resource change pushed from the bridge SSE stream. Matched by v2 `id`. */
 export interface HueEventUpdate {
+  /** SSE container kind: update, add, delete, or error. */
+  eventType: string | null;
   type: string;
   id: string | null;
   on: boolean | null;
@@ -182,6 +203,7 @@ export interface HueEventUpdate {
   xy: [number, number] | null;
   /** Live color temperature in mireds, when the change carries one. */
   mirek: number | null;
+  colorMode: string | null;
   effect: string | null;
   effectV2: string | null;
   value: string | null;

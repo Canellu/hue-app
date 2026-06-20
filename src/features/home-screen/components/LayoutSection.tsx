@@ -15,6 +15,8 @@ import { SortableSpaceTile } from "./SortableSpaceTile";
 import type { HomeLayoutSection } from "@/types/app-layout";
 import type { HueLight, HueRoomZone } from "@/types/hue";
 
+type ControlCommitPhase = "live" | "final";
+
 interface LayoutSectionProps {
   section: HomeLayoutSection;
   /** Live room/zone data resolved + ordered to match `section.spaceIds`. */
@@ -23,7 +25,11 @@ interface LayoutSectionProps {
   editing: boolean;
   onOpenSpace: (id: string) => void;
   onRoomZoneToggle: (roomZone: HueRoomZone, nextOn: boolean) => void;
-  onRoomZoneBrightness: (roomZone: HueRoomZone, pct: number) => void;
+  onRoomZoneBrightness: (
+    roomZone: HueRoomZone,
+    pct: number,
+    phase: ControlCommitPhase,
+  ) => void;
   onDeleteSection: (sectionId: string) => void;
   onRenameSection: (sectionId: string, name: string) => void;
 }

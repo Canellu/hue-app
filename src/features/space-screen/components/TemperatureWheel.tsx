@@ -1,20 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  hsvToRgb,
+  type Oklch,
+  oklchToRgb,
   rgbToCss,
-  rgbToHsv,
-  rgbToXy,
-  xyBriToRgb,
 } from "@/features/space-screen/utils/color";
-import type { Gamut } from "@/features/space-screen/utils/color";
 
-interface ColorWheelProps {
-  /** Current CIE xy of the light, used to position the pin. */
-  xy: [number, number] | null;
-  /** The light's gamut; the wheel is drawn within it and picks clamped to it. */
-  gamut?: Gamut | null;
-  /** Throttled while dragging; always fired once more on release. */
-  onPick: (xy: [number, number]) => void;
+interface TemperatureWheelProps {
+  value: number;
+  min: number;
+  max: number;
+  onPick: (mired: number) => void;
 }
 
 const CANVAS_SIZE = 360;
@@ -24,36 +19,65 @@ const THROTTLE_MS = 180;
 // pixels of the thumb centre grabs it; a press outside snaps it to the cursor.
 const THUMB_HIT_RADIUS = 16;
 
-const normalizeHue = (hue: number): number => ((hue % 360) + 360) % 360;
+const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
-const hueFromVector = (dx: number, dy: number): number =>
-  normalizeHue((Math.atan2(dy, dx) * 180) / Math.PI + 90);
+const temperatureStops: Array<[number, Oklch]> = [
+  [0, { L: 0.81, C: 0.13, h: 75 }],
+  [0.12, { L: 0.86, C: 0.11, h: 84 }],
+  [0.26, { L: 0.9, C: 0.095, h: 90 }],
+  [0.44, { L: 0.95, C: 0.06, h: 94 }],
+  [0.62, { L: 0.98, C: 0.032, h: 98 }],
+  [0.82, { L: 0.995, C: 0.006, h: 96 }],
+  [0.92, { L: 0.98, C: 0.012, h: 204 }],
+  [0.97, { L: 0.96, C: 0.026, h: 208 }],
+  [1, { L: 0.94, C: 0.04, h: 208 }],
+];
 
-const angleFromHue = (hue: number): number =>
-  ((normalizeHue(hue) - 90) * Math.PI) / 180;
+const mixOklch = (from: Oklch, to: Oklch, amount: number): Oklch => ({
+  L: from.L + (to.L - from.L) * amount,
+  C: from.C + (to.C - from.C) * amount,
+  h: from.h + (to.h - from.h) * amount,
+});
 
-/**
- * Color shown at a wheel position. When a gamut is known the HSV color is
- * round-tripped through the light's gamut (HSV -> sRGB -> clamped xy -> sRGB) so
- * the wheel only ever shows colors the bulb can actually make — regions outside
- * its gamut collapse onto the nearest reachable color instead of displaying
- * vivid hues the light can't reproduce.
- */
-const wheelColor = (hue: number, saturation: number, gamut?: Gamut | null) => {
-  const rgb = hsvToRgb(hue, saturation, 1);
-  if (!gamut) return rgb;
-  const [gx, gy] = rgbToXy(rgb.r, rgb.g, rgb.b, gamut);
-  return xyBriToRgb(gx, gy, 1);
+const valueFromY = (y: number, min: number, max: number): number =>
+  Math.round(max - clamp01(y) * (max - min));
+
+const yFromValue = (value: number, min: number, max: number): number => {
+  if (max === min) return 0.5;
+  return clamp01((max - value) / (max - min));
+};
+
+const pinFromValue = (value: number, min: number, max: number) => ({
+  x: 0.5,
+  y: yFromValue(value, min, max),
+});
+
+const temperatureWheelColor = (y: number) => {
+  let from = temperatureStops[0];
+  let to = temperatureStops[temperatureStops.length - 1];
+
+  for (let i = 1; i < temperatureStops.length; i++) {
+    if (y <= temperatureStops[i][0]) {
+      from = temperatureStops[i - 1];
+      to = temperatureStops[i];
+      break;
+    }
+  }
+
+  const span = to[0] - from[0] || 1;
+  const color = mixOklch(from[1], to[1], clamp01((y - from[0]) / span));
+  return oklchToRgb(color.L, color.C, color.h);
 };
 
 /**
- * An HSV hue/saturation wheel. The chosen color is converted to CIE xy for the
- * bridge. Writes are throttled while dragging and committed once more on
- * pointer release.
+ * Hue-style white temperature selector. The bridge exposes color temperature as
+ * one mired value, so the vertical position controls the emitted temperature;
+ * the two-dimensional pin movement mirrors the Hue app's white ambiance picker.
  */
-export const ColorWheel: React.FC<ColorWheelProps> = ({
-  xy,
-  gamut,
+export const TemperatureWheel: React.FC<TemperatureWheelProps> = ({
+  value,
+  min,
+  max,
   onPick,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -64,83 +88,64 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
   const dragOffset = useRef({ x: 0, y: 0 });
   const lastEmit = useRef(0);
   const trailing = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // The xy we last sent. The picked color is clamped into the light's gamut, so
-  // an edge pick resolves to a less-saturated reachable color whose reflection
-  // would land the pin back inside the rim. We keep the pin where the user put
-  // it by ignoring inbound xy that is (within rounding) the value we just sent.
-  const lastEmitted = useRef<[number, number] | null>(null);
+  const lastEmitted = useRef<number | null>(null);
 
-  // Local pin position (0–1 within the wheel), so dragging feels instant.
-  const [pin, setPin] = useState<{ x: number; y: number }>({ x: 0.5, y: 0.5 });
+  const [pin, setPin] = useState(() => pinFromValue(value, min, max));
 
-  // Paint the wheel; repaint when the gamut changes so it tracks the light.
+  useEffect(() => {
+    if (dragging.current) return;
+    if (
+      lastEmitted.current != null &&
+      Math.abs(lastEmitted.current - value) <= 1
+    ) {
+      return;
+    }
+    setPin(pinFromValue(value, min, max));
+  }, [value, min, max]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
     const image = ctx.createImageData(CANVAS_SIZE, CANVAS_SIZE);
     const data = image.data;
+
     for (let y = 0; y < CANVAS_SIZE; y++) {
       for (let x = 0; x < CANVAS_SIZE; x++) {
         const dx = x - RADIUS;
         const dy = y - RADIUS;
         const dist = Math.sqrt(dx * dx + dy * dy);
         const idx = (y * CANVAS_SIZE + x) * 4;
+
         if (dist > RADIUS) {
           data[idx + 3] = 0;
           continue;
         }
-        const hue = hueFromVector(dx, dy);
-        const saturation = Math.min(dist / RADIUS, 1);
-        const { r, g, b } = wheelColor(hue, saturation, gamut);
+
+        const { r, g, b } = temperatureWheelColor(y / (CANVAS_SIZE - 1));
         data[idx] = r;
         data[idx + 1] = g;
         data[idx + 2] = b;
-        // Soft 1px antialiased edge.
         data[idx + 3] =
           dist > RADIUS - 1 ? Math.round((RADIUS - dist) * 255) : 255;
       }
     }
+
     ctx.putImageData(image, 0, 0);
-  }, [gamut]);
+  }, [min, max]);
 
-  // Reflect the light's current color onto the pin (when not dragging) — unless
-  // this xy is the echo of our own pick, in which case the pin already sits
-  // where the user placed it and must not be pulled back off the rim.
-  useEffect(() => {
-    if (dragging.current || !xy) return;
-    const sent = lastEmitted.current;
-    if (
-      sent &&
-      Math.abs(sent[0] - xy[0]) < 0.012 &&
-      Math.abs(sent[1] - xy[1]) < 0.012
-    ) {
-      return;
-    }
-    const { r, g, b } = xyBriToRgb(xy[0], xy[1], 1);
-    const [h, sat] = rgbToHsv(r, g, b);
-    const angle = angleFromHue(h);
-    setPin({
-      x: 0.5 + (Math.cos(angle) * sat) / 2,
-      y: 0.5 + (Math.sin(angle) * sat) / 2,
-    });
-  }, [xy]);
-
-  const emit = (nx: number, ny: number, force: boolean) => {
-    const dx = nx - 0.5;
-    const dy = ny - 0.5;
-    const hue = hueFromVector(dx, dy);
-    const saturation = Math.min(Math.sqrt(dx * dx + dy * dy) * 2, 1);
-    const { r, g, b } = hsvToRgb(hue, saturation, 1);
-    const next = rgbToXy(r, g, b, gamut);
+  const emit = (nextPin: { x: number; y: number }, force: boolean) => {
+    const next = valueFromY(nextPin.y, min, max);
     lastEmitted.current = next;
-
     const now = Date.now();
+
     if (trailing.current) {
       clearTimeout(trailing.current);
       trailing.current = null;
     }
+
     if (force || now - lastEmit.current >= THROTTLE_MS) {
       lastEmit.current = now;
       onPick(next);
@@ -157,7 +162,6 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
     if (!rect) return null;
     let nx = (clientX + dragOffset.current.x - rect.left) / rect.width;
     let ny = (clientY + dragOffset.current.y - rect.top) / rect.height;
-    // Clamp to the circle.
     const dx = nx - 0.5;
     const dy = ny - 0.5;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -169,10 +173,10 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
   };
 
   const handlePointer = (clientX: number, clientY: number, force: boolean) => {
-    const pos = positionFromEvent(clientX, clientY);
-    if (!pos) return;
-    setPin(pos);
-    emit(pos.x, pos.y, force);
+    const nextPin = positionFromEvent(clientX, clientY);
+    if (!nextPin) return;
+    setPin(nextPin);
+    emit(nextPin, force);
   };
 
   useEffect(
@@ -182,13 +186,7 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
     [],
   );
 
-  const pinColor = (() => {
-    const dx = pin.x - 0.5;
-    const dy = pin.y - 0.5;
-    const hue = hueFromVector(dx, dy);
-    const saturation = Math.min(Math.sqrt(dx * dx + dy * dy) * 2, 1);
-    return rgbToCss(wheelColor(hue, saturation, gamut));
-  })();
+  const pinColor = rgbToCss(temperatureWheelColor(pin.y));
 
   return (
     <div

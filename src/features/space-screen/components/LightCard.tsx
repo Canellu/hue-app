@@ -2,21 +2,25 @@ import { Lightbulb } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
-import { DebouncedSlider } from "@/components/DebouncedSlider";
+import { PacedSlider } from "@/components/PacedSlider";
+import { LIGHT_THEME } from "@/lib/tile-theme";
+import { UI_EASE_MS } from "@/lib/transitions";
 import { lightColorHex } from "@/features/space-screen/utils/color-state";
 import type { HueLight } from "@/types/hue";
+
+type ControlCommitPhase = "live" | "final";
 
 interface LightCardProps {
   light: HueLight;
   selected: boolean;
   onSelect: (id: string) => void;
   onToggle: (light: HueLight, nextOn: boolean) => void;
-  onBrightness: (light: HueLight, pct: number) => void;
+  onBrightness: (
+    light: HueLight,
+    pct: number,
+    phase: ControlCommitPhase,
+  ) => void;
 }
-
-/** Resolves the small swatch color shown on each card from the light's state. */
-const lightSwatchCss = (light: HueLight): string | null =>
-  light.isOn ? lightColorHex(light) : null;
 
 export const LightCard: React.FC<LightCardProps> = ({
   light,
@@ -26,7 +30,10 @@ export const LightCard: React.FC<LightCardProps> = ({
   onBrightness,
 }) => {
   const pct = Math.round(light.brightness ?? 0);
-  const swatch = lightSwatchCss(light);
+  // When the light is on, tint the whole card with its live color (mirrors the
+  // Home room/zone tiles); off or color-less lights stay on the muted surface.
+  const color = light.isOn ? lightColorHex(light) : null;
+  const active = color != null;
   const unreachable = !light.reachable;
 
   return (
@@ -43,42 +50,55 @@ export const LightCard: React.FC<LightCardProps> = ({
         }
       }}
       className={cn(
-        "cursor-pointer gap-3 outline-none transition-colors hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring",
+        "cursor-pointer justify-center gap-6 outline-none transition-colors duration-(--tile-ease) ease-out focus-visible:ring-2 focus-visible:ring-ring",
+        !active && "hover:bg-accent/70",
         selected && "ring-2 ring-primary",
         unreachable && "opacity-50",
       )}
+      style={
+        {
+          ...LIGHT_THEME,
+          "--tile-ease": `${UI_EASE_MS.tileBackground}ms`,
+          ...(active && color ? { background: color } : null),
+        } as React.CSSProperties
+      }
     >
-      <div className="flex items-center gap-3 px-4">
+      <div className="flex items-center gap-4 px-(--card-spacing)">
         <span
-          className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground ring-1 ring-foreground/10"
-          style={swatch ? { background: swatch } : undefined}
+          className={cn(
+            "flex size-12 shrink-0 items-center justify-center",
+            active ? "text-foreground" : "text-muted-foreground",
+          )}
         >
-          {!swatch && <Lightbulb size={16} />}
+          <Lightbulb size={26} strokeWidth={2.5} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-medium" title={light.name}>
+          <p className="truncate text-base font-medium" title={light.name}>
             {light.name}
           </p>
-          <p className="text-xs text-muted-foreground">
-            {unreachable ? "Unreachable" : light.isOn ? "On" : "Off"}
-          </p>
         </div>
-        <Switch
-          checked={light.isOn}
-          disabled={unreachable}
-          aria-label={`Toggle ${light.name}`}
-          onClick={(e) => e.stopPropagation()}
-          onCheckedChange={(checked) => onToggle(light, checked)}
-        />
+        <div onClick={(e) => e.stopPropagation()}>
+          <Switch
+            size="xl"
+            className="dark:data-checked:bg-foreground/35 dark:data-unchecked:bg-input dark:**:data-[slot=switch-thumb]:data-unchecked:bg-background"
+            checked={light.isOn}
+            disabled={unreachable}
+            aria-label={`Toggle ${light.name}`}
+            onCheckedChange={(checked) => onToggle(light, checked)}
+          />
+        </div>
       </div>
 
-      <div className="px-4" onClick={(e) => e.stopPropagation()}>
-        <DebouncedSlider
-          value={light.isOn ? pct : 0}
+      <div className="px-(--card-spacing)" onClick={(e) => e.stopPropagation()}>
+        <PacedSlider
+          value={light.isOn ? Math.max(1, pct) : 1}
+          min={1}
           disabled={unreachable}
           ariaLabel={`${light.name} brightness`}
-          debounceMs={150}
-          onCommit={(value) => onBrightness(light, value)}
+          className="w-full **:data-[slot=slider-thumb]:size-5 **:data-[slot=slider-track]:bg-foreground/35 **:data-[slot=slider-range]:bg-transparent **:data-[slot=slider-range]:bg-linear-to-r **:data-[slot=slider-range]:from-white/50 **:data-[slot=slider-range]:to-white/90"
+          size="default"
+          isGroup={false}
+          onCommit={(value, phase) => onBrightness(light, value, phase)}
         />
       </div>
     </Card>

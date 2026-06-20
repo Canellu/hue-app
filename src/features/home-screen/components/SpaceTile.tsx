@@ -1,10 +1,14 @@
-import { DebouncedSlider } from "@/components/DebouncedSlider";
+import { PacedSlider } from "@/components/PacedSlider";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { roomZoneTileColor } from "@/features/space-screen/utils/color-state";
+import { LIGHT_THEME } from "@/lib/tile-theme";
+import { UI_EASE_MS } from "@/lib/transitions";
 import { cn } from "@/lib/utils";
 import type { HueLight, HueRoomZone } from "@/types/hue";
 import { getRoomZoneIcon } from "./room-zone-icons";
+
+type ControlCommitPhase = "live" | "final";
 
 interface SpaceTileProps {
   roomZone: HueRoomZone;
@@ -13,26 +17,12 @@ interface SpaceTileProps {
   editing?: boolean;
   onOpenSpace: (id: string) => void;
   onRoomZoneToggle: (roomZone: HueRoomZone, nextOn: boolean) => void;
-  onRoomZoneBrightness: (roomZone: HueRoomZone, pct: number) => void;
+  onRoomZoneBrightness: (
+    roomZone: HueRoomZone,
+    pct: number,
+    phase: ControlCommitPhase,
+  ) => void;
 }
-
-// Pin the tile to the light-theme palette (mirrors the `:root` tokens in
-// App.css) so it renders identically in light and dark mode. Defining these
-// custom properties on the card overrides the inherited `.dark` values for the
-// whole subtree, including the Switch/Slider/Card child components.
-const LIGHT_THEME = {
-  "--background": "oklch(0.99 0 0)",
-  "--foreground": "oklch(0.145 0 0)",
-  "--card": "oklch(1 0 0)",
-  "--card-foreground": "oklch(0.145 0 0)",
-  "--muted": "oklch(0.97 0 0)",
-  "--muted-foreground": "oklch(0.556 0 0)",
-  "--accent": "oklch(0.97 0 0)",
-  "--accent-foreground": "oklch(0.205 0 0)",
-  "--border": "oklch(0.922 0 0)",
-  "--input": "oklch(0.922 0 0)",
-  "--ring": "oklch(0.708 0 0)",
-} as React.CSSProperties;
 
 /**
  * Presentational room/zone tile. Used directly on the Home screen and
@@ -69,14 +59,18 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
             }
       }
       className={cn(
-        "justify-center gap-6 transition-colors",
+        "justify-center gap-6 transition-colors duration-(--tile-ease) ease-out",
         !editing && "cursor-pointer",
         !editing && !tile.active && "hover:bg-accent/70",
       )}
       style={
-        tile.active && tile.background
-          ? { ...LIGHT_THEME, background: tile.background }
-          : LIGHT_THEME
+        {
+          ...LIGHT_THEME,
+          "--tile-ease": `${UI_EASE_MS.tileBackground}ms`,
+          ...(tile.active && tile.background
+            ? { background: tile.background }
+            : null),
+        } as React.CSSProperties
       }
     >
       <div className="flex items-center gap-4 px-(--card-spacing)">
@@ -104,14 +98,17 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
       </div>
 
       <div className="px-(--card-spacing)" onClick={(e) => e.stopPropagation()}>
-        <DebouncedSlider
-          value={roomZone.anyOn ? pct : 0}
+        <PacedSlider
+          value={roomZone.anyOn ? Math.max(1, pct) : 1}
+          min={1}
           disabled={controlsDisabled}
           ariaLabel={`${roomZone.name} brightness`}
           className="w-full **:data-[slot=slider-thumb]:size-5 **:data-[slot=slider-track]:bg-foreground/35 **:data-[slot=slider-range]:bg-transparent **:data-[slot=slider-range]:bg-linear-to-r **:data-[slot=slider-range]:from-white/50 **:data-[slot=slider-range]:to-white/90"
           size="default"
-          debounceMs={300}
-          onCommit={(value) => onRoomZoneBrightness(roomZone, value)}
+          isGroup
+          onCommit={(value, phase) =>
+            onRoomZoneBrightness(roomZone, value, phase)
+          }
         />
       </div>
     </Card>

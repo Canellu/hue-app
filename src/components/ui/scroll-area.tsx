@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 function ScrollArea({
   className,
   viewportClassName,
+  viewportProps,
   children,
   fade = false,
   orientation = "vertical",
@@ -14,13 +15,18 @@ function ScrollArea({
 }: ScrollAreaPrimitive.Root.Props & {
   /** Classes applied to the scrollable viewport (where the overflow lives). */
   viewportClassName?: string;
+  /** Props applied to the scrollable viewport. */
+  viewportProps?: Omit<
+    ScrollAreaPrimitive.Viewport.Props,
+    "children" | "className" | "ref"
+  >;
   /** Ref to the scrollable viewport element (e.g. to reset scroll position). */
   viewportRef?: React.Ref<HTMLDivElement>;
   /**
    * Fade the content out at the scrollable edges with a gradient mask.
-   * `true` fades both edges; `"top"`/`"bottom"` fades only that edge.
+   * `true` fades vertical edges; use `"horizontal"` for left/right edges.
    */
-  fade?: boolean | "top" | "bottom";
+  fade?: boolean | "top" | "bottom" | "left" | "right" | "horizontal";
   /** Which scrollbars to render. */
   orientation?: "vertical" | "horizontal" | "both";
   /** Hide the scrollbar(s) while keeping the content scrollable. */
@@ -28,6 +34,8 @@ function ScrollArea({
 }) {
   const fadeTop = fade === true || fade === "top";
   const fadeBottom = fade === true || fade === "bottom";
+  const fadeLeft = fade === "horizontal" || fade === "left";
+  const fadeRight = fade === "horizontal" || fade === "right";
   return (
     <ScrollAreaPrimitive.Root
       data-slot="scroll-area"
@@ -35,18 +43,25 @@ function ScrollArea({
       {...props}
     >
       <ScrollAreaPrimitive.Viewport
+        {...viewportProps}
         ref={viewportRef}
         data-slot="scroll-area-viewport"
         className={cn(
           "size-full overscroll-contain rounded-[inherit] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
           // Only fades an edge once there's content to scroll toward, driven by
-          // the Root's data-overflow-y-{start,end} attributes.
+          // the Root's data-overflow-{x,y}-{start,end} attributes.
           (fadeTop || fadeBottom) &&
             "[--sa-fade:0px] [mask-image:linear-gradient(to_bottom,transparent,black_var(--sa-fade-top,var(--sa-fade)),black_calc(100%_-_var(--sa-fade-bottom,var(--sa-fade))),transparent)]",
           fadeTop &&
             "group-data-[overflow-y-start]/scroll-area:[--sa-fade-top:2rem]",
           fadeBottom &&
             "group-data-[overflow-y-end]/scroll-area:[--sa-fade-bottom:2rem]",
+          (fadeLeft || fadeRight) &&
+            "[--sa-fade:0px] [mask-image:linear-gradient(to_right,transparent,black_var(--sa-fade-left,var(--sa-fade)),black_calc(100%_-_var(--sa-fade-right,var(--sa-fade))),transparent)]",
+          fadeLeft &&
+            "group-data-[overflow-x-start]/scroll-area:[--sa-fade-left:2rem]",
+          fadeRight &&
+            "group-data-[overflow-x-end]/scroll-area:[--sa-fade-right:2rem]",
           viewportClassName,
         )}
       >

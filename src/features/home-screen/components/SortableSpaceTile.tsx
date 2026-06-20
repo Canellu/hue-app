@@ -3,12 +3,18 @@ import { CSS } from "@dnd-kit/utilities";
 import { SpaceTile } from "./SpaceTile";
 import type { HueLight, HueRoomZone } from "@/types/hue";
 
+type ControlCommitPhase = "live" | "final";
+
 interface SortableSpaceTileProps {
   roomZone: HueRoomZone;
   members: HueLight[];
   onOpenSpace: (id: string) => void;
   onRoomZoneToggle: (roomZone: HueRoomZone, nextOn: boolean) => void;
-  onRoomZoneBrightness: (roomZone: HueRoomZone, pct: number) => void;
+  onRoomZoneBrightness: (
+    roomZone: HueRoomZone,
+    pct: number,
+    phase: ControlCommitPhase,
+  ) => void;
 }
 
 /**

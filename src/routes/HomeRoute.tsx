@@ -50,8 +50,8 @@ export const HomeRoute: React.FC = () => {
         void navigate({ to: "/space/$spaceId", params: { spaceId: id } })
       }
       onRoomZoneToggle={(roomZone, on) => setRoomZoneState(roomZone, on, null)}
-      onRoomZoneBrightness={(roomZone, pct) =>
-        setRoomZoneState(roomZone, pct > 0, pct)
+      onRoomZoneBrightness={(roomZone, pct, phase) =>
+        setRoomZoneState(roomZone, pct > 0, pct, phase)
       }
       isCreatingSection={isCreatingSection}
       onCreateSection={createLayoutSection}

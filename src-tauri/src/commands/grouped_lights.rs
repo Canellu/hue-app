@@ -7,7 +7,7 @@ use crate::services::hue_client::HueClient;
 pub async fn set_grouped_light_state(
     app: AppHandle,
     id: String,
-    on: bool,
+    on: Option<bool>,
     brightness: Option<f64>,
     transition_ms: Option<u32>,
 ) -> Result<(), String> {

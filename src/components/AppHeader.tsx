@@ -188,7 +188,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                       </SelectValue>
                     </SelectTrigger>
                     <SelectContent
-                      align="start"
                       alignItemWithTrigger={false}
                       className="min-w-56"
                     >

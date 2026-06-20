@@ -14,6 +14,73 @@ const gammaCorrect = (c: number): number =>
 const inverseGamma = (c: number): number =>
   c > 0.04045 ? Math.pow((c + 0.055) / 1.055, 2.4) : c / 12.92;
 
+/** A light's color gamut as its red, green, and blue CIE xy corner points. */
+export type Gamut = [[number, number], [number, number], [number, number]];
+
+type Point = [number, number];
+
+const sub = (a: Point, b: Point): Point => [a[0] - b[0], a[1] - b[1]];
+const cross = (a: Point, b: Point): number => a[0] * b[1] - a[1] * b[0];
+
+/** Closest point to `p` on segment `a`→`b` (clamped to the segment ends). */
+const closestOnSegment = (a: Point, b: Point, p: Point): Point => {
+  const ab = sub(b, a);
+  const len2 = ab[0] * ab[0] + ab[1] * ab[1];
+  if (len2 === 0) return a;
+  const ap = sub(p, a);
+  const t = Math.max(0, Math.min(1, (ap[0] * ab[0] + ap[1] * ab[1]) / len2));
+  return [a[0] + ab[0] * t, a[1] + ab[1] * t];
+};
+
+const dist2 = (a: Point, p: Point): number => {
+  const d = sub(a, p);
+  return d[0] * d[0] + d[1] * d[1];
+};
+
+/** True when `p` lies inside (or on) the triangle r/g/b. */
+const inTriangle = (p: Point, [r, g, b]: Gamut): boolean => {
+  const v1 = sub(g, r);
+  const v2 = sub(b, r);
+  const q = sub(p, r);
+  const denom = cross(v1, v2);
+  if (denom === 0) return false;
+  const s = cross(q, v2) / denom;
+  const t = cross(v1, q) / denom;
+  return s >= 0 && t >= 0 && s + t <= 1;
+};
+
+/**
+ * Clamp a CIE xy coordinate into a light's color gamut triangle, snapping any
+ * out-of-gamut point to the closest point on the triangle's edges. This is the
+ * routine the Hue docs prescribe so we only ever send/show colors the bulb can
+ * actually reproduce. Returns `xy` unchanged when no gamut is known or it's
+ * already inside. See docs/HUE/color-conversion-formulas-rgb-to-xy-and-back.md.
+ */
+export const clampXyToGamut = (
+  xy: [number, number],
+  gamut?: Gamut | null,
+): [number, number] => {
+  if (!gamut) return xy;
+  const [r, g, b] = gamut;
+  if (inTriangle(xy, gamut)) return xy;
+
+  const candidates: Point[] = [
+    closestOnSegment(r, g, xy),
+    closestOnSegment(g, b, xy),
+    closestOnSegment(b, r, xy),
+  ];
+  let best = candidates[0];
+  let bestDist = dist2(best, xy);
+  for (let i = 1; i < candidates.length; i++) {
+    const d = dist2(candidates[i], xy);
+    if (d < bestDist) {
+      best = candidates[i];
+      bestDist = d;
+    }
+  }
+  return best;
+};
+
 /** Convert a CIE xy coordinate (+ brightness 0–1) to a displayable sRGB color. */
 export const xyBriToRgb = (x: number, y: number, bri = 1): Rgb => {
   if (y <= 0) return { r: 0, g: 0, b: 0 };
@@ -52,8 +119,18 @@ export const xyBriToRgb = (x: number, y: number, bri = 1): Rgb => {
   };
 };
 
-/** Convert an sRGB color to a CIE xy chromaticity coordinate for the bridge. */
-export const rgbToXy = (r: number, g: number, b: number): [number, number] => {
+/**
+ * Convert an sRGB color to a CIE xy chromaticity coordinate for the bridge. When
+ * a light's `gamut` is supplied the result is clamped into it, so we only ever
+ * send a color the bulb can reproduce (and the on-screen pin matches what the
+ * bulb actually shows instead of drifting after the bridge snaps it).
+ */
+export const rgbToXy = (
+  r: number,
+  g: number,
+  b: number,
+  gamut?: Gamut | null,
+): [number, number] => {
   const red = inverseGamma(r / 255);
   const green = inverseGamma(g / 255);
   const blue = inverseGamma(b / 255);
@@ -64,7 +141,8 @@ export const rgbToXy = (r: number, g: number, b: number): [number, number] => {
 
   const sum = X + Y + Z;
   if (sum === 0) return [0.3127, 0.329]; // D65 white
-  return [round4(X / sum), round4(Y / sum)];
+  const [cx, cy] = clampXyToGamut([X / sum, Y / sum], gamut);
+  return [round4(cx), round4(cy)];
 };
 
 /** HSV (h 0–360, s/v 0–1) to RGB (0–255). */
@@ -214,38 +292,59 @@ export const oklchToCss = (L: number, C: number, h: number): string =>
   `oklch(${round4(L)} ${round4(C)} ${round4(h)})`;
 
 /**
- * Approximate sRGB for a color temperature in mireds, for the Kelvin gradient
- * and swatch. Uses the Tanner Helland blackbody approximation.
+ * Convert a color temperature in mireds to its CIE 1931 xy chromaticity on the
+ * Planckian (blackbody) locus, using the Kim et al. cubic-spline approximation
+ * (valid ~1667K–25000K, which covers every Hue bulb's 153–500 mirek range).
+ *
+ * This is the principled inverse of the bridge's own ct→xy mapping: a color
+ * temperature *is* a point on the blackbody curve, so we recover that point and
+ * then feed it through the same gamut-corrected `xyBriToRgb` pipeline used for
+ * real colors, rather than approximating sRGB directly. See
+ * docs/HUE/color-conversion-formulas-rgb-to-xy-and-back.md.
  */
-export const ctToRgb = (mireds: number): Rgb => {
-  const kelvin = 1_000_000 / mireds;
-  const temp = kelvin / 100;
-  let r: number;
-  let g: number;
-  let b: number;
-
-  if (temp <= 66) {
-    r = 255;
-    g = 99.4708025861 * Math.log(temp) - 161.1195681661;
-  } else {
-    r = 329.698727446 * Math.pow(temp - 60, -0.1332047592);
-    g = 288.1221695283 * Math.pow(temp - 60, -0.0755148492);
-  }
-
-  if (temp >= 66) {
-    b = 255;
-  } else if (temp <= 19) {
-    b = 0;
-  } else {
-    b = 138.5177312231 * Math.log(temp - 10) - 305.0447927307;
-  }
-
-  return {
-    r: Math.round(clamp(r, 0, 255)),
-    g: Math.round(clamp(g, 0, 255)),
-    b: Math.round(clamp(b, 0, 255)),
-  };
+export const mirekToXy = (mireds: number): [number, number] => {
+  const t = 1_000_000 / mireds; // kelvin
+  const x =
+    t <= 4000
+      ? -0.2661239e9 / t ** 3 -
+        0.2343589e6 / t ** 2 +
+        0.8776956e3 / t +
+        0.17991
+      : -3.0258469e9 / t ** 3 +
+        2.1070379e6 / t ** 2 +
+        0.2226347e3 / t +
+        0.24039;
+  const y =
+    t <= 2222
+      ? -1.1063814 * x ** 3 - 1.3481102 * x ** 2 + 2.18555832 * x - 0.20219683
+      : t <= 4000
+        ? -0.9549476 * x ** 3 -
+          1.37418593 * x ** 2 +
+          2.09137015 * x -
+          0.16748867
+        : 3.081758 * x ** 3 - 5.8733867 * x ** 2 + 3.75112997 * x - 0.37001483;
+  return [x, y];
 };
+
+/** CIE xy of the D65 reference white — the neutral point whites adapt toward. */
+const D65: [number, number] = [0.3127, 0.329];
+
+/**
+ * How far a color-temperature white is pulled toward D65 in chromaticity space
+ * (0 = the raw blackbody point, 1 = neutral white). A tunable-white bulb reads
+ * as a soft *tinted white* rather than a saturated amber because the eye
+ * chromatically adapts to it; blending toward the neutral point is a simple
+ * von-Kries-style model of that adaptation. Doing it in xy (not sRGB) keeps the
+ * hue stable — mixing toward white in sRGB drags warm tones toward pink/salmon.
+ * Tuned so "Read" (~346 mirek) lands on a clean cream (~#FFE9C1).
+ */
+const WHITE_ADAPTATION = 0.5;
+
+/** Blend a chromaticity toward D65 to model perceived white adaptation. */
+const adaptWhiteXy = ([x, y]: [number, number]): [number, number] => [
+  x + (D65[0] - x) * WHITE_ADAPTATION,
+  y + (D65[1] - y) * WHITE_ADAPTATION,
+];
 
 export const rgbToCss = ({ r, g, b }: Rgb): string => `rgb(${r}, ${g}, ${b})`;
 
@@ -265,22 +364,27 @@ export interface HueColor {
   mirek?: number | null;
   /** Optional brightness 0–1 used only for xy → sRGB luminance. */
   brightness?: number;
+  /** The light's gamut; when present, xy is clamped into it before display. */
+  gamut?: Gamut | null;
 }
 
 /**
  * Centralized translation from a bridge color (CIE xy or mirek) to a
- * browser-renderable hex string. xy is converted via the standard Philips
- * matrix; mirek falls back to a blackbody curve (low mirek → cool blue-white,
- * high mirek → warm amber). Returns `null` when no color is present.
+ * browser-renderable hex string. xy is clamped into the light's gamut (when
+ * known) then converted via the standard Philips matrix. mirek is resolved to
+ * its blackbody xy (`mirekToXy`), nudged toward neutral white (`adaptWhiteXy`)
+ * to model how a tunable-white bulb is actually perceived, then run through the
+ * same xy pipeline — so warm-white scenes read as soft creams instead of
+ * saturated amber. Returns `null` when no color is present.
  */
 export const convertHueColorToCss = (color: HueColor): string | null => {
   if (color.xy) {
-    return rgbToHex(
-      xyBriToRgb(color.xy[0], color.xy[1], color.brightness ?? 1),
-    );
+    const [x, y] = clampXyToGamut(color.xy, color.gamut);
+    return rgbToHex(xyBriToRgb(x, y, color.brightness ?? 1));
   }
   if (color.mirek != null) {
-    return rgbToHex(ctToRgb(color.mirek));
+    const [x, y] = adaptWhiteXy(mirekToXy(color.mirek));
+    return rgbToHex(xyBriToRgb(x, y));
   }
   return null;
 };
@@ -313,6 +417,4 @@ export const miredToKelvin = (mireds: number): number =>
   Math.round(1_000_000 / mireds / 50) * 50;
 
 const clamp01 = (c: number): number => Math.max(0, Math.min(1, c));
-const clamp = (v: number, min: number, max: number): number =>
-  Math.max(min, Math.min(max, v));
 const round4 = (n: number): number => Math.round(n * 10000) / 10000;

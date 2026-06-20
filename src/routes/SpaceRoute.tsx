@@ -3,9 +3,13 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { SpaceScreen } from "@/features/space-screen/SpaceScreen";
-import { LightDrawer } from "@/features/space-screen/components/LightDrawer";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HueAccessoryService } from "@/types/hue";
+
+const isSceneStatusActive = (status: string | null | undefined): boolean =>
+  status != null &&
+  status.trim() !== "" &&
+  status.trim().toLowerCase() !== "inactive";
 
 export const SpaceRoute: React.FC = () => {
   const { spaceId } = useParams({ from: "/space/$spaceId" });
@@ -15,25 +19,33 @@ export const SpaceRoute: React.FC = () => {
     lights,
     scenes,
     error,
+    selectedLightId,
+    selectedSceneId,
+    setSelectedLightId,
+    setSelectedSceneId,
     setRoomZoneState,
     setLightState,
-    setLightColor,
+    createGalleryScene,
     activateScene,
+    setDynamicSpeedLive,
   } = useHueResourcesStore(
     useShallow((state) => ({
       roomZones: state.roomZones,
       lights: state.lights,
       scenes: state.scenes,
       error: state.error,
+      selectedLightId: state.selectedLightId,
+      selectedSceneId: state.selectedSceneId,
+      setSelectedLightId: state.setSelectedLightId,
+      setSelectedSceneId: state.setSelectedSceneId,
       setRoomZoneState: state.setRoomZoneState,
       setLightState: state.setLightState,
-      setLightColor: state.setLightColor,
+      createGalleryScene: state.createGalleryScene,
       activateScene: state.activateScene,
+      setDynamicSpeedLive: state.setDynamicSpeedLive,
     })),
   );
 
-  const [selectedLightId, setSelectedLightId] = useState<string | null>(null);
-  const [activeSceneId, setActiveSceneId] = useState<string | null>(null);
   const [accessoryServices, setAccessoryServices] = useState<
     HueAccessoryService[]
   >([]);
@@ -86,9 +98,11 @@ export const SpaceRoute: React.FC = () => {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [scenes, roomZone]);
 
-  const selectedLight = useMemo(
-    () => lights.find((light) => light.id === selectedLightId) ?? null,
-    [lights, selectedLightId],
+  const activeSceneId = useMemo(
+    () =>
+      spaceScenes.find((scene) => isSceneStatusActive(scene.status))?.id ??
+      null,
+    [spaceScenes],
   );
 
   // A missing room/zone (stale URL, or it vanished after a refresh) falls back Home.
@@ -96,38 +110,43 @@ export const SpaceRoute: React.FC = () => {
     if (roomZones.length > 0 && !roomZone) void navigate({ to: "/" });
   }, [roomZones.length, roomZone, navigate]);
 
+  // The inspector panel belongs to this space; collapse it when leaving so it
+  // doesn't linger open over Home or another room. (Clearing the light id also
+  // clears any selected scene — they're mutually exclusive in the store.)
+  useEffect(() => {
+    return () => setSelectedLightId(null);
+  }, [spaceId, setSelectedLightId]);
+
   if (!roomZone) return null;
 
   return (
-    <>
-      <SpaceScreen
-        roomZone={roomZone}
-        lights={spaceLights}
-        scenes={spaceScenes}
-        readingsByDevice={readingsByDevice}
-        activeSceneId={activeSceneId}
-        selectedLightId={selectedLightId}
-        error={error}
-        onRoomZoneToggle={(g, on) => setRoomZoneState(g, on, null)}
-        onRoomZoneBrightness={(g, pct) => setRoomZoneState(g, pct > 0, pct)}
-        onLightToggle={(light, on) => setLightState(light, on, null)}
-        onLightBrightness={(light, pct) => setLightState(light, pct > 0, pct)}
-        onSelectLight={(id) => setSelectedLightId(id)}
-        onSceneActivate={(scene) => {
-          setActiveSceneId(scene.id);
-          void activateScene(scene);
-        }}
-      />
-
-      {selectedLight && (
-        <LightDrawer
-          light={selectedLight}
-          onClose={() => setSelectedLightId(null)}
-          onLightToggle={(light, on) => setLightState(light, on, null)}
-          onLightBrightness={(light, pct) => setLightState(light, pct > 0, pct)}
-          onLightColor={(light, change) => setLightColor(light, change)}
-        />
-      )}
-    </>
+    <SpaceScreen
+      roomZone={roomZone}
+      lights={spaceLights}
+      scenes={spaceScenes}
+      readingsByDevice={readingsByDevice}
+      activeSceneId={activeSceneId}
+      selectedLightId={selectedLightId}
+      error={error}
+      onRoomZoneToggle={(g, on) => setRoomZoneState(g, on, null)}
+      onRoomZoneBrightness={(g, pct, phase) =>
+        setRoomZoneState(g, pct > 0, pct, phase)
+      }
+      onLightToggle={(light, on) => setLightState(light, on, null)}
+      onLightBrightness={(light, pct, phase) =>
+        setLightState(light, pct > 0, pct, phase)
+      }
+      onSelectLight={(id) =>
+        setSelectedLightId(selectedLightId === id ? null : id)
+      }
+      onSceneApply={(scene) => {
+        setSelectedSceneId(scene.id);
+        void activateScene(scene, "apply");
+      }}
+      onSceneTogglePlay={(scene) => void activateScene(scene, "dynamic")}
+      onDynamicSpeedLive={(scene, step) => setDynamicSpeedLive(scene, step)}
+      selectedSceneId={selectedSceneId}
+      onGallerySceneCreate={(preset) => createGalleryScene(roomZone, preset)}
+    />
   );
 };

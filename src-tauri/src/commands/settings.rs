@@ -106,7 +106,12 @@ pub async fn delete_hue_resource(
     let stored_bridge = client.get_stored_bridge(&app)?;
     let application_key = client.get_stored_application_key(&app)?;
     client
-        .delete_resource(&stored_bridge.bridge_ip, &application_key, &resource_type, &id)
+        .delete_resource(
+            &stored_bridge.bridge_ip,
+            &application_key,
+            &resource_type,
+            &id,
+        )
         .await
 }
 
@@ -159,10 +164,7 @@ pub async fn start_hue_device_discovery(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command(rename = "start-hue-qr-device-discovery")]
-pub async fn start_hue_qr_device_discovery(
-    app: AppHandle,
-    qr_text: String,
-) -> Result<(), String> {
+pub async fn start_hue_qr_device_discovery(app: AppHandle, qr_text: String) -> Result<(), String> {
     let client = HueClient::new()?;
     let stored_bridge = client.get_stored_bridge(&app)?;
     let application_key = client.get_stored_application_key(&app)?;

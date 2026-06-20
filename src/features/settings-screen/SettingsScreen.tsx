@@ -824,9 +824,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
             <Panel title="Advanced">
               <AlertDialog>
                 <AlertDialogTrigger
-                  render={
-                    <Button variant="destructive" className="gap-2" />
-                  }
+                  render={<Button variant="destructive" className="gap-2" />}
                 >
                   <Power size={16} />
                   Remove bridge & reset
@@ -1071,12 +1069,16 @@ const EditableSceneRow = ({
     eyebrow={`${scene.smart ? "Smart scene" : "Scene"} · ${space?.name ?? "No space"}`}
     meta={[
       scene.status,
-      scene.dynamic ? "Dynamic" : null,
+      scene.dynamic
+        ? scene.speed != null
+          ? `Dynamic speed ${Math.round(scene.speed * 11) + 1}`
+          : "Dynamic"
+        : null,
       `${scene.colors.length} ${scene.colors.length === 1 ? "color" : "colors"}`,
     ]}
     onRename={onRename}
     onDelete={onDelete}
-    deleteDescription={`Delete scene "${scene.name}" from the bridge.`}
+    deleteDescription={`Remove scene "${scene.name}" from room/zone.`}
   />
 );
 

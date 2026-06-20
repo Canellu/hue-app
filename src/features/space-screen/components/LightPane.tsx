@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { lightColorHex } from "@/features/space-screen/utils/color-state";
+import { activeTileTheme } from "@/lib/tile-theme";
 import { cn } from "@/lib/utils";
 import {
   type LightColorChange,
@@ -166,11 +168,20 @@ export const LightPane: React.FC<LightPaneProps> = ({
   const ctMax = light.ctMax ?? 500;
   const ct = light.ct ?? Math.round((ctMin + ctMax) / 2);
   const DeviceIcon = getLightIcon(light.typeName);
+  const color = light.isOn ? lightColorHex(light) : null;
+  const previewStyle =
+    color != null ? activeTileTheme(color, color, brightnessPct) : undefined;
 
   const view = (
     <div className="flex flex-col gap-6">
       <div className="flex flex-col items-center gap-3 pt-1">
-        <span className="flex size-16 items-center justify-center rounded-2xl bg-muted text-foreground">
+        <span
+          className={cn(
+            "flex size-16 items-center justify-center rounded-2xl text-foreground",
+            color != null ? "shadow-sm" : "bg-muted",
+          )}
+          style={previewStyle}
+        >
           <DeviceIcon size={32} strokeWidth={2.25} />
         </span>
         <h2 className="max-w-full truncate text-center font-heading text-lg font-medium text-foreground">
@@ -192,7 +203,9 @@ export const LightPane: React.FC<LightPaneProps> = ({
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <p className="text-sm font-medium text-muted-foreground">Brightness</p>
+          <p className="text-sm font-medium text-muted-foreground">
+            Brightness
+          </p>
           <span className="text-xs text-muted-foreground tabular-nums">
             {brightnessPct}%
           </span>
@@ -435,6 +448,11 @@ const EditPane: React.FC<{
   };
 
   const EditIcon = getLightIcon(icon || null);
+  const color = light.isOn ? lightColorHex(light) : null;
+  const previewStyle =
+    color != null
+      ? activeTileTheme(color, color, Math.round(light.brightness ?? 0))
+      : undefined;
 
   return (
     <div className="flex h-full flex-col">
@@ -451,7 +469,13 @@ const EditPane: React.FC<{
               disabled={isSaving || deletePending}
               onClick={() => setPickerOpen(true)}
               aria-label="Choose icon"
-              className="flex size-16 items-center justify-center rounded-2xl bg-muted text-foreground transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50"
+              className={cn(
+                "flex size-16 items-center justify-center rounded-2xl text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
+                color != null
+                  ? "shadow-sm hover:opacity-90"
+                  : "bg-muted hover:bg-accent",
+              )}
+              style={previewStyle}
             >
               <EditIcon size={32} strokeWidth={2.25} />
             </button>
@@ -560,7 +584,8 @@ const EditPane: React.FC<{
                       : value
                           .map(
                             (id) =>
-                              zones.find((space) => space.id === id)?.name ?? id,
+                              zones.find((space) => space.id === id)?.name ??
+                              id,
                           )
                           .join(", ")
                   }

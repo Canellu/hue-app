@@ -1,11 +1,13 @@
 import { PacedSlider } from "@/components/PacedSlider";
 import { SensorReadingPill } from "@/components/SensorReadingPill";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -14,8 +16,12 @@ import { Switch } from "@/components/ui/switch";
 import {
   roomZoneTileColor,
   sceneBubbleCss,
+  sceneHexes,
 } from "@/features/space-screen/utils/color-state";
-import { LIGHT_THEME } from "@/lib/tile-theme";
+import {
+  activeTileTheme,
+  TILE_BRIGHTNESS_SLIDER_CLASS,
+} from "@/lib/tile-theme";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { cn } from "@/lib/utils";
 import type {
@@ -140,8 +146,11 @@ interface SpaceScreenProps {
   onSceneTogglePlay: (scene: HueScene) => void;
   /** Transient speed change for the scene that is currently playing. */
   onDynamicSpeedLive: (scene: HueScene, step: number) => void;
-  selectedSceneId: string | null;
   onGallerySceneCreate: (preset: HueGalleryScenePreset) => Promise<void>;
+  /** Live-preview a gallery preset on the room's real lights (no save). */
+  onGalleryScenePreview: (preset: HueGalleryScenePreset) => void;
+  /** Revert the live preview when the gallery is dismissed without adding. */
+  onGalleryScenePreviewEnd: () => void;
 }
 
 export const SpaceScreen: React.FC<SpaceScreenProps> = ({
@@ -160,8 +169,9 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
   onSceneApply,
   onSceneTogglePlay,
   onDynamicSpeedLive,
-  selectedSceneId,
   onGallerySceneCreate,
+  onGalleryScenePreview,
+  onGalleryScenePreviewEnd,
 }) => {
   const brightnessPct = roomZone.brightness ?? 0;
   const tile = roomZoneTileColor(lights);
@@ -190,21 +200,31 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
       setPendingGallerySceneId(null);
     }
   };
+  // Closing the gallery without adding reverts the live preview to whatever the
+  // room looked like before. (After a successful add the store has already
+  // dropped its snapshot, so this revert is a no-op.)
+  const handleGalleryOpenChange = (open: boolean) => {
+    if (!open) onGalleryScenePreviewEnd();
+    setSceneGalleryOpen(open);
+  };
 
   return (
     <section className="mx-auto flex w-full min-w-0 flex-col gap-6">
       {error && <p className="text-sm text-destructive">{error}</p>}
       <Card
         className={cn(
-          "gap-4 transition-colors duration-(--tile-ease) ease-out",
+          "gap-4 bg-tile transition-colors duration-(--tile-ease) ease-out",
           !tile.active && "hover:bg-accent/70",
         )}
         style={
           {
-            ...LIGHT_THEME,
             "--tile-ease": `${UI_EASE_MS.tileBackground}ms`,
             ...(tile.active && tile.background
-              ? { background: tile.background }
+              ? activeTileTheme(
+                  tile.background,
+                  tile.glow ?? tile.background,
+                  brightnessPct,
+                )
               : null),
           } as React.CSSProperties
         }
@@ -241,10 +261,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
             value={roomZone.anyOn ? Math.max(1, brightnessPct) : 1}
             min={1}
             ariaLabel={`${roomZone.name} brightness`}
-            className={cn(
-              tile.active &&
-                "**:data-[slot=slider-track]:bg-foreground/35 **:data-[slot=slider-range]:bg-transparent **:data-[slot=slider-range]:bg-linear-to-r **:data-[slot=slider-range]:from-white/50 **:data-[slot=slider-range]:to-white/90",
-            )}
+            className={TILE_BRIGHTNESS_SLIDER_CLASS}
             isGroup
             onCommit={(pct, phase) =>
               onRoomZoneBrightness(roomZone, pct, phase)
@@ -271,25 +288,25 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
             viewportClassName="pb-1"
             viewportProps={{ onWheel: handleHorizontalWheel }}
           >
-            <div className="flex w-max gap-3 p-2">
+            <div className="grid w-max grid-flow-col grid-rows-2 gap-3 p-2">
+              <SceneGalleryCard onOpen={() => setSceneGalleryOpen(true)} />
               {scenes.map((scene) => (
                 <SceneCard
                   key={scene.id}
                   scene={scene}
                   active={scene.id === activeSceneId}
-                  selected={scene.id === selectedSceneId}
                   onApply={onSceneApply}
                   onTogglePlay={onSceneTogglePlay}
                 />
               ))}
-              <SceneGalleryCard onOpen={() => setSceneGalleryOpen(true)} />
             </div>
           </ScrollArea>
           <SceneGalleryDialog
             open={sceneGalleryOpen}
             roomZoneName={roomZone.name}
             pendingSceneId={pendingGallerySceneId}
-            onOpenChange={setSceneGalleryOpen}
+            onOpenChange={handleGalleryOpenChange}
+            onScenePreview={onGalleryScenePreview}
             onSceneCreate={handleGallerySceneCreate}
           />
         </div>
@@ -383,10 +400,7 @@ const DynamicSpeedControl: React.FC<{
         max={SPEED_MAX}
         step={1}
         ariaLabel={`${scene.name} live dynamic speed`}
-        className={cn(
-          active &&
-            "**:data-[slot=slider-track]:bg-foreground/35 **:data-[slot=slider-range]:bg-transparent **:data-[slot=slider-range]:bg-linear-to-r **:data-[slot=slider-range]:from-white/50 **:data-[slot=slider-range]:to-white/90",
-        )}
+        className={TILE_BRIGHTNESS_SLIDER_CLASS}
         isGroup
         onInput={(value) => setStep(Math.round(value))}
         onCommit={(value) => {
@@ -399,76 +413,136 @@ const DynamicSpeedControl: React.FC<{
   );
 };
 
+/**
+ * The shared visual shell for a scene tile — used by both the saved-scene cards
+ * in the horizontal rail and the gallery preset cards in the picker. It pins the
+ * circle visual to the top and a fixed two-line name box to the bottom, so a
+ * one-line name sits vertically centered against where a two-line name would be.
+ * Behavior (what a tap does, the play button, the lit/preview background) is
+ * supplied by the caller — only the layout is shared.
+ */
+const SceneTile: React.FC<{
+  name: string;
+  visual: React.ReactNode;
+  onActivate: () => void;
+  /** The tile paints its own palette as the background (drop-shadowed name). */
+  activeBackground?: boolean;
+  /** Stretch to fill a grid cell instead of the fixed rail width. */
+  fullWidth?: boolean;
+  /** Small label pinned to the top-right corner (e.g. brightness). */
+  cornerLabel?: React.ReactNode;
+  disabled?: boolean;
+  ariaPressed?: boolean;
+  className?: string;
+  style?: React.CSSProperties;
+}> = ({
+  name,
+  visual,
+  onActivate,
+  activeBackground = false,
+  fullWidth = false,
+  cornerLabel,
+  disabled = false,
+  ariaPressed,
+  className,
+  style,
+}) => (
+  <Card
+    size="sm"
+    role="button"
+    tabIndex={disabled ? -1 : 0}
+    aria-pressed={ariaPressed}
+    aria-disabled={disabled || undefined}
+    onClick={() => {
+      if (!disabled) onActivate();
+    }}
+    onKeyDown={(event) => {
+      if (disabled) return;
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        onActivate();
+      }
+    }}
+    className={cn(
+      "group relative shrink-0 cursor-pointer items-center justify-between rounded-[1.75rem] bg-tile px-4 py-5 text-center outline-none transition-[background,color,transform] duration-(--tile-ease) ease-out focus-visible:ring-2 focus-visible:ring-ring",
+      fullWidth ? "h-40 w-full" : "h-40 w-36",
+      className,
+    )}
+    style={
+      {
+        "--tile-ease": `${UI_EASE_MS.tileBackground}ms`,
+        ...style,
+      } as React.CSSProperties
+    }
+  >
+    {cornerLabel != null && (
+      <span
+        className={cn(
+          "pointer-events-none absolute top-3 right-3 text-xs font-medium tabular-nums",
+          activeBackground
+            ? "text-foreground/80 drop-shadow"
+            : "text-muted-foreground",
+        )}
+      >
+        {cornerLabel}
+      </span>
+    )}
+    <div className="mt-2 flex">{visual}</div>
+    <span className="flex h-10 min-w-0 flex-col items-center justify-center">
+      <span
+        className={cn(
+          "line-clamp-2 max-w-full text-base leading-tight font-medium break-words",
+          activeBackground && "drop-shadow",
+        )}
+      >
+        {name}
+      </span>
+    </span>
+  </Card>
+);
+
 const SceneCard: React.FC<{
   scene: HueScene;
   active?: boolean;
-  selected?: boolean;
   compact?: boolean;
   onApply: (scene: HueScene) => void;
   onTogglePlay: (scene: HueScene) => void;
-}> = ({
-  scene,
-  active = false,
-  selected = false,
-  compact = false,
-  onApply,
-  onTogglePlay,
-}) => {
+}> = ({ scene, active = false, compact = false, onApply, onTogglePlay }) => {
   const bubble = sceneBubbleCss(scene);
   const activeBackground = active && bubble != null;
   const dynamicActive = isSceneDynamicActive(scene);
 
   return (
-    <Card
-      size="sm"
-      role="button"
-      tabIndex={0}
-      aria-pressed={active}
-      onClick={() => onApply(scene)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onApply(scene);
-        }
-      }}
-      className={cn(
-        "group relative shrink-0 cursor-pointer items-center justify-between rounded-[1.75rem] px-4 py-5 text-center outline-none transition-[background,color,transform] duration-(--tile-ease) ease-out focus-visible:ring-2 focus-visible:ring-ring",
-        compact ? "h-36 w-full" : "h-40 w-40",
+    <SceneTile
+      name={scene.name}
+      ariaPressed={active}
+      activeBackground={activeBackground}
+      fullWidth={compact}
+      className={
         activeBackground
-          ? "text-white ring-0 hover:scale-[1.01]"
+          ? "text-foreground hover:scale-[1.01]"
           : active
-            ? "bg-accent ring-0 hover:bg-accent"
-            : "hover:bg-accent/70",
-        selected && "ring-2 ring-ring",
-      )}
-      style={
-        {
-          ...LIGHT_THEME,
-          "--tile-ease": `${UI_EASE_MS.tileBackground}ms`,
-          ...(activeBackground ? { background: bubble } : null),
-        } as React.CSSProperties
+            ? "bg-accent hover:bg-accent"
+            : "hover:bg-accent/70"
       }
-    >
-      <SceneCardVisual
-        active={active}
-        bubble={bubble}
-        compact={compact}
-        dynamic={scene.dynamic}
-        dynamicActive={dynamicActive}
-        sceneName={scene.name}
-        onTogglePlay={() => onTogglePlay(scene)}
-      />
-      <span className="flex min-w-0 flex-col items-center gap-1">
-        <span
-          className={cn(
-            "line-clamp-2 max-w-full text-base leading-tight font-medium break-words",
-            activeBackground && "drop-shadow",
-          )}
-        >
-          {scene.name}
-        </span>
-      </span>
-    </Card>
+      style={
+        activeBackground && bubble
+          ? activeTileTheme(bubble, sceneHexes(scene)[0] ?? bubble)
+          : undefined
+      }
+      onActivate={() => onApply(scene)}
+      visual={
+        <SceneCardVisual
+          active={active}
+          bubble={bubble}
+          compact={compact}
+          dynamic={scene.dynamic}
+          dynamicActive={dynamicActive}
+          sceneName={scene.name}
+          onTogglePlay={() => onTogglePlay(scene)}
+        />
+      }
+    />
   );
 };
 
@@ -510,7 +584,7 @@ const SceneCardVisual: React.FC<{
         }}
         onKeyDown={(event) => event.stopPropagation()}
         className={cn(
-          "flex aspect-square items-center justify-center rounded-full ring-1 backdrop-blur-sm outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring",
+          "flex aspect-square shrink-0 items-center justify-center rounded-full ring-1 backdrop-blur-sm outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring",
           showBubble
             ? "text-white ring-white/25 shadow-sm"
             : active || bubble
@@ -534,7 +608,10 @@ const SceneCardVisual: React.FC<{
   if (bubble) {
     return (
       <span
-        className={cn("aspect-square rounded-full shadow-sm ring-1 ring-foreground/15", size)}
+        className={cn(
+          "aspect-square shrink-0 rounded-full shadow-sm ring-1 ring-foreground/15",
+          size,
+        )}
         style={{ background: bubble }}
       />
     );
@@ -543,7 +620,7 @@ const SceneCardVisual: React.FC<{
   return (
     <span
       className={cn(
-        "flex aspect-square items-center justify-center rounded-full bg-secondary text-muted-foreground ring-1 ring-foreground/10",
+        "flex aspect-square shrink-0 items-center justify-center rounded-full bg-secondary text-muted-foreground ring-1 ring-foreground/10",
         size,
       )}
     >
@@ -566,7 +643,7 @@ const SceneGalleryCard: React.FC<{
         onOpen();
       }
     }}
-    className="h-40 w-40 shrink-0 cursor-pointer items-center justify-center gap-4 rounded-[1.75rem] bg-card/60 px-4 text-center outline-none transition-colors hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring"
+    className="h-40 w-36 shrink-0 cursor-pointer items-center justify-center gap-4 rounded-[1.75rem] border border-border bg-background px-4 text-center outline-none transition-colors hover:bg-accent/70 focus-visible:ring-2 focus-visible:ring-ring"
   >
     <span className="flex items-center -space-x-3">
       {HUE_SCENE_GALLERY_PREVIEWS.map((preset, index) => {
@@ -605,111 +682,135 @@ const SceneGalleryDialog: React.FC<{
   roomZoneName: string;
   pendingSceneId: string | null;
   onOpenChange: (open: boolean) => void;
+  onScenePreview: (preset: HueGalleryScenePreset) => void;
   onSceneCreate: (preset: HueGalleryScenePreset) => Promise<void>;
-}> = ({ open, roomZoneName, pendingSceneId, onOpenChange, onSceneCreate }) => (
-  <Dialog open={open} onOpenChange={onOpenChange}>
-    <DialogContent className="max-h-[calc(100vh-3rem)] gap-4 sm:max-w-4xl">
-      <DialogHeader>
-        <DialogTitle>Hue scene gallery</DialogTitle>
-        <DialogDescription>
-          Pick a preset to add it as a saved scene for {roomZoneName}.
-        </DialogDescription>
-      </DialogHeader>
-      <ScrollArea
-        fade
-        className="h-[min(34rem,calc(100vh-12rem))]"
-        viewportClassName="pr-3"
-      >
-        <div className="space-y-6">
-          {HUE_SCENE_GALLERY_SECTIONS.map((section) => (
-            <section key={section.id} className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <h3 className="truncate text-base font-semibold">
-                    {section.title}
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    {section.description}
-                  </p>
+}> = ({
+  open,
+  roomZoneName,
+  pendingSceneId,
+  onOpenChange,
+  onScenePreview,
+  onSceneCreate,
+}) => {
+  const [previewedPreset, setPreviewedPreset] =
+    useState<HueGalleryScenePreset | null>(null);
+
+  // Forget the in-modal selection when the gallery closes; the parent's
+  // onOpenChange is what reverts the lights themselves.
+  useEffect(() => {
+    if (!open) setPreviewedPreset(null);
+  }, [open]);
+
+  const adding = pendingSceneId != null;
+  const handlePreview = (preset: HueGalleryScenePreset) => {
+    setPreviewedPreset(preset);
+    onScenePreview(preset);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[calc(100vh-3rem)] gap-4 sm:max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>Hue scene gallery</DialogTitle>
+          <DialogDescription>
+            Tap a preset to preview it live in {roomZoneName}, then add it.
+          </DialogDescription>
+        </DialogHeader>
+        <ScrollArea
+          fade
+          className="h-[min(34rem,calc(100vh-15rem))]"
+          viewportClassName="pr-3"
+        >
+          <div className="space-y-6">
+            {HUE_SCENE_GALLERY_SECTIONS.map((section) => (
+              <section key={section.id} className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-base font-semibold">
+                      {section.title}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      {section.description}
+                    </p>
+                  </div>
+                  <Badge variant="outline">
+                    {section.scenes.length}{" "}
+                    {section.scenes.length === 1 ? "preset" : "presets"}
+                  </Badge>
                 </div>
-                <Badge variant="outline">
-                  {section.scenes.length}{" "}
-                  {section.scenes.length === 1 ? "preset" : "presets"}
-                </Badge>
-              </div>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">
-                {section.scenes.map((preset) => (
-                  <GalleryPresetCard
-                    key={preset.id}
-                    preset={preset}
-                    pending={preset.id === pendingSceneId}
-                    disabled={pendingSceneId != null}
-                    onSelect={onSceneCreate}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      </ScrollArea>
-    </DialogContent>
-  </Dialog>
-);
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">
+                  {section.scenes.map((preset) => (
+                    <GalleryPresetCard
+                      key={preset.id}
+                      preset={preset}
+                      previewed={preset.id === previewedPreset?.id}
+                      onPreview={handlePreview}
+                    />
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        </ScrollArea>
+        <DialogFooter className="sm:items-center sm:justify-between">
+          <p className="text-sm text-muted-foreground">
+            {previewedPreset
+              ? `Previewing ${previewedPreset.name}`
+              : "Tap a preset to preview it live."}
+          </p>
+          <Button
+            disabled={!previewedPreset || adding}
+            onClick={() => {
+              if (previewedPreset) void onSceneCreate(previewedPreset);
+            }}
+          >
+            {adding
+              ? "Adding…"
+              : previewedPreset
+                ? `Add to ${roomZoneName}`
+                : "Add to room"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
 
 const GalleryPresetCard: React.FC<{
   preset: HueGalleryScenePreset;
-  pending: boolean;
-  disabled: boolean;
-  onSelect: (preset: HueGalleryScenePreset) => Promise<void>;
-}> = ({ preset, pending, disabled, onSelect }) => {
+  previewed: boolean;
+  onPreview: (preset: HueGalleryScenePreset) => void;
+}> = ({ preset, previewed, onPreview }) => {
   const bubble = gallerySceneBubbleCss(preset);
+  const activeBackground = previewed && bubble != null;
 
   return (
-    <Card
-      size="sm"
-      role="button"
-      tabIndex={disabled ? -1 : 0}
-      aria-disabled={disabled}
-      onClick={() => {
-        if (!disabled) void onSelect(preset);
-      }}
-      onKeyDown={(event) => {
-        if (disabled) return;
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          void onSelect(preset);
-        }
-      }}
-      className={cn(
-        "h-36 w-full cursor-pointer items-center justify-between rounded-[1.75rem] px-4 py-5 text-center outline-none transition-[background,opacity,transform] duration-(--tile-ease) ease-out focus-visible:ring-2 focus-visible:ring-ring",
-        disabled ? "cursor-default opacity-60" : "hover:bg-accent/70",
-      )}
+    <SceneTile
+      name={preset.name}
+      fullWidth
+      ariaPressed={previewed}
+      activeBackground={activeBackground}
+      cornerLabel={`${Math.round(preset.brightness)}%`}
+      className={activeBackground ? "text-foreground" : "hover:bg-accent/70"}
       style={
-        {
-          ...LIGHT_THEME,
-          "--tile-ease": `${UI_EASE_MS.tileBackground}ms`,
-        } as React.CSSProperties
+        activeBackground && bubble
+          ? activeTileTheme(bubble, preset.colors[0]?.hex ?? bubble)
+          : undefined
       }
-    >
-      {bubble ? (
-        <span
-          className="size-12 rounded-full shadow-sm ring-1 ring-foreground/15"
-          style={{ background: bubble }}
-        />
-      ) : (
-        <span className="flex size-12 items-center justify-center rounded-full bg-secondary text-muted-foreground ring-1 ring-foreground/10">
-          <Sparkles className="size-5" />
-        </span>
-      )}
-      <span className="flex min-w-0 flex-col items-center gap-1">
-        <span className="line-clamp-2 max-w-full text-base leading-tight font-semibold break-words">
-          {preset.name}
-        </span>
-        <span className="line-clamp-1 max-w-full text-xs text-muted-foreground">
-          {pending ? "Adding..." : `${Math.round(preset.brightness)}%`}
-        </span>
-      </span>
-    </Card>
+      onActivate={() => onPreview(preset)}
+      visual={
+        bubble ? (
+          <span
+            className="aspect-square size-14 shrink-0 rounded-full shadow-sm ring-1 ring-foreground/15"
+            style={{ background: bubble }}
+          />
+        ) : (
+          <span className="flex aspect-square size-14 shrink-0 items-center justify-center rounded-full bg-secondary text-muted-foreground ring-1 ring-foreground/10">
+            <Sparkles className="size-6" />
+          </span>
+        )
+      }
+    />
   );
 };
 
@@ -728,7 +829,7 @@ const AccessorySection: React.FC<{
         {accessories.map((accessory) => {
           const readings = readingsByDevice.get(accessory.id) ?? [];
           return (
-            <Card key={accessory.id} className="gap-3 px-4 py-3">
+            <Card key={accessory.id} className="gap-3 bg-tile px-4 py-3">
               <div className="flex items-center gap-3">
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                   <Icon size={18} />

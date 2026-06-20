@@ -20,12 +20,13 @@ export const SpaceRoute: React.FC = () => {
     scenes,
     error,
     selectedLightId,
-    selectedSceneId,
     setSelectedLightId,
     setSelectedSceneId,
     setRoomZoneState,
     setLightState,
     createGalleryScene,
+    previewGalleryScene,
+    endGalleryPreview,
     activateScene,
     setDynamicSpeedLive,
   } = useHueResourcesStore(
@@ -35,12 +36,13 @@ export const SpaceRoute: React.FC = () => {
       scenes: state.scenes,
       error: state.error,
       selectedLightId: state.selectedLightId,
-      selectedSceneId: state.selectedSceneId,
       setSelectedLightId: state.setSelectedLightId,
       setSelectedSceneId: state.setSelectedSceneId,
       setRoomZoneState: state.setRoomZoneState,
       setLightState: state.setLightState,
       createGalleryScene: state.createGalleryScene,
+      previewGalleryScene: state.previewGalleryScene,
+      endGalleryPreview: state.endGalleryPreview,
       activateScene: state.activateScene,
       setDynamicSpeedLive: state.setDynamicSpeedLive,
     })),
@@ -145,8 +147,9 @@ export const SpaceRoute: React.FC = () => {
       }}
       onSceneTogglePlay={(scene) => void activateScene(scene, "dynamic")}
       onDynamicSpeedLive={(scene, step) => setDynamicSpeedLive(scene, step)}
-      selectedSceneId={selectedSceneId}
       onGallerySceneCreate={(preset) => createGalleryScene(roomZone, preset)}
+      onGalleryScenePreview={(preset) => previewGalleryScene(roomZone, preset)}
+      onGalleryScenePreviewEnd={() => endGalleryPreview()}
     />
   );
 };

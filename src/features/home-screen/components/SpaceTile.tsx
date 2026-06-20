@@ -2,7 +2,7 @@ import { PacedSlider } from "@/components/PacedSlider";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { roomZoneTileColor } from "@/features/space-screen/utils/color-state";
-import { LIGHT_THEME } from "@/lib/tile-theme";
+import { activeTileTheme, TILE_BRIGHTNESS_SLIDER_CLASS } from "@/lib/tile-theme";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { cn } from "@/lib/utils";
 import type { HueLight, HueRoomZone } from "@/types/hue";
@@ -59,16 +59,15 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
             }
       }
       className={cn(
-        "justify-center gap-6 transition-colors duration-(--tile-ease) ease-out",
+        "justify-center gap-6 bg-tile transition-colors duration-(--tile-ease) ease-out",
         !editing && "cursor-pointer",
         !editing && !tile.active && "hover:bg-accent/70",
       )}
       style={
         {
-          ...LIGHT_THEME,
           "--tile-ease": `${UI_EASE_MS.tileBackground}ms`,
           ...(tile.active && tile.background
-            ? { background: tile.background }
+            ? activeTileTheme(tile.background, tile.glow ?? tile.background, pct)
             : null),
         } as React.CSSProperties
       }
@@ -103,7 +102,7 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
           min={1}
           disabled={controlsDisabled}
           ariaLabel={`${roomZone.name} brightness`}
-          className="w-full **:data-[slot=slider-thumb]:size-5 **:data-[slot=slider-track]:bg-foreground/35 **:data-[slot=slider-range]:bg-transparent **:data-[slot=slider-range]:bg-linear-to-r **:data-[slot=slider-range]:from-white/50 **:data-[slot=slider-range]:to-white/90"
+          className={TILE_BRIGHTNESS_SLIDER_CLASS}
           size="default"
           isGroup
           onCommit={(value, phase) =>

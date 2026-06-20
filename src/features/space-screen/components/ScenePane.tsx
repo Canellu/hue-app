@@ -7,6 +7,7 @@ import {
   sceneBubbleCss,
   sceneHexes,
 } from "@/features/space-screen/utils/color-state";
+import { activeTileTheme } from "@/lib/tile-theme";
 import { cn } from "@/lib/utils";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HueScene } from "@/types/hue";
@@ -51,6 +52,10 @@ export const ScenePane: React.FC<ScenePaneProps> = ({ scene, onClose }) => {
   const bubble = sceneBubbleCss(scene);
   const hexes = sceneHexes(scene);
   const brightness = Math.round(sceneBrightness(scene));
+  const previewStyle =
+    bubble != null
+      ? activeTileTheme(bubble, hexes[0] ?? bubble, brightness)
+      : undefined;
 
   const view = (
     <div className="flex flex-col gap-6">
@@ -58,9 +63,9 @@ export const ScenePane: React.FC<ScenePaneProps> = ({ scene, onClose }) => {
         <span
           className={cn(
             "flex size-16 items-center justify-center rounded-2xl text-foreground",
-            bubble ? "ring-1 ring-foreground/10 text-white" : "bg-muted",
+            bubble ? "shadow-sm" : "bg-muted",
           )}
-          style={bubble ? { background: bubble } : undefined}
+          style={previewStyle}
         >
           {scene.dynamic ? (
             <Sparkles size={30} strokeWidth={2.25} className="drop-shadow" />
@@ -168,6 +173,15 @@ const SceneEditPane: React.FC<{
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bubble = sceneBubbleCss(scene);
+  const hexes = sceneHexes(scene);
+  const previewStyle =
+    bubble != null
+      ? activeTileTheme(
+          bubble,
+          hexes[0] ?? bubble,
+          Math.round(sceneBrightness(scene)),
+        )
+      : undefined;
 
   useEffect(() => {
     if (!active) return;
@@ -232,12 +246,16 @@ const SceneEditPane: React.FC<{
             <span
               className={cn(
                 "flex size-16 items-center justify-center rounded-2xl text-foreground",
-                bubble ? "ring-1 ring-foreground/10 text-white" : "bg-muted",
+                bubble ? "shadow-sm" : "bg-muted",
               )}
-              style={bubble ? { background: bubble } : undefined}
+              style={previewStyle}
             >
               {scene.dynamic ? (
-                <Sparkles size={30} strokeWidth={2.25} className="drop-shadow" />
+                <Sparkles
+                  size={30}
+                  strokeWidth={2.25}
+                  className="drop-shadow"
+                />
               ) : (
                 <Palette size={30} strokeWidth={2.25} />
               )}
@@ -303,7 +321,9 @@ const SceneEditPane: React.FC<{
             <>
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">Autoplay</p>
+                  <p className="text-sm font-medium text-foreground">
+                    Autoplay
+                  </p>
                   <p className="text-sm text-muted-foreground">
                     Start the animation whenever this scene is applied.
                   </p>

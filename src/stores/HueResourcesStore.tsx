@@ -96,6 +96,18 @@ export interface HueResourcesState extends LayoutState {
     roomZone: HueRoomZone,
     preset: HueGalleryScenePreset,
   ) => Promise<void>;
+  /**
+   * Live-previews a gallery preset on the room's actual lights without saving a
+   * scene. Snapshots the room's light state on the first preview so
+   * {@link HueResourcesState.endGalleryPreview} can restore it if the gallery is
+   * dismissed without adding.
+   */
+  previewGalleryScene: (
+    roomZone: HueRoomZone,
+    preset: HueGalleryScenePreset,
+  ) => void;
+  /** Restores the pre-preview light state, if a preview is still pending. */
+  endGalleryPreview: () => void;
   activateScene: (scene: HueScene, intent?: SceneIntent) => Promise<void>;
   /**
    * Transiently changes the speed of a currently-playing dynamic scene by
@@ -202,6 +214,25 @@ interface OptimisticLock {
 }
 const OPTIMISTIC_LOCK_MS = 1500;
 const optimisticLocks = new Map<string, OptimisticLock>();
+
+/**
+ * The room's light state captured before a gallery live-preview began, so the
+ * preview can be reverted if the gallery is closed without adding the scene.
+ * Held outside the store (like the optimistic locks) since it's transient
+ * scratch state, not something the UI subscribes to.
+ */
+interface GalleryPreviewSnapshot {
+  roomZoneId: string;
+  lights: {
+    id: string;
+    isOn: boolean;
+    brightness: number | null;
+    colorMode: string | null;
+    xy: [number, number] | null;
+    ct: number | null;
+  }[];
+}
+let galleryPreviewSnapshot: GalleryPreviewSnapshot | null = null;
 
 const lockResource = (
   id: string,
@@ -918,12 +949,75 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
         error: null,
       }));
 
+      // The scene now owns these colors, so keep the live preview rather than
+      // reverting it: drop the restore snapshot before the gallery closes.
+      galleryPreviewSnapshot = null;
       await get().activateScene(scene);
       await get().loadScenes();
     } catch (e) {
       const message = String(e) || "Unable to add gallery scene.";
       set({ error: message });
       throw new Error(message);
+    }
+  },
+
+  previewGalleryScene: (roomZone, preset) => {
+    const { lights, setLightColor, setRoomZoneState } = get();
+    const members = roomZone.lightIds
+      .map((id) => lights.find((light) => light.id === id))
+      .filter((light): light is HueLight => light != null);
+    if (members.length === 0) return;
+
+    // Snapshot once per room. Re-previewing another preset overwrites the lights
+    // but keeps the original snapshot so a later dismiss still restores cleanly.
+    if (galleryPreviewSnapshot?.roomZoneId !== roomZone.id) {
+      galleryPreviewSnapshot = {
+        roomZoneId: roomZone.id,
+        lights: members.map((light) => ({
+          id: light.id,
+          isOn: light.isOn,
+          brightness: light.brightness,
+          colorMode: light.colorMode,
+          xy: light.xy,
+          ct: light.ct,
+        })),
+      };
+    }
+
+    // Apply the group's brightness first, then the per-light colors — the color
+    // writes lock last so the brightness write can't clobber their optimistic
+    // color state. Colors mirror the bridge's gallery distribution
+    // (colors[index % len]) so the preview matches the scene "Add" would create.
+    const colors = preset.colors;
+    const brightness = Math.min(100, Math.max(1, preset.brightness));
+    setRoomZoneState(roomZone, true, brightness, "final");
+    members.forEach((light, index) => {
+      const color = colors[index % colors.length];
+      if (color.mirek != null) setLightColor(light, { ct: color.mirek });
+      else if (color.xy != null) setLightColor(light, { xy: color.xy });
+    });
+  },
+
+  endGalleryPreview: () => {
+    const snapshot = galleryPreviewSnapshot;
+    if (!snapshot) return;
+    galleryPreviewSnapshot = null;
+
+    const { lights, setLightColor, setLightState } = get();
+    for (const snap of snapshot.lights) {
+      const light = lights.find((candidate) => candidate.id === snap.id);
+      if (!light) continue;
+      if (snap.isOn) {
+        // Restore color first (it also wakes the light), then power/brightness.
+        if (snap.colorMode === "ct" && snap.ct != null) {
+          setLightColor(light, { ct: snap.ct });
+        } else if (snap.xy != null) {
+          setLightColor(light, { xy: snap.xy });
+        }
+        setLightState(light, true, snap.brightness, "final");
+      } else {
+        setLightState(light, false, null, "final");
+      }
     }
   },
 

@@ -7,7 +7,7 @@ import {
   HueResourcesStoreEffects,
   useHueResourcesStore,
 } from "@/stores/HueResourcesStore";
-import type { HueLight, HueScene } from "@/types/hue";
+import type { HueLight, HueRoomZone, HueScene } from "@/types/hue";
 import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -27,42 +27,55 @@ const PANE_WIDTH = "clamp(20rem, 40vw, 28rem)";
 /**
  * The light inspector. The `<aside>` reserves its width in a single step (no CSS
  * width transition) so the reflow happens inside the same React commit that
- * toggles `selectedLightId` — that lets `motion`'s `layout` FLIP the light grid
- * cards smoothly as the column opens (on `selectedLightId` set) and closes (on
- * unset). The width must collapse on the *same* commit the cards re-render,
- * otherwise the reflow has no snapshot to animate from and snaps.
+ * toggles `inspectorPaneOpen` — that lets `motion`'s `layout` FLIP the light
+ * grid cards smoothly as the column opens and closes. The width must collapse
+ * on the *same* commit the cards re-render, otherwise the reflow has no
+ * snapshot to animate from and snaps.
  *
  * The panel itself is a floating, rounded, fully-bordered card inset from the
  * edges, revealed by an inner right-anchored clip frame whose width animates:
  * on open the card wipes in from the right (plus a slight slide + fade), on
  * close it wipes away from the left. That clip frame is `absolute` (out of
- * flow) so its width animation doesn't disturb the grid. The last light is kept
- * mounted (`shown`) through the exit transition so the card doesn't blank out
- * mid-fade. On close the spacer collapses immediately (cards FLIP back) while
- * the clip frame wipes the card out over the reclaimed space.
+ * flow) so its width animation doesn't disturb the grid. The last selected
+ * content is kept mounted (`shown`) through the exit transition so the card
+ * doesn't blank out mid-fade. On close the spacer collapses immediately (cards
+ * FLIP back) while the clip frame wipes the card out over the reclaimed space.
  */
 const LightInspector: React.FC = () => {
   const {
     selectedLightId,
     selectedSceneId,
+    inspectorPaneOpen,
     lights,
     scenes,
+    roomZones,
     hueEventRevision,
-    setSelectedLightId,
+    setInspectorPaneOpen,
     setLightState,
     setLightColor,
   } = useHueResourcesStore(
     useShallow((state) => ({
       selectedLightId: state.selectedLightId,
       selectedSceneId: state.selectedSceneId,
+      inspectorPaneOpen: state.inspectorPaneOpen,
       lights: state.lights,
       scenes: state.scenes,
+      roomZones: state.roomZones,
       hueEventRevision: state.hueEventRevision,
-      setSelectedLightId: state.setSelectedLightId,
+      setInspectorPaneOpen: state.setInspectorPaneOpen,
       setLightState: state.setLightState,
       setLightColor: state.setLightColor,
     })),
   );
+
+  // The inspector only opens from inside a space, so resolve which room/zone is
+  // on screen — the light pane removes a light from *this* space specifically.
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const activeSpace = useMemo<HueRoomZone | null>(() => {
+    if (!pathname.startsWith("/space/")) return null;
+    const id = decodeURIComponent(pathname.slice("/space/".length));
+    return roomZones.find((roomZone) => roomZone.id === id) ?? null;
+  }, [pathname, roomZones]);
 
   // Light and scene selection are mutually exclusive; resolve whichever is set
   // to a single content descriptor the panel renders.
@@ -78,8 +91,8 @@ const LightInspector: React.FC = () => {
     return null;
   }, [selectedLightId, selectedSceneId, lights, scenes]);
 
-  const open = current !== null;
-  const close = () => setSelectedLightId(null);
+  const open = inspectorPaneOpen;
+  const close = () => setInspectorPaneOpen(false);
 
   // Keep showing the last content while the panel animates closed, so it
   // doesn't blank out before the fade finishes.
@@ -100,7 +113,7 @@ const LightInspector: React.FC = () => {
     return () => cancelAnimationFrame(id);
   }, [open]);
 
-  const content = current ?? shown;
+  const content = current ?? (open ? null : shown);
 
   return (
     <aside
@@ -121,20 +134,21 @@ const LightInspector: React.FC = () => {
         style={{ width: visible ? PANE_WIDTH : 0 }}
       >
         <div className="h-full shrink-0 p-6 pl-0" style={{ width: PANE_WIDTH }}>
-          {content && (
-            <div
-              className={cn(
-                "flex h-full flex-col overflow-hidden rounded-3xl border border-border bg-popover text-popover-foreground transition-[opacity,transform] duration-300 ease-out",
-                visible ? "translate-x-0 opacity-100" : "translate-x-2 opacity-0",
-              )}
-              onTransitionEnd={() => {
-                if (!open) setShown(null);
-              }}
-            >
-              {content.kind === "light" ? (
+          <div
+            className={cn(
+              "flex h-full flex-col overflow-hidden rounded-3xl border border-border bg-popover text-popover-foreground transition-[opacity,transform] duration-300 ease-out",
+              visible ? "translate-x-0 opacity-100" : "translate-x-2 opacity-0",
+            )}
+            onTransitionEnd={() => {
+              if (!open) setShown(null);
+            }}
+          >
+            {content ? (
+              content.kind === "light" ? (
                 <LightPane
                   key={content.id}
                   light={content.light}
+                  space={activeSpace}
                   hueEventRevision={hueEventRevision}
                   onClose={close}
                   onLightToggle={(l, on) => setLightState(l, on, null)}
@@ -149,9 +163,18 @@ const LightInspector: React.FC = () => {
                   scene={content.scene}
                   onClose={close}
                 />
-              )}
-            </div>
-          )}
+              )
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
+                <p className="font-heading text-lg font-medium text-foreground">
+                  Nothing selected
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Click a light or scene tile to show it here.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </aside>

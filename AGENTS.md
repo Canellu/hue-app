@@ -12,6 +12,24 @@ from that index. For current bridge work, prefer the Hue API v2 docs
 `migration-guide-to-the-new-hue-api.md`) unless the task explicitly involves
 legacy API v1 behavior, pairing, or a documented v1 fallback.
 
+## Agent Efficiency & Token Budgeting
+
+To prevent runaway costs and massive "thinking spirals" (which can exceed 20,000+ output tokens per prompt), coding agents must adhere strictly to these execution rules:
+
+### 1. Enforce Separation of Concerns
+
+Never attempt to write or refactor core state logic (SSE stream handlers, Tauri IPC bridging) and frontend micro-interactions (Tailwind transitions, framer-motion loops, CSS hover adjustments) in the same prompt or task execution. Break them into isolated, sequential steps.
+
+### 2. Limit Thinking Effort
+
+If you are operating as an reasoning/thinking model, restrict your internal reasoning loop by prioritizing explicit constraints over exploratory permutations. Only explore whats necessary to get the right picture to execute the given tasks.
+
+### 3. Strict Output Formatting
+
+- Skip all conceptual explanations, introductory pleasantries, and architectural justifications.
+- Do not explain the code you have written unless explicitly asked.
+- Use brief inline comments for complex lines instead of trailing text blocks.
+
 ## Stack
 
 - **Frontend**: React + TypeScript, Vite, Tailwind CSS

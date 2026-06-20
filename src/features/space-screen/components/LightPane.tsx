@@ -25,27 +25,23 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { lightColorHex } from "@/features/space-screen/utils/color-state";
-import { activeTileTheme } from "@/lib/tile-theme";
-import { cn } from "@/lib/utils";
 import {
   getLightIcon,
   LIGHT_ICON_OPTIONS,
 } from "@/features/space-screen/utils/light-icons";
+import { activeTileTheme } from "@/lib/tile-theme";
+import { cn } from "@/lib/utils";
 import {
   type LightColorChange,
   useHueResourcesStore,
 } from "@/stores/HueResourcesStore";
 import type { HueLight, HueRoomZone } from "@/types/hue";
+import { useNavigate } from "@tanstack/react-router";
 import { invoke } from "@tauri-apps/api/core";
-import {
-  Lightbulb,
-  Loader2,
-  Pencil,
-  Sparkles,
-  Trash2,
-} from "lucide-react";
+import { Lightbulb, Loader2, Pencil, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ColorWheel } from "./ColorWheel";
+import { RemoveResourceSection } from "./RemoveResourceSection";
 import { SidePane } from "./SidePane";
 import { TemperatureWheel } from "./TemperatureWheel";
 
@@ -58,6 +54,8 @@ const MAX_NAME_LENGTH = 32;
 
 interface LightPaneProps {
   light: HueLight;
+  /** The room/zone currently on screen — the space a "remove" takes it out of. */
+  space: HueRoomZone | null;
   hueEventRevision: number;
   onClose: () => void;
   onLightToggle: (light: HueLight, nextOn: boolean) => void;
@@ -104,6 +102,7 @@ const effectLabel = (id: string): string =>
 
 export const LightPane: React.FC<LightPaneProps> = ({
   light,
+  space,
   hueEventRevision,
   onClose,
   onLightToggle,
@@ -269,6 +268,7 @@ export const LightPane: React.FC<LightPaneProps> = ({
       renderEdit={({ active, exitEdit }) => (
         <EditPane
           light={light}
+          space={space}
           active={active}
           onClosePane={onClose}
           onExitEdit={exitEdit}
@@ -298,10 +298,12 @@ const MetaRow: React.FC<{ label: string; value: string | null }> = ({
  */
 const EditPane: React.FC<{
   light: HueLight;
+  space: HueRoomZone | null;
   active: boolean;
   onClosePane: () => void;
   onExitEdit: () => void;
-}> = ({ light, active, onClosePane, onExitEdit }) => {
+}> = ({ light, space, active, onClosePane, onExitEdit }) => {
+  const navigate = useNavigate();
   const roomZones = useHueResourcesStore((state) => state.roomZones);
   const loadAll = useHueResourcesStore((state) => state.loadAll);
   const setSelectedLightId = useHueResourcesStore(
@@ -316,7 +318,6 @@ const EditPane: React.FC<{
   const [zoneIds, setZoneIds] = useState<string[]>(
     zonesForLight(light, roomZones),
   );
-  const [deletePending, setDeletePending] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
@@ -329,10 +330,33 @@ const EditPane: React.FC<{
     setFunc(light.function ?? "");
     setRoom(roomForLight(light, roomZones));
     setZoneIds(zonesForLight(light, roomZones));
-    setDeletePending(false);
     setError(null);
     setRenaming(false);
   }, [light, active, roomZones]);
+
+  // Drop the light from the space currently on screen only. Rooms own devices,
+  // so we update the room's device list; zones reference lights directly. The
+  // device stays paired — a full delete lives in Settings → Devices.
+  const removeFromSpace = async () => {
+    if (!space) return;
+    if (space.resourceType === "room") {
+      if (!light.deviceId) {
+        throw new Error("This light is missing its owning device id.");
+      }
+      await invoke("update-room-members", {
+        roomId: space.id,
+        deviceIds: space.deviceIds.filter((id) => id !== light.deviceId),
+      });
+    } else {
+      await invoke("update-zone-members", {
+        zoneId: space.id,
+        lightIds: space.lightIds.filter((id) => id !== light.id),
+      });
+    }
+    setSelectedLightId(null);
+    onClosePane();
+    await loadAll();
+  };
 
   const iconOptions = useMemo(() => {
     if (!icon || LIGHT_ICON_OPTIONS.some((option) => option.value === icon)) {
@@ -348,7 +372,6 @@ const EditPane: React.FC<{
     () => roomZones.filter((space) => space.resourceType === "room"),
     [roomZones],
   );
-  const roomName = rooms.find((space) => space.id === room)?.name ?? null;
   const zones = useMemo(
     () => roomZones.filter((space) => space.resourceType === "zone"),
     [roomZones],
@@ -384,17 +407,6 @@ const EditPane: React.FC<{
     setIsSaving(true);
     setError(null);
     try {
-      if (deletePending) {
-        await invoke("delete-hue-resource", {
-          resourceType: "device",
-          id: light.deviceId,
-        });
-        setSelectedLightId(null);
-        onClosePane();
-        await loadAll();
-        return;
-      }
-
       if (
         trimmed !== light.name ||
         icon !== (light.typeName ?? "") ||
@@ -442,191 +454,206 @@ const EditPane: React.FC<{
         className="min-h-0 flex-1"
         viewportClassName="px-6 pb-6"
       >
-        <div className="flex flex-col gap-5">
-          <div className="flex flex-col items-center gap-3 pt-1">
-            <button
-              type="button"
-              disabled={isSaving || deletePending}
-              onClick={() => setPickerOpen(true)}
-              aria-label="Choose icon"
-              className={cn(
-                "flex size-16 items-center justify-center rounded-2xl text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
-                color != null
-                  ? "shadow-sm hover:opacity-90"
-                  : "bg-muted hover:bg-accent",
-              )}
-              style={previewStyle}
-            >
-              <EditIcon size={32} strokeWidth={2.25} />
-            </button>
-            {renaming ? (
-              <div className="flex w-full flex-col items-center gap-1">
-                <Input
-                  autoFocus
-                  size="lg"
-                  value={name}
-                  maxLength={MAX_NAME_LENGTH}
-                  disabled={isSaving || deletePending}
-                  aria-label={`Rename ${light.name}`}
-                  className="max-w-full text-center font-heading text-lg font-medium"
-                  onChange={(event) => setName(event.target.value)}
-                  onFocus={(event) => event.target.select()}
-                  onBlur={() => setRenaming(false)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === "Escape") {
-                      setRenaming(false);
-                    }
-                  }}
-                />
-                <span className="text-xs text-muted-foreground tabular-nums">
-                  {name.length}/{MAX_NAME_LENGTH}
-                </span>
-              </div>
-            ) : (
+        <div className="flex min-h-full flex-col justify-between gap-5">
+          <div className="flex flex-col gap-5">
+            <div className="flex flex-col items-center gap-3 pt-1">
               <button
                 type="button"
-                disabled={isSaving || deletePending}
-                onClick={() => setRenaming(true)}
-                title="Rename"
-                className="flex max-w-full items-center gap-1.5 rounded-md px-2 py-0.5 text-center font-heading text-lg font-medium text-foreground hover:bg-muted disabled:opacity-50"
-              >
-                <span className="truncate">{name || "Unnamed light"}</span>
-                <Pencil className="size-4 shrink-0 text-muted-foreground" />
-              </button>
-            )}
-          </div>
-
-          <div className="grid gap-2">
-            <Label>Function</Label>
-            <Select
-              items={Object.fromEntries(
-                FUNCTION_OPTIONS.map((option) => [option.value, option.label]),
-              )}
-              value={func || null}
-              onValueChange={(value) => setFunc((value as string | null) ?? "")}
-              disabled={isSaving || deletePending}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Choose function" />
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                {FUNCTION_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">
-              Task lights are what you use to see; decorative lights set
-              ambiance. Hue uses this to assign scene colors.
-            </p>
-          </div>
-
-          <div className="grid gap-2">
-            <Label>Room</Label>
-            <Select
-              items={roomItems}
-              value={room ?? NONE}
-              onValueChange={(value) =>
-                setRoom(value === NONE ? null : (value as string))
-              }
-              disabled={isSaving || deletePending}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="No room" />
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                <SelectItem value={NONE}>No room</SelectItem>
-                {rooms.map((space) => (
-                  <SelectItem key={space.id} value={space.id}>
-                    {space.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="grid gap-2">
-            <Label>Zones</Label>
-            <Select
-              multiple
-              items={zoneItems}
-              value={zoneIds}
-              onValueChange={(value) => setZoneIds(value)}
-              disabled={isSaving || deletePending}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="No zones">
-                  {(value: string[]) =>
-                    value.length === 0
-                      ? "No zones"
-                      : value
-                          .map(
-                            (id) =>
-                              zones.find((space) => space.id === id)?.name ??
-                              id,
-                          )
-                          .join(", ")
-                  }
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                {zones.map((space) => (
-                  <SelectItem key={space.id} value={space.id}>
-                    {space.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <Accordion>
-            <AccordionItem value="device-info">
-              <AccordionTrigger>Device information</AccordionTrigger>
-              <AccordionContent>
-                <dl className="flex flex-col gap-2 text-sm">
-                  <MetaRow label="Type" value={light.typeName} />
-                  <MetaRow label="Product" value={light.productName} />
-                  <MetaRow label="Model ID" value={light.modelId} />
-                  <MetaRow label="Firmware" value={light.swVersion} />
-                  <MetaRow
-                    label="Connection"
-                    value={light.reachable ? "Reachable" : "Unreachable"}
-                  />
-                  <MetaRow label="Zigbee MAC" value={light.uniqueId} />
-                  <MetaRow label="Light ID" value={light.id} />
-                  <MetaRow label="Device ID" value={light.deviceId} />
-                </dl>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
-
-          <div className="border-t border-border pt-5">
-            <div className="flex items-center justify-between gap-4 rounded-2xl border border-destructive/20 bg-destructive/5 p-4">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-destructive">
-                  Delete device
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {roomName
-                    ? `Remove this device from ${roomName} and your Hue setup. Save confirms it.`
-                    : "Remove this device from your Hue setup. Save confirms it."}
-                </p>
-              </div>
-              <Button
-                type="button"
-                variant={deletePending ? "outline" : "destructive"}
                 disabled={isSaving}
-                onClick={() => setDeletePending((current) => !current)}
+                onClick={() => setPickerOpen(true)}
+                aria-label="Choose icon"
+                className={cn(
+                  "flex size-16 items-center justify-center rounded-2xl text-foreground transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:opacity-50",
+                  color != null
+                    ? "shadow-sm hover:opacity-90"
+                    : "bg-muted hover:bg-accent",
+                )}
+                style={previewStyle}
               >
-                <Trash2 />
-                {deletePending ? "Undo" : "Delete"}
-              </Button>
+                <EditIcon size={32} strokeWidth={2.25} />
+              </button>
+              {renaming ? (
+                <div className="flex w-full flex-col items-center gap-1">
+                  <Input
+                    autoFocus
+                    size="lg"
+                    value={name}
+                    maxLength={MAX_NAME_LENGTH}
+                    disabled={isSaving}
+                    aria-label={`Rename ${light.name}`}
+                    className="max-w-full text-center font-heading text-lg font-medium"
+                    onChange={(event) => setName(event.target.value)}
+                    onFocus={(event) => event.target.select()}
+                    onBlur={() => setRenaming(false)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === "Escape") {
+                        setRenaming(false);
+                      }
+                    }}
+                  />
+                  <span className="text-xs text-muted-foreground tabular-nums">
+                    {name.length}/{MAX_NAME_LENGTH}
+                  </span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  disabled={isSaving}
+                  onClick={() => setRenaming(true)}
+                  title="Rename"
+                  className="flex max-w-full items-center gap-1.5 rounded-md px-2 py-0.5 text-center font-heading text-lg font-medium text-foreground hover:bg-muted disabled:opacity-50"
+                >
+                  <span className="truncate">{name || "Unnamed light"}</span>
+                  <Pencil className="size-4 shrink-0 text-muted-foreground" />
+                </button>
+              )}
             </div>
+
+            <div className="grid gap-2">
+              <Label>Function</Label>
+              <Select
+                items={Object.fromEntries(
+                  FUNCTION_OPTIONS.map((option) => [
+                    option.value,
+                    option.label,
+                  ]),
+                )}
+                value={func || null}
+                onValueChange={(value) =>
+                  setFunc((value as string | null) ?? "")
+                }
+                disabled={isSaving}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choose function" />
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  {FUNCTION_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Task lights are what you use to see; decorative lights set
+                ambiance. Hue uses this to assign scene colors.
+              </p>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Room</Label>
+              <Select
+                items={roomItems}
+                value={room ?? NONE}
+                onValueChange={(value) =>
+                  setRoom(value === NONE ? null : (value as string))
+                }
+                disabled={isSaving}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="No room" />
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  <SelectItem value={NONE}>No room</SelectItem>
+                  {rooms.map((space) => (
+                    <SelectItem key={space.id} value={space.id}>
+                      {space.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Zones</Label>
+              <Select
+                multiple
+                items={zoneItems}
+                value={zoneIds}
+                onValueChange={(value) => setZoneIds(value)}
+                disabled={isSaving}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="No zones">
+                    {(value: string[]) =>
+                      value.length === 0
+                        ? "No zones"
+                        : value
+                            .map(
+                              (id) =>
+                                zones.find((space) => space.id === id)?.name ??
+                                id,
+                            )
+                            .join(", ")
+                    }
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  {zones.map((space) => (
+                    <SelectItem key={space.id} value={space.id}>
+                      {space.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Accordion>
+              <AccordionItem value="device-info">
+                <AccordionTrigger>Device information</AccordionTrigger>
+                <AccordionContent>
+                  <dl className="flex flex-col gap-2 text-sm">
+                    <MetaRow label="Type" value={light.typeName} />
+                    <MetaRow label="Product" value={light.productName} />
+                    <MetaRow label="Model ID" value={light.modelId} />
+                    <MetaRow label="Firmware" value={light.swVersion} />
+                    <MetaRow
+                      label="Connection"
+                      value={light.reachable ? "Reachable" : "Unreachable"}
+                    />
+                    <MetaRow label="Zigbee MAC" value={light.uniqueId} />
+                    <MetaRow label="Light ID" value={light.id} />
+                    <MetaRow label="Device ID" value={light.deviceId} />
+                  </dl>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+
+            {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
 
-          {error && <p className="text-sm text-destructive">{error}</p>}
+          {space && (
+            <RemoveResourceSection
+              title={`Remove ${light.name}`}
+              description={`Removes ${light.name} from ${space.name}`}
+              actionLabel="Remove"
+              confirmTitle={`Remove "${light.name}" from ${space.name}?`}
+              confirmBody={
+                <div className="flex flex-col gap-2">
+                  <span>
+                    This takes "{light.name}" out of {space.name}. The device
+                    stays paired to your bridge and keeps working in any other
+                    room or zone.
+                  </span>
+                  <span>
+                    To delete the device completely from the system, go to
+                    Settings {"->"} Devices.
+                  </span>
+                </div>
+              }
+              navLink={{
+                label: "Settings",
+                onNavigate: () =>
+                  void navigate({
+                    to: "/settings",
+                    search: { tab: "devices" },
+                  }),
+              }}
+              disabled={isSaving}
+              onConfirm={removeFromSpace}
+            />
+          )}
         </div>
       </ScrollArea>
 
@@ -647,7 +674,7 @@ const EditPane: React.FC<{
           onClick={() => void save()}
         >
           {isSaving ? <Loader2 className="animate-spin" /> : null}
-          {deletePending ? "Delete device" : "Save"}
+          Save
         </Button>
       </div>
 

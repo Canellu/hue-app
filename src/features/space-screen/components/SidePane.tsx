@@ -11,6 +11,8 @@ interface SidePaneProps {
   view: React.ReactNode;
   /** Resource id; switching it collapses edit mode back to the view. */
   resetKey: string;
+  /** Pinned footer shown below the read-only view (hidden while editing). */
+  viewFooter?: React.ReactNode;
   onClose: () => void;
   /** Accessible label for the pencil/edit toggle. */
   editLabel?: string;
@@ -34,6 +36,7 @@ export const SidePane: React.FC<SidePaneProps> = ({
   eyebrow,
   view,
   resetKey,
+  viewFooter,
   onClose,
   editLabel = "Edit",
   renderEdit,
@@ -112,6 +115,7 @@ export const SidePane: React.FC<SidePaneProps> = ({
             >
               {view}
             </ScrollArea>
+            {viewFooter}
           </div>
 
           {/* Edit pane */}

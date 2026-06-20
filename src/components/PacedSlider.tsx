@@ -34,6 +34,17 @@ interface PacedSliderProps {
   isGroup: boolean;
   /** Overrides the hardware default throttle frame, in ms. */
   liveMs?: number;
+  /**
+   * Draw tick marks at each discrete snap point. Use for sliders that step
+   * through a small set of values (e.g. the 1–12 dynamic-speed steps) so it
+   * reads as discrete rather than continuous. Requires `step`.
+   */
+  showTicks?: boolean;
+  /**
+   * Print value labels beneath the tick marks. `"all"` labels every snap point;
+   * `"ends"` labels just the min and max. Requires `showTicks` and `step`.
+   */
+  tickLabels?: "all" | "ends";
   /** Fires the paced value (leading, trailing, and on release). */
   onCommit: (value: number, phase: "live" | "final") => void;
   /** Per-frame callback for local visual feedback (fires every move). */
@@ -71,6 +82,10 @@ const SETTLE_MS = 1500;
  * - **Settle protection** — after committing, the thumb holds the sent value
  *   until the authoritative value catches up, so a stale event can't snap it
  *   backward.
+ * - **Click-to-position** — a press that never drags (a track click) keeps
+ *   easing on, so the thumb glides from where it was to the pressed value over
+ *   the bridge-fade window instead of snapping. Easing is dropped to 1:1 only
+ *   once the pointer actually moves, marking the gesture a real drag.
  */
 export const PacedSlider: React.FC<PacedSliderProps> = ({
   value,
@@ -84,6 +99,8 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   size = "default",
   isGroup,
   liveMs,
+  showTicks = false,
+  tickLabels,
   easeMs = UI_EASE_MS.sliderFill,
   animateKey,
   onCommit,
@@ -92,8 +109,9 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   const activeLiveMs = liveMs ?? (isGroup ? GROUP_LIVE_MS : LIGHT_LIVE_MS);
 
   const [local, setLocal] = useState(value);
-  // Drives whether the fill/thumb eases: off while the finger is down (so the
-  // thumb tracks 1:1), on otherwise (so a value that arrives on its own glides).
+  // Drives whether the fill/thumb eases: off only once a gesture is confirmed a
+  // real drag (so the thumb tracks 1:1), on otherwise — including a not-yet-moved
+  // press, so a track click glides to the pressed value.
   const [interacting, setInteracting] = useState(false);
   const [externalEasing, setExternalEasing] = useState(false);
   // The first paint must land the thumb at its value with no transition — when
@@ -111,6 +129,11 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   const isInteracting = useRef(false);
   const previousValue = useRef(value);
   const previousAnimateKey = useRef(animateKey);
+  // Per-gesture click/drag discrimination: the value of the gesture's first
+  // frame, and whether a later frame moved away from it (→ a real drag, not a
+  // click). Null between gestures.
+  const gestureAnchor = useRef<number | null>(null);
+  const gestureDragged = useRef(false);
   // The value we last sent and are waiting to see reflected back. While set, we
   // ignore inbound `value` changes that don't match it (stale/echoed state).
   const pending = useRef<number | null>(null);
@@ -163,7 +186,20 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
 
   const schedule = (next: number) => {
     isInteracting.current = true;
-    setInteracting(true);
+    if (gestureAnchor.current === null) {
+      // First frame of a press. Assume a click until proven a drag: keep easing
+      // on (interacting stays false) and arm the glide, so a track click slides
+      // to the pressed value instead of snapping.
+      gestureAnchor.current = next;
+      gestureDragged.current = false;
+      setInteracting(false);
+      setExternalEasing(true);
+    } else if (!gestureDragged.current && next !== gestureAnchor.current) {
+      // The pointer moved off the press point → a real drag. Drop to 1:1.
+      gestureDragged.current = true;
+      setInteracting(true);
+      setExternalEasing(false);
+    }
     latest.current = next;
     setLocal(next);
     onInput?.(next);
@@ -192,8 +228,14 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
       clearTimeout(trailingTimer.current);
       trailingTimer.current = null;
     }
+    const wasClick = !gestureDragged.current;
+    gestureAnchor.current = null;
+    gestureDragged.current = false;
     isInteracting.current = false;
     setInteracting(false);
+    // A click glides to its final value; a drag already tracked the pointer 1:1,
+    // so it settles in place with no extra ease.
+    setExternalEasing(wasClick);
     latest.current = next;
     setLocal(next);
     onCommit(next, "final");
@@ -203,14 +245,22 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   };
 
   // While the finger is down we add nothing, so position changes are instant.
-  // Otherwise the fill and thumb get a transition (a descendant rule, so it wins
-  // over the primitive's own) whose duration matches the bridge fade.
+  // Otherwise the fill and thumb ease over the same window (matched to the bridge
+  // fade) so they move in lockstep. Both get the *identical* transition — same
+  // property list, duration, and timing — so a programmatic change (a toggle, a
+  // scene) glides the thumb and fill together instead of snapping one ahead of
+  // the other. The thumb's utilities are `!important` because the base Slider
+  // primitive bakes a `transition-colors` onto the thumb (the fill has none); two
+  // `transition-*` declarations on one element clobber each other's
+  // `transition-property` (see tile-theme.ts), and without the override the
+  // thumb keeps the colors-only transition and snaps to position while the fill
+  // eases.
   const easeClass =
     interacting || !hasMounted || !externalEasing
       ? undefined
-      : "[&_[data-slot=slider-range]]:transition-[inset-inline-start,inset-inline-end,left,right,width] [&_[data-slot=slider-range]]:duration-(--paced-ease) [&_[data-slot=slider-range]]:ease-out [&_[data-slot=slider-thumb]]:transition-[inset-inline-start,left,right,translate] [&_[data-slot=slider-thumb]]:duration-(--paced-ease) [&_[data-slot=slider-thumb]]:ease-out";
+      : "[&_[data-slot=slider-range]]:transition-[inset-inline-start,inset-inline-end,left,right,width,transform,translate] [&_[data-slot=slider-range]]:duration-[var(--paced-ease)] [&_[data-slot=slider-range]]:ease-out [&_[data-slot=slider-thumb]]:transition-[inset-inline-start,inset-inline-end,left,right,width,transform,translate]! [&_[data-slot=slider-thumb]]:duration-[var(--paced-ease)]! [&_[data-slot=slider-thumb]]:ease-out!";
 
-  return (
+  const slider = (
     <Slider
       value={[local]}
       min={min}
@@ -218,11 +268,87 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
       step={step}
       disabled={disabled}
       aria-label={ariaLabel}
-      className={cn(className, easeClass)}
+      className={cn(showTicks ? "w-full" : className, easeClass)}
       size={size}
       style={{ ...style, "--paced-ease": `${easeMs}ms` } as React.CSSProperties}
       onValueChange={(v) => schedule(first(v))}
       onValueCommitted={(v) => commitNow(first(v))}
     />
   );
+
+  // The track has discrete snap points: draw a subtle line at each. Lines past
+  // the thumb (unfilled track) and lines under the fill get different colors so
+  // they stay legible against either background.
+  if (showTicks && step) {
+    const count = Math.round((max - min) / step) + 1;
+    if (count > 1 && count <= 64) {
+      const fill = (local - min) / (max - min);
+      // Match the track height per size so each line spans the track exactly.
+      const tickHeight =
+        size === "xl" ? "h-5" : size === "lg" ? "h-4" : "h-3";
+      // Keep edge ticks/labels inside the track instead of poking past it.
+      const offsetFor = (i: number) =>
+        i === 0 ? "0" : i === count - 1 ? "-100%" : "-50%";
+      const labelIndices = tickLabels
+        ? tickLabels === "all"
+          ? Array.from({ length: count }, (_, i) => i)
+          : [0, count - 1]
+        : [];
+      return (
+        <div className={cn("flex flex-col", className)}>
+          <div className="relative w-full">
+            {slider}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 flex items-center"
+            >
+              {Array.from({ length: count }, (_, i) => {
+                // Skip the end ticks — they'd just trace the track's own edges.
+                if (i === 0 || i === count - 1) return null;
+                const f = i / (count - 1);
+                const filled = f <= fill + 1e-6;
+                return (
+                  <span
+                    key={i}
+                    className={cn(
+                      "absolute w-0.5 rounded-full",
+                      tickHeight,
+                      filled
+                        ? "bg-background/40 dark:bg-background/50"
+                        : "bg-foreground/20 dark:bg-foreground/25",
+                    )}
+                    style={{
+                      left: `${f * 100}%`,
+                      transform: `translateX(${offsetFor(i)})`,
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+          {labelIndices.length > 0 && (
+            <div
+              aria-hidden
+              className="relative mt-1.5 h-3 text-[10px] leading-none tabular-nums text-muted-foreground"
+            >
+              {labelIndices.map((i) => (
+                <span
+                  key={i}
+                  className="absolute"
+                  style={{
+                    left: `${(i / (count - 1)) * 100}%`,
+                    transform: `translateX(${offsetFor(i)})`,
+                  }}
+                >
+                  {min + i * step}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+  }
+
+  return slider;
 };

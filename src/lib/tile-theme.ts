@@ -27,6 +27,21 @@ export const LIGHT_THEME = {
 export const TILE_BRIGHTNESS_SLIDER_CLASS =
   "w-full **:data-[slot=slider-thumb]:size-5 **:data-[slot=slider-track]:bg-foreground/20 **:data-[slot=slider-range]:bg-transparent **:data-[slot=slider-range]:bg-linear-to-r **:data-[slot=slider-range]:from-white/35 **:data-[slot=slider-range]:to-white/75";
 
+// Each tile runs two transitions on deliberately different clocks:
+//   • background + text color ease over the bridge fade (`--tile-ease`) so a lit
+//     tile re-tints in step with the bulb it mirrors.
+//   • the hover lift (transform/translate/scale) is a fixed, snappy 150ms so the
+//     tile springs up responsively under the cursor instead of crawling over the
+//     much longer bridge window.
+// These must share one `transition` declaration (two `transition-*` utilities on
+// the same element would clobber each other's `transition-property`), so the
+// per-property durations are spelled out inline.
+export const TILE_INTERACTION_TRANSITION_CLASS =
+  "ease-out [transition-property:background,color,transform,translate,scale] [transition-duration:var(--tile-ease),var(--tile-ease),150ms,150ms,150ms]";
+
+export const TILE_HOVER_LIFT_CLASS =
+  "hover:-translate-y-0.5 hover:scale-[1.01]";
+
 // How dark the bottom of a tile gets. The shade is a dark gradient layered over
 // the lit color, scaled by how far the tile is from full brightness. It ramps
 // between a floor and a ceiling so a dim light reads as visibly darker while a

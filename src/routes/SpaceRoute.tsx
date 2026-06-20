@@ -23,6 +23,7 @@ export const SpaceRoute: React.FC = () => {
     selectedLightId,
     setSelectedLightId,
     setSelectedSceneId,
+    setInspectorPaneOpen,
     setRoomZoneState,
     setLightState,
     createGalleryScene,
@@ -41,6 +42,7 @@ export const SpaceRoute: React.FC = () => {
       selectedLightId: state.selectedLightId,
       setSelectedLightId: state.setSelectedLightId,
       setSelectedSceneId: state.setSelectedSceneId,
+      setInspectorPaneOpen: state.setInspectorPaneOpen,
       setRoomZoneState: state.setRoomZoneState,
       setLightState: state.setLightState,
       createGalleryScene: state.createGalleryScene,
@@ -120,8 +122,11 @@ export const SpaceRoute: React.FC = () => {
   // doesn't linger open over Home or another room. (Clearing the light id also
   // clears any selected scene — they're mutually exclusive in the store.)
   useEffect(() => {
-    return () => setSelectedLightId(null);
-  }, [spaceId, setSelectedLightId]);
+    return () => {
+      setInspectorPaneOpen(false);
+      setSelectedLightId(null);
+    };
+  }, [spaceId, setInspectorPaneOpen, setSelectedLightId]);
 
   if (!roomZone) return null;
 
@@ -143,12 +148,17 @@ export const SpaceRoute: React.FC = () => {
       onLightBrightness={(light, pct, phase) =>
         setLightState(light, pct > 0, pct, phase)
       }
-      onSelectLight={(id) =>
-        setSelectedLightId(selectedLightId === id ? null : id)
-      }
+      onSelectLight={(id) => {
+        setSelectedLightId(id);
+        setInspectorPaneOpen(true);
+      }}
       onSceneApply={(scene) => {
         setSelectedSceneId(scene.id);
         void activateScene(scene, "apply");
+      }}
+      onSceneInspect={(scene) => {
+        setSelectedSceneId(scene.id);
+        setInspectorPaneOpen(true);
       }}
       onSceneTogglePlay={(scene) => void activateScene(scene, "dynamic")}
       onDynamicSpeedLive={(scene, step) => setDynamicSpeedLive(scene, step)}

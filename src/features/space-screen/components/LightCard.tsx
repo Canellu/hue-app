@@ -5,6 +5,8 @@ import { PacedSlider } from "@/components/PacedSlider";
 import {
   activeTileTheme,
   TILE_BRIGHTNESS_SLIDER_CLASS,
+  TILE_HOVER_LIFT_CLASS,
+  TILE_INTERACTION_TRANSITION_CLASS,
 } from "@/lib/tile-theme";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { lightColorHex } from "@/features/space-screen/utils/color-state";
@@ -56,8 +58,9 @@ export const LightCard: React.FC<LightCardProps> = ({
         }
       }}
       className={cn(
-        "cursor-pointer justify-center gap-6 bg-tile outline-none transition-colors duration-(--tile-ease) ease-out focus-visible:ring-2 focus-visible:ring-ring",
-        !active && "hover:bg-accent/70",
+        "cursor-pointer justify-center gap-6 bg-tile outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        TILE_INTERACTION_TRANSITION_CLASS,
+        TILE_HOVER_LIFT_CLASS,
         unreachable && "opacity-50",
       )}
       style={

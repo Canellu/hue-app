@@ -50,19 +50,30 @@ export interface HueResourcesState extends LayoutState {
   isLoading: boolean;
   hasLoaded: boolean;
   error: string | null;
-  /** Increments only when bridge SSE updates are applied. */
+  /**
+   * Bumps on any change a slider/tile should *ease* across rather than snap to:
+   * inbound bridge SSE updates, plus our own discrete optimistic writes (a power
+   * toggle, a final brightness commit, a scene apply). Live drag frames
+   * deliberately do NOT bump it, so a slider tracking another control's drag
+   * snaps frame-to-frame instead of lagging behind an ease.
+   */
   hueEventRevision: number;
 
-  // The light whose inspector panel is open beside the content, or null when
-  // the panel is collapsed. Lives here (not route-local) so the app shell can
-  // render the panel as a layout sibling that pushes the content aside.
+  // The light whose inspector panel content is selected. Lives here (not
+  // route-local) so the app shell can render the panel as a layout sibling that
+  // pushes the content aside.
   selectedLightId: string | null;
   setSelectedLightId: (id: string | null) => void;
 
-  // The scene whose inspector panel is open, or null. Mutually exclusive with
-  // `selectedLightId` — the shell renders one inspector at a time.
+  // The scene whose inspector panel content is selected, or null. Mutually
+  // exclusive with `selectedLightId` — the shell renders one inspector at a time.
   selectedSceneId: string | null;
   setSelectedSceneId: (id: string | null) => void;
+
+  // Whether the side pane is visible. Kept separate from selection so tiles can
+  // update the pane content without opening or closing it.
+  inspectorPaneOpen: boolean;
+  setInspectorPaneOpen: (open: boolean) => void;
 
   // Home layout editing. Layout sections are local app state, not Hue resources.
   draftLayout: HomeLayout;
@@ -230,6 +241,40 @@ interface OptimisticLock {
 const OPTIMISTIC_LOCK_MS = 1500;
 const optimisticLocks = new Map<string, OptimisticLock>();
 
+/** A light's restorable state, captured so a live preview can be reverted. */
+interface LightStateSnapshot {
+  id: string;
+  isOn: boolean;
+  brightness: number | null;
+  colorMode: string | null;
+  xy: [number, number] | null;
+  ct: number | null;
+}
+
+/** Restores a set of snapshotted lights to the state they held when captured. */
+const restoreLightSnapshots = (
+  snapshots: LightStateSnapshot[],
+  lights: HueLight[],
+  setLightColor: HueResourcesState["setLightColor"],
+  setLightState: HueResourcesState["setLightState"],
+): void => {
+  for (const snap of snapshots) {
+    const light = lights.find((candidate) => candidate.id === snap.id);
+    if (!light) continue;
+    if (snap.isOn) {
+      // Restore color first (it also wakes the light), then power/brightness.
+      if (snap.colorMode === "ct" && snap.ct != null) {
+        setLightColor(light, { ct: snap.ct });
+      } else if (snap.xy != null) {
+        setLightColor(light, { xy: snap.xy });
+      }
+      setLightState(light, true, snap.brightness, "final");
+    } else {
+      setLightState(light, false, null, "final");
+    }
+  }
+};
+
 /**
  * The room's light state captured before a gallery live-preview began, so the
  * preview can be reverted if the gallery is closed without adding the scene.
@@ -238,14 +283,7 @@ const optimisticLocks = new Map<string, OptimisticLock>();
  */
 interface GalleryPreviewSnapshot {
   roomZoneId: string;
-  lights: {
-    id: string;
-    isOn: boolean;
-    brightness: number | null;
-    colorMode: string | null;
-    xy: [number, number] | null;
-    ct: number | null;
-  }[];
+  lights: LightStateSnapshot[];
 }
 let galleryPreviewSnapshot: GalleryPreviewSnapshot | null = null;
 
@@ -501,11 +539,13 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   isCreatingSection: false,
   selectedLightId: null,
   selectedSceneId: null,
+  inspectorPaneOpen: false,
 
   setSelectedLightId: (id) =>
     set({ selectedLightId: id, selectedSceneId: null }),
   setSelectedSceneId: (id) =>
     set({ selectedSceneId: id, selectedLightId: null }),
+  setInspectorPaneOpen: (open) => set({ inspectorPaneOpen: open }),
 
   setDraftLayout: (next) => set({ draftLayout: next }),
 
@@ -858,6 +898,12 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
             }
           : light,
       ),
+      // A toggle or a released drag is a discrete change the sliders should glide
+      // across; live drag frames stay un-bumped so the thumbs track 1:1.
+      hueEventRevision:
+        phase === "live"
+          ? state.hueEventRevision
+          : state.hueEventRevision + 1,
     }));
 
     void invoke("set-grouped-light-state", {
@@ -909,6 +955,11 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
           ? { ...l, isOn: nextOn, brightness: optimisticBri ?? l.brightness }
           : l,
       ),
+      // Glide the slider across a toggle or a released drag; live frames snap.
+      hueEventRevision:
+        phase === "live"
+          ? state.hueEventRevision
+          : state.hueEventRevision + 1,
     }));
 
     void invoke("set-light-state", {
@@ -1038,21 +1089,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
     galleryPreviewSnapshot = null;
 
     const { lights, setLightColor, setLightState } = get();
-    for (const snap of snapshot.lights) {
-      const light = lights.find((candidate) => candidate.id === snap.id);
-      if (!light) continue;
-      if (snap.isOn) {
-        // Restore color first (it also wakes the light), then power/brightness.
-        if (snap.colorMode === "ct" && snap.ct != null) {
-          setLightColor(light, { ct: snap.ct });
-        } else if (snap.xy != null) {
-          setLightColor(light, { xy: snap.xy });
-        }
-        setLightState(light, true, snap.brightness, "final");
-      } else {
-        setLightState(light, false, null, "final");
-      }
-    }
+    restoreLightSnapshots(snapshot.lights, lights, setLightColor, setLightState);
   },
 
   setGallerySceneOnce: (roomZone, preset) => {
@@ -1162,7 +1199,15 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
           : candidate,
       );
 
-      return { error: null, lights, roomZones, scenes };
+      // A scene apply is a discrete jump in brightness/color the sliders and
+      // tiles should ease into, matching the scene's fade.
+      return {
+        error: null,
+        lights,
+        roomZones,
+        scenes,
+        hueEventRevision: state.hueEventRevision + 1,
+      };
     });
 
     const groupedLightIds =

@@ -14,9 +14,9 @@
       {
         "title": "Hue Desktop",
         "width": 1200,
-        "height": 800,
+        "height": 1200,
         "minWidth": 800,
-        "minHeight": 200,
+        "minHeight": 800,
         "decorations": false,
         "resizable": true
       }

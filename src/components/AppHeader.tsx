@@ -134,7 +134,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               transition={crossfade}
             >
               <Button
-                variant="ghost"
+                variant="secondary"
                 size="xl"
                 className="gap-1.5"
                 onClick={onCreateSection}
@@ -165,13 +165,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     hand-built layout; the select switches modes either way. */}
                   {isCustomLayout && (
                     <Button
-                      variant="ghost"
-                      size="xl"
+                      variant="secondary"
+                      size="icon-xl"
                       className="gap-2"
                       onClick={onEditLayout}
                     >
                       <Pencil size={18} />
-                      Edit
                     </Button>
                   )}
                   <Select

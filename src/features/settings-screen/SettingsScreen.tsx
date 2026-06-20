@@ -1072,7 +1072,7 @@ const EditableSceneRow = ({
       scene.status,
       scene.dynamic
         ? scene.speed != null
-          ? `Dynamic speed ${hueDynamicSpeedValueToStep(scene.speed)}`
+          ? `Scene speed ${hueDynamicSpeedValueToStep(scene.speed)}`
           : "Dynamic"
         : null,
       `${scene.colors.length} ${scene.colors.length === 1 ? "color" : "colors"}`,

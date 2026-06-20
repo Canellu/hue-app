@@ -5,6 +5,8 @@ import { roomZoneTileColor } from "@/features/space-screen/utils/color-state";
 import {
   activeTileTheme,
   TILE_BRIGHTNESS_SLIDER_CLASS,
+  TILE_HOVER_LIFT_CLASS,
+  TILE_INTERACTION_TRANSITION_CLASS,
 } from "@/lib/tile-theme";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { cn } from "@/lib/utils";
@@ -64,9 +66,10 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
             }
       }
       className={cn(
-        "justify-center gap-6 bg-tile transition-colors duration-(--tile-ease) ease-out",
+        "justify-center gap-6 bg-tile",
+        TILE_INTERACTION_TRANSITION_CLASS,
         !editing && "cursor-pointer",
-        !editing && !tile.active && "hover:bg-accent/70",
+        !editing && TILE_HOVER_LIFT_CLASS,
       )}
       style={
         {

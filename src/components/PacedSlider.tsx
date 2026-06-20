@@ -22,6 +22,11 @@ interface PacedSliderProps {
    */
   easeMs?: number;
   /**
+   * Optional source marker for programmatic easing. When provided, the slider
+   * only eases value changes that arrive in the same render as a new key.
+   */
+  animateKey?: number;
+  /**
    * Whether this controls a grouped_light (room/zone). Selects the throttle
    * profile: the Hue Bridge caps group commands at ~1/s but allows ~10/s for a
    * single light (see docs/HUE/hue-system-performance.md).
@@ -80,6 +85,7 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   isGroup,
   liveMs,
   easeMs = UI_EASE_MS.sliderFill,
+  animateKey,
   onCommit,
   onInput,
 }) => {
@@ -89,6 +95,7 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   // Drives whether the fill/thumb eases: off while the finger is down (so the
   // thumb tracks 1:1), on otherwise (so a value that arrives on its own glides).
   const [interacting, setInteracting] = useState(false);
+  const [externalEasing, setExternalEasing] = useState(false);
   // The first paint must land the thumb at its value with no transition — when
   // the slider mounts inside a panel that's opening, an enabled ease would make
   // the thumb visibly travel from the track start to the current value. Easing
@@ -102,6 +109,8 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   const trailingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isInteracting = useRef(false);
+  const previousValue = useRef(value);
+  const previousAnimateKey = useRef(animateKey);
   // The value we last sent and are waiting to see reflected back. While set, we
   // ignore inbound `value` changes that don't match it (stale/echoed state).
   const pending = useRef<number | null>(null);
@@ -117,8 +126,15 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
       }
       return;
     }
+    const valueChanged = Math.round(value) !== Math.round(previousValue.current);
+    const keyChanged = animateKey !== previousAnimateKey.current;
+    setExternalEasing(
+      valueChanged && (animateKey === undefined ? hasMounted : keyChanged),
+    );
+    previousValue.current = value;
+    previousAnimateKey.current = animateKey;
     setLocal(value);
-  }, [value]);
+  }, [animateKey, hasMounted, value]);
 
   useEffect(
     () => () => {
@@ -190,7 +206,7 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   // Otherwise the fill and thumb get a transition (a descendant rule, so it wins
   // over the primitive's own) whose duration matches the bridge fade.
   const easeClass =
-    interacting || !hasMounted
+    interacting || !hasMounted || !externalEasing
       ? undefined
       : "[&_[data-slot=slider-range]]:transition-[inset-inline-start,inset-inline-end,left,right,width] [&_[data-slot=slider-range]]:duration-(--paced-ease) [&_[data-slot=slider-range]]:ease-out [&_[data-slot=slider-thumb]]:transition-[inset-inline-start,left,right,translate] [&_[data-slot=slider-thumb]]:duration-(--paced-ease) [&_[data-slot=slider-thumb]]:ease-out";
 

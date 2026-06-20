@@ -50,6 +50,8 @@ export interface HueResourcesState extends LayoutState {
   isLoading: boolean;
   hasLoaded: boolean;
   error: string | null;
+  /** Increments only when bridge SSE updates are applied. */
+  hueEventRevision: number;
 
   // The light whose inspector panel is open beside the content, or null when
   // the panel is collapsed. Lives here (not route-local) so the app shell can
@@ -492,6 +494,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   isLoading: true,
   hasLoaded: false,
   error: null,
+  hueEventRevision: 0,
   ...buildLayoutState([], initialStoredLayout, initialGroupingMode),
   draftLayout: [],
   isEditLayoutMode: false,
@@ -770,7 +773,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
               };
             });
 
-      return { lights, roomZones, scenes };
+      return { lights, roomZones, scenes, hueEventRevision: state.hueEventRevision + 1 };
     });
 
     if (shouldRefreshScenes) {

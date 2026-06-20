@@ -58,6 +58,7 @@ const MAX_NAME_LENGTH = 32;
 
 interface LightPaneProps {
   light: HueLight;
+  hueEventRevision: number;
   onClose: () => void;
   onLightToggle: (light: HueLight, nextOn: boolean) => void;
   onLightBrightness: (
@@ -103,6 +104,7 @@ const effectLabel = (id: string): string =>
 
 export const LightPane: React.FC<LightPaneProps> = ({
   light,
+  hueEventRevision,
   onClose,
   onLightToggle,
   onLightBrightness,
@@ -193,6 +195,7 @@ export const LightPane: React.FC<LightPaneProps> = ({
           disabled={!light.reachable}
           ariaLabel={`${light.name} brightness`}
           isGroup={false}
+          animateKey={hueEventRevision}
           onCommit={(value, phase) => onLightBrightness(light, value, phase)}
         />
       </div>

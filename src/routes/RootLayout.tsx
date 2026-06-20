@@ -47,6 +47,7 @@ const LightInspector: React.FC = () => {
     selectedSceneId,
     lights,
     scenes,
+    hueEventRevision,
     setSelectedLightId,
     setLightState,
     setLightColor,
@@ -56,6 +57,7 @@ const LightInspector: React.FC = () => {
       selectedSceneId: state.selectedSceneId,
       lights: state.lights,
       scenes: state.scenes,
+      hueEventRevision: state.hueEventRevision,
       setSelectedLightId: state.setSelectedLightId,
       setLightState: state.setLightState,
       setLightColor: state.setLightColor,
@@ -133,6 +135,7 @@ const LightInspector: React.FC = () => {
                 <LightPane
                   key={content.id}
                   light={content.light}
+                  hueEventRevision={hueEventRevision}
                   onClose={close}
                   onLightToggle={(l, on) => setLightState(l, on, null)}
                   onLightBrightness={(l, pct, phase) =>

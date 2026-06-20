@@ -8,6 +8,7 @@ type ControlCommitPhase = "live" | "final";
 interface SortableSpaceTileProps {
   roomZone: HueRoomZone;
   members: HueLight[];
+  hueEventRevision: number;
   onOpenSpace: (id: string) => void;
   onRoomZoneToggle: (roomZone: HueRoomZone, nextOn: boolean) => void;
   onRoomZoneBrightness: (

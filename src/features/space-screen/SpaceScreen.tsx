@@ -86,32 +86,122 @@ function useAnimateOnResize(ref: React.RefObject<HTMLElement | null>) {
   }, [ref]);
 }
 
-const handleHorizontalWheel: React.WheelEventHandler<HTMLDivElement> = (
-  event,
+const scrollViewportBy = (
+  viewport: HTMLDivElement,
+  rawDelta: number,
+  deltaMode: number,
 ) => {
-  const viewport = event.currentTarget;
   const maxScrollLeft = viewport.scrollWidth - viewport.clientWidth;
 
-  if (maxScrollLeft <= 0 || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
-    return;
+  if (maxScrollLeft <= 0) {
+    return false;
   }
 
   const delta =
-    event.deltaMode === WHEEL_DELTA_LINE
-      ? event.deltaY * 16
-      : event.deltaMode === WHEEL_DELTA_PAGE
-        ? event.deltaY * viewport.clientWidth
-        : event.deltaY;
+    deltaMode === WHEEL_DELTA_LINE
+      ? rawDelta * 16
+      : deltaMode === WHEEL_DELTA_PAGE
+        ? rawDelta * viewport.clientWidth
+        : rawDelta;
   const nextScrollLeft = Math.min(
     maxScrollLeft,
     Math.max(0, viewport.scrollLeft + delta),
   );
 
-  if (nextScrollLeft === viewport.scrollLeft) return;
+  if (nextScrollLeft === viewport.scrollLeft) {
+    return false;
+  }
+
+  viewport.scrollLeft = nextScrollLeft;
+  return true;
+};
+
+const handleSceneWheel = (event: WheelEvent, viewport: HTMLDivElement) => {
+  if (!event.shiftKey || Math.abs(event.deltaY) <= Math.abs(event.deltaX)) {
+    return;
+  }
+
+  if (!scrollViewportBy(viewport, event.deltaY, event.deltaMode)) {
+    return;
+  }
 
   event.preventDefault();
-  viewport.scrollLeft = nextScrollLeft;
+  event.stopPropagation();
 };
+
+function useDragScroll(ref: React.RefObject<HTMLDivElement | null>) {
+  useEffect(() => {
+    const viewport = ref.current;
+    if (!viewport) return;
+
+    let pointerId: number | null = null;
+    let startX = 0;
+    let startScrollLeft = 0;
+    let didDrag = false;
+    let suppressNextClick = false;
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0 || viewport.scrollWidth <= viewport.clientWidth) {
+        return;
+      }
+
+      pointerId = event.pointerId;
+      startX = event.clientX;
+      startScrollLeft = viewport.scrollLeft;
+      didDrag = false;
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (pointerId !== event.pointerId) return;
+
+      const delta = event.clientX - startX;
+      if (!didDrag && Math.abs(delta) < 8) return;
+
+      if (!didDrag) {
+        viewport.setPointerCapture(event.pointerId);
+      }
+      didDrag = true;
+      viewport.scrollLeft = startScrollLeft - delta;
+      event.preventDefault();
+    };
+
+    const endDrag = (event: PointerEvent) => {
+      if (pointerId !== event.pointerId) return;
+
+      pointerId = null;
+      if (viewport.hasPointerCapture(event.pointerId)) {
+        viewport.releasePointerCapture(event.pointerId);
+      }
+      if (didDrag) {
+        suppressNextClick = true;
+        window.setTimeout(() => {
+          suppressNextClick = false;
+        }, 0);
+      }
+    };
+
+    const onClick = (event: MouseEvent) => {
+      if (!suppressNextClick) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      suppressNextClick = false;
+    };
+
+    viewport.addEventListener("pointerdown", onPointerDown);
+    viewport.addEventListener("pointermove", onPointerMove);
+    viewport.addEventListener("pointerup", endDrag);
+    viewport.addEventListener("pointercancel", endDrag);
+    viewport.addEventListener("click", onClick, true);
+    return () => {
+      viewport.removeEventListener("pointerdown", onPointerDown);
+      viewport.removeEventListener("pointermove", onPointerMove);
+      viewport.removeEventListener("pointerup", endDrag);
+      viewport.removeEventListener("pointercancel", endDrag);
+      viewport.removeEventListener("click", onClick, true);
+    };
+  }, [ref]);
+}
 
 type ControlCommitPhase = "live" | "final";
 
@@ -124,6 +214,7 @@ interface SpaceScreenProps {
   activeSceneId: string | null;
   selectedLightId: string | null;
   error: string | null;
+  hueEventRevision: number;
   onRoomZoneToggle: (roomZone: HueRoomZone, nextOn: boolean) => void;
   onRoomZoneBrightness: (
     roomZone: HueRoomZone,
@@ -160,6 +251,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
   activeSceneId,
   selectedLightId,
   error,
+  hueEventRevision,
   onRoomZoneToggle,
   onRoomZoneBrightness,
   onLightToggle,
@@ -187,7 +279,21 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
   const playingScene = scenes.find(isSceneDynamicActive) ?? null;
 
   const lightsGridRef = useRef<HTMLDivElement>(null);
+  const scenesViewportRef = useRef<HTMLDivElement>(null);
   useAnimateOnResize(lightsGridRef);
+  useDragScroll(scenesViewportRef);
+
+  useEffect(() => {
+    const viewport = scenesViewportRef.current;
+    if (!viewport) return;
+
+    const onWheel = (event: WheelEvent) => {
+      handleSceneWheel(event, viewport);
+    };
+
+    viewport.addEventListener("wheel", onWheel, { passive: false });
+    return () => viewport.removeEventListener("wheel", onWheel);
+  }, []);
 
   const showScenes = scenes.length > 0 || lights.length > 0;
   // Saving keeps the gallery open — closing is explicit (the X or backdrop) so
@@ -264,6 +370,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
             ariaLabel={`${roomZone.name} brightness`}
             className={TILE_BRIGHTNESS_SLIDER_CLASS}
             isGroup
+            animateKey={hueEventRevision}
             onCommit={(pct, phase) =>
               onRoomZoneBrightness(roomZone, pct, phase)
             }
@@ -286,8 +393,8 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
             orientation="horizontal"
             hideScrollbar
             className="min-w-0"
-            viewportClassName="pb-1"
-            viewportProps={{ onWheel: handleHorizontalWheel }}
+            viewportClassName="cursor-grab select-none pb-1 active:cursor-grabbing"
+            viewportRef={scenesViewportRef}
           >
             <div className="grid w-max grid-flow-col grid-rows-2 gap-3 p-2">
               <SceneGalleryCard onOpen={() => setSceneGalleryOpen(true)} />
@@ -337,6 +444,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
                   <LightCard
                     light={light}
                     selected={light.id === selectedLightId}
+                    hueEventRevision={hueEventRevision}
                     onSelect={onSelectLight}
                     onToggle={onLightToggle}
                     onBrightness={onLightBrightness}

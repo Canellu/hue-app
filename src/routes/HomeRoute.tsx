@@ -12,6 +12,7 @@ export const HomeRoute: React.FC = () => {
     displayLayout,
     draftLayout,
     isEditLayoutMode,
+    hueEventRevision,
     setDraftLayout,
     setRoomZoneState,
     isCreatingSection,
@@ -27,6 +28,7 @@ export const HomeRoute: React.FC = () => {
       displayLayout: state.displayLayout,
       draftLayout: state.draftLayout,
       isEditLayoutMode: state.isEditLayoutMode,
+      hueEventRevision: state.hueEventRevision,
       setDraftLayout: state.setDraftLayout,
       setRoomZoneState: state.setRoomZoneState,
       isCreatingSection: state.isCreatingSection,
@@ -45,6 +47,7 @@ export const HomeRoute: React.FC = () => {
       error={error}
       layout={isEditLayoutMode ? draftLayout : displayLayout}
       editing={isEditLayoutMode}
+      hueEventRevision={hueEventRevision}
       onLayoutChange={setDraftLayout}
       onOpenSpace={(id) =>
         void navigate({ to: "/space/$spaceId", params: { spaceId: id } })

@@ -18,6 +18,7 @@ interface SpaceTileProps {
   members: HueLight[];
   /** When true the tile is a passive drag target: controls/nav are disabled. */
   editing?: boolean;
+  hueEventRevision: number;
   onOpenSpace: (id: string) => void;
   onRoomZoneToggle: (roomZone: HueRoomZone, nextOn: boolean) => void;
   onRoomZoneBrightness: (
@@ -35,6 +36,7 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
   roomZone,
   members,
   editing = false,
+  hueEventRevision,
   onOpenSpace,
   onRoomZoneToggle,
   onRoomZoneBrightness,
@@ -112,6 +114,7 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
           className={TILE_BRIGHTNESS_SLIDER_CLASS}
           size="default"
           isGroup
+          animateKey={hueEventRevision}
           onCommit={(value, phase) =>
             onRoomZoneBrightness(roomZone, value, phase)
           }

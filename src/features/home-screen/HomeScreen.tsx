@@ -47,6 +47,7 @@ interface HomeScreenProps {
   /** Layout to render — the live draft while editing, else the committed one. */
   layout: HomeLayout;
   editing: boolean;
+  hueEventRevision: number;
   onLayoutChange: (next: HomeLayout) => void;
   onOpenSpace: (id: string) => void;
   onRoomZoneToggle: (roomZone: HueRoomZone, nextOn: boolean) => void;
@@ -69,6 +70,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   error,
   layout,
   editing,
+  hueEventRevision,
   onLayoutChange,
   onOpenSpace,
   onRoomZoneToggle,
@@ -297,6 +299,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           onOpenSpace={onOpenSpace}
           onRoomZoneToggle={onRoomZoneToggle}
           onRoomZoneBrightness={onRoomZoneBrightness}
+          hueEventRevision={hueEventRevision}
           onDeleteSection={handleDeleteSection}
           onRenameSection={onRenameSection}
         />
@@ -337,6 +340,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 onOpenSpace={onOpenSpace}
                 onRoomZoneToggle={onRoomZoneToggle}
                 onRoomZoneBrightness={onRoomZoneBrightness}
+                hueEventRevision={hueEventRevision}
               />
             ) : editing && activeSection ? (
               // A lightweight, non-sortable clone so dropping a section doesn't
@@ -368,6 +372,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                         onOpenSpace={onOpenSpace}
                         onRoomZoneToggle={onRoomZoneToggle}
                         onRoomZoneBrightness={onRoomZoneBrightness}
+                        hueEventRevision={hueEventRevision}
                       />
                     ))
                   )}

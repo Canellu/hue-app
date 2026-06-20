@@ -19,6 +19,7 @@ export const SpaceRoute: React.FC = () => {
     lights,
     scenes,
     error,
+    hueEventRevision,
     selectedLightId,
     setSelectedLightId,
     setSelectedSceneId,
@@ -36,6 +37,7 @@ export const SpaceRoute: React.FC = () => {
       lights: state.lights,
       scenes: state.scenes,
       error: state.error,
+      hueEventRevision: state.hueEventRevision,
       selectedLightId: state.selectedLightId,
       setSelectedLightId: state.setSelectedLightId,
       setSelectedSceneId: state.setSelectedSceneId,
@@ -132,6 +134,7 @@ export const SpaceRoute: React.FC = () => {
       activeSceneId={activeSceneId}
       selectedLightId={selectedLightId}
       error={error}
+      hueEventRevision={hueEventRevision}
       onRoomZoneToggle={(g, on) => setRoomZoneState(g, on, null)}
       onRoomZoneBrightness={(g, pct, phase) =>
         setRoomZoneState(g, pct > 0, pct, phase)

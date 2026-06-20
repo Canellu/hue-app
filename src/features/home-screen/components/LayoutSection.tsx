@@ -23,6 +23,7 @@ interface LayoutSectionProps {
   roomZones: HueRoomZone[];
   lights: HueLight[];
   editing: boolean;
+  hueEventRevision: number;
   onOpenSpace: (id: string) => void;
   onRoomZoneToggle: (roomZone: HueRoomZone, nextOn: boolean) => void;
   onRoomZoneBrightness: (
@@ -44,6 +45,7 @@ export const LayoutSection: React.FC<LayoutSectionProps> = ({
   roomZones,
   lights,
   editing,
+  hueEventRevision,
   onOpenSpace,
   onRoomZoneToggle,
   onRoomZoneBrightness,
@@ -192,6 +194,7 @@ export const LayoutSection: React.FC<LayoutSectionProps> = ({
                 roomZone={roomZone}
                 members={membersOf(roomZone)}
                 containerId={section.id}
+                hueEventRevision={hueEventRevision}
                 onOpenSpace={onOpenSpace}
                 onRoomZoneToggle={onRoomZoneToggle}
                 onRoomZoneBrightness={onRoomZoneBrightness}
@@ -203,6 +206,7 @@ export const LayoutSection: React.FC<LayoutSectionProps> = ({
                 key={roomZone.id}
                 roomZone={roomZone}
                 members={membersOf(roomZone)}
+                hueEventRevision={hueEventRevision}
                 onOpenSpace={onOpenSpace}
                 onRoomZoneToggle={onRoomZoneToggle}
                 onRoomZoneBrightness={onRoomZoneBrightness}

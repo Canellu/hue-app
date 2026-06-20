@@ -16,6 +16,7 @@ type ControlCommitPhase = "live" | "final";
 interface LightCardProps {
   light: HueLight;
   selected: boolean;
+  hueEventRevision: number;
   onSelect: (id: string) => void;
   onToggle: (light: HueLight, nextOn: boolean) => void;
   onBrightness: (
@@ -28,6 +29,7 @@ interface LightCardProps {
 export const LightCard: React.FC<LightCardProps> = ({
   light,
   selected,
+  hueEventRevision,
   onSelect,
   onToggle,
   onBrightness,
@@ -102,6 +104,7 @@ export const LightCard: React.FC<LightCardProps> = ({
           className={TILE_BRIGHTNESS_SLIDER_CLASS}
           size="default"
           isGroup={false}
+          animateKey={hueEventRevision}
           onCommit={(value, phase) => onBrightness(light, value, phase)}
         />
       </div>

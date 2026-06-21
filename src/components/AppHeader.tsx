@@ -31,6 +31,12 @@ interface AppHeaderProps {
   onBack?: () => void;
   title?: string;
   description?: string;
+  /**
+   * The home/house name (the bridge's user-given name) shown on the Home screen
+   * in place of a back button. `null` while it's still loading or when the
+   * bridge carries no name — a neutral "Home" placeholder is shown instead.
+   */
+  homeName?: string | null;
   /** Whether the Settings gear is shown (hidden on the Settings route itself). */
   showSettings: boolean;
   onOpenSettings: () => void;
@@ -44,14 +50,6 @@ interface AppHeaderProps {
   onSaveEditLayout: () => void;
   onCreateSection: () => void;
 }
-
-/** Time-of-day greeting shown on the Home screen. */
-const greeting = (): string => {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good Morning";
-  if (hour < 18) return "Good Afternoon";
-  return "Good Evening";
-};
 
 /** A short vertical rule separating clusters of header controls. */
 const Divider = () => (
@@ -69,6 +67,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   onBack,
   title,
   description,
+  homeName,
   showSettings,
   onOpenSettings,
   showEditLayout,
@@ -116,7 +115,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         </div>
       ) : (
         <span className="font-heading text-3xl font-semibold">
-          {greeting()}
+          {homeName ?? "Home"}
         </span>
       )}
 

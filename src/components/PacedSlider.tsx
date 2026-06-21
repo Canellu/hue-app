@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 import { UI_EASE_MS } from "@/lib/transitions";
@@ -120,6 +120,20 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   // is switched on only after that initial paint.
   const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => setHasMounted(true), []);
+  // Measured control width, used only by the tick block below to place marks on
+  // the same edge-adjusted scale Base UI uses for the thumb, so ticks sit under
+  // the thumb instead of drifting outward near the ends.
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [trackWidth, setTrackWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const measure = () => setTrackWidth(el.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [showTicks]);
   // Timestamp (ms) of the last bridge write; 0 means "frame is open, commit now".
   const lastCommitAt = useRef(0);
   // Latest dragged value, read by the trailing timer.
@@ -244,21 +258,18 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
     lastCommitAt.current = 0;
   };
 
-  // While the finger is down we add nothing, so position changes are instant.
-  // Otherwise the fill and thumb ease over the same window (matched to the bridge
-  // fade) so they move in lockstep. Both get the *identical* transition — same
-  // property list, duration, and timing — so a programmatic change (a toggle, a
-  // scene) glides the thumb and fill together instead of snapping one ahead of
-  // the other. The thumb's utilities are `!important` because the base Slider
-  // primitive bakes a `transition-colors` onto the thumb (the fill has none); two
-  // `transition-*` declarations on one element clobber each other's
-  // `transition-property` (see tile-theme.ts), and without the override the
-  // thumb keeps the colors-only transition and snaps to position while the fill
-  // eases.
-  const easeClass =
-    interacting || !hasMounted || !externalEasing
-      ? undefined
-      : "[&_[data-slot=slider-range]]:transition-[inset-inline-start,inset-inline-end,left,right,width,transform,translate] [&_[data-slot=slider-range]]:duration-[var(--paced-ease)] [&_[data-slot=slider-range]]:ease-out [&_[data-slot=slider-thumb]]:transition-[inset-inline-start,inset-inline-end,left,right,width,transform,translate]! [&_[data-slot=slider-thumb]]:duration-[var(--paced-ease)]! [&_[data-slot=slider-thumb]]:ease-out!";
+  // The fill (slider-range) and thumb share one transition, declared once and
+  // identically on both elements in slider.tsx. The only thing that varies is
+  // its duration, carried by the --paced-ease custom property on the root below.
+  // While the finger is down (a confirmed drag) or before the first paint, the
+  // duration is zeroed so position changes are instant and the thumb tracks the
+  // pointer 1:1; otherwise both ease over the same window (matched to the bridge
+  // fade) so a programmatic change — a toggle ramp, a scene, an external SSE
+  // update — glides the thumb and fill together. Because the transition-property
+  // and timing are always present and identical on both, the thumb can never
+  // snap ahead of the fill: sync reduces to a single shared duration.
+  const eased = hasMounted && externalEasing && !interacting;
+  const paceMs = eased ? easeMs : 0;
 
   const slider = (
     <Slider
@@ -268,9 +279,9 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
       step={step}
       disabled={disabled}
       aria-label={ariaLabel}
-      className={cn(showTicks ? "w-full" : className, easeClass)}
+      className={cn(showTicks ? "w-full" : className)}
       size={size}
-      style={{ ...style, "--paced-ease": `${easeMs}ms` } as React.CSSProperties}
+      style={{ ...style, "--paced-ease": `${paceMs}ms` } as React.CSSProperties}
       onValueChange={(v) => schedule(first(v))}
       onValueCommitted={(v) => commitNow(first(v))}
     />
@@ -283,6 +294,16 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
     const count = Math.round((max - min) / step) + 1;
     if (count > 1 && count <= 64) {
       const fill = (local - min) / (max - min);
+      // Base UI positions the thumb on an edge-adjusted scale: its centre travels
+      // (trackWidth − thumbWidth), inset by half a thumb width at each end so the
+      // thumb never overhangs the track. A linear value%→position mapping drifts
+      // away from the thumb near the ends. Map each tick through the same affine
+      // transform so the lines stay pinned under the thumb. thumbRatio is 0 until
+      // the track is measured, leaving the marks linear for the first paint.
+      const thumbPx = size === "xl" ? 24 : size === "lg" ? 20 : 16;
+      const thumbRatio = trackWidth > 0 ? thumbPx / trackWidth : 0;
+      const posFor = (f: number) =>
+        (0.5 * thumbRatio + (1 - thumbRatio) * f) * 100;
       // Match the track height per size so each line spans the track exactly.
       const tickHeight =
         size === "xl" ? "h-5" : size === "lg" ? "h-4" : "h-3";
@@ -296,7 +317,7 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
         : [];
       return (
         <div className={cn("flex flex-col", className)}>
-          <div className="relative w-full">
+          <div ref={wrapperRef} className="relative w-full">
             {slider}
             <div
               aria-hidden
@@ -318,7 +339,7 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
                         : "bg-foreground/20 dark:bg-foreground/25",
                     )}
                     style={{
-                      left: `${f * 100}%`,
+                      left: `${posFor(f)}%`,
                       transform: `translateX(${offsetFor(i)})`,
                     }}
                   />
@@ -336,7 +357,7 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
                   key={i}
                   className="absolute"
                   style={{
-                    left: `${(i / (count - 1)) * 100}%`,
+                    left: `${posFor(i / (count - 1))}%`,
                     transform: `translateX(${offsetFor(i)})`,
                   }}
                 >

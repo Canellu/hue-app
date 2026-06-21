@@ -16,6 +16,16 @@ pub async fn get_hue_settings_summary(app: AppHandle) -> Result<HueSettingsSumma
         .await
 }
 
+#[tauri::command(rename = "get-hue-home-name")]
+pub async fn get_hue_home_name(app: AppHandle) -> Result<Option<String>, String> {
+    let client = HueClient::new()?;
+    let stored_bridge = client.get_stored_bridge(&app)?;
+    let application_key = client.get_stored_application_key(&app)?;
+    client
+        .get_home_name(&stored_bridge.bridge_ip, &application_key)
+        .await
+}
+
 #[tauri::command(rename = "rename-hue-resource")]
 pub async fn rename_hue_resource(
     app: AppHandle,

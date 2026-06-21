@@ -34,6 +34,7 @@ pub fn run() {
             commands::scenes::create_hue_scene,
             commands::scenes::create_hue_gallery_scene,
             commands::settings::get_hue_settings_summary,
+            commands::settings::get_hue_home_name,
             commands::settings::rename_hue_resource,
             commands::settings::get_hue_resource,
             commands::settings::create_hue_resource,

@@ -41,14 +41,14 @@ function Slider({
         >
           <SliderPrimitive.Indicator
             data-slot="slider-range"
-            className="bg-foreground/35 select-none data-horizontal:h-full data-vertical:w-full dark:bg-foreground/25"
+            className="bg-foreground/35 transition-[inset-inline-start,inset-inline-end,left,right,width,transform,translate] duration-[var(--paced-ease,0ms)] ease-out select-none data-horizontal:h-full data-vertical:w-full dark:bg-foreground/25"
           />
         </SliderPrimitive.Track>
         {Array.from({ length: _values.length }, (_, index) => (
           <SliderPrimitive.Thumb
             data-slot="slider-thumb"
             key={index}
-            className="block size-4 shrink-0 rounded-4xl border border-foreground/30 bg-background shadow-sm ring-ring/50 transition-colors select-none hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50 dark:border-foreground/25 group-data-[size=lg]/slider:size-5 group-data-[size=xl]/slider:size-6"
+            className="block size-4 shrink-0 rounded-4xl border border-foreground/30 bg-background shadow-sm ring-ring/50 transition-[color,background-color,border-color,inset-inline-start,inset-inline-end,left,right,width,transform,translate] duration-[var(--paced-ease,0ms)] ease-out select-none hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50 dark:border-foreground/25 group-data-[size=lg]/slider:size-5 group-data-[size=xl]/slider:size-6"
           />
         ))}
       </SliderPrimitive.Control>

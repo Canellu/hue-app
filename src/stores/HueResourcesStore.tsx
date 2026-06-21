@@ -47,6 +47,12 @@ export interface HueResourcesState extends LayoutState {
   roomZones: HueRoomZone[];
   lights: HueLight[];
   scenes: HueScene[];
+  /**
+   * The bridge's user-given name, shown as the home/house label in the Home
+   * header. `null` until fetched (or when the bridge carries no name); the UI
+   * decides the fallback in that case.
+   */
+  homeName: string | null;
   isLoading: boolean;
   hasLoaded: boolean;
   error: string | null;
@@ -94,6 +100,7 @@ export interface HueResourcesState extends LayoutState {
   // Data lifecycle and optimistic control handlers.
   loadLights: () => Promise<void>;
   loadScenes: () => Promise<void>;
+  loadHomeName: () => Promise<void>;
   loadAll: () => Promise<void>;
   applyHueEvents: (updates: HueEventUpdate[]) => void;
   setRoomZoneState: (
@@ -529,6 +536,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   roomZones: [],
   lights: [],
   scenes: [],
+  homeName: null,
   isLoading: true,
   hasLoaded: false,
   error: null,
@@ -622,6 +630,17 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
     }
   },
 
+  // The home/house name shown in the Home header. Best effort: a failure (or a
+  // bridge with no name) leaves it null, and the header falls back accordingly.
+  loadHomeName: async () => {
+    try {
+      const result = await invoke<string | null>("get-hue-home-name");
+      set({ homeName: result });
+    } catch {
+      // Non-fatal — the rest of Home loads regardless of the name.
+    }
+  },
+
   loadAll: async () => {
     set({ isLoading: true, error: null });
     try {
@@ -638,6 +657,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
         invoke<HueZone[]>("get-hue-zones").catch(() => [] as HueZone[]),
         invoke<HueScene[]>("get-hue-scenes").catch(() => [] as HueScene[]),
         get().loadLights(),
+        get().loadHomeName(),
       ]);
       const roomZones = [...rooms, ...zones].sort((a, b) =>
         a.name.localeCompare(b.name),

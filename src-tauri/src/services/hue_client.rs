@@ -2137,6 +2137,37 @@ impl HueClient {
         })
     }
 
+    /// The user-given name of the Hue bridge, used as the home/house label on
+    /// the Home screen. The CLIP v2 API exposes no dedicated "home" resource
+    /// name, so we surface the bridge device's `metadata.name` — the field users
+    /// edit when they rename their setup in the Hue app. Returns `None` when the
+    /// bridge device carries no name, leaving the UI to decide a fallback.
+    pub async fn get_home_name(
+        &self,
+        ip: &str,
+        application_key: &str,
+    ) -> Result<Option<String>, String> {
+        let devices: Vec<HueDeviceResource> = self.get_v2(ip, application_key, "device").await?;
+        let name = devices
+            .iter()
+            .find(|device| {
+                device
+                    .services
+                    .iter()
+                    .any(|service| service.rtype == "bridge")
+                    || device
+                        .product_data
+                        .as_ref()
+                        .and_then(|product| product.product_name.as_deref())
+                        .map(|name| name.to_lowercase().contains("bridge"))
+                        .unwrap_or(false)
+            })
+            .and_then(|device| device.metadata.as_ref())
+            .map(|metadata| metadata.name.clone())
+            .filter(|name| !name.is_empty());
+        Ok(name)
+    }
+
     pub async fn get_accessory_services(
         &self,
         ip: &str,

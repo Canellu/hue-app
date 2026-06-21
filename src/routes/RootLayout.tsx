@@ -185,6 +185,7 @@ const LightInspector: React.FC = () => {
 const ShellHeader: React.FC = () => {
   const {
     roomZones,
+    homeName,
     isEditLayoutMode,
     groupingMode,
     setGroupingMode,
@@ -195,6 +196,7 @@ const ShellHeader: React.FC = () => {
   } = useHueResourcesStore(
     useShallow((state) => ({
       roomZones: state.roomZones,
+      homeName: state.homeName,
       isEditLayoutMode: state.isEditLayoutMode,
       groupingMode: state.groupingMode,
       setGroupingMode: state.setGroupingMode,
@@ -242,6 +244,7 @@ const ShellHeader: React.FC = () => {
       }
       title={title}
       description={description}
+      homeName={homeName}
       showSettings={onHome}
       onOpenSettings={() =>
         void navigate({ to: "/settings", search: { tab: undefined } })

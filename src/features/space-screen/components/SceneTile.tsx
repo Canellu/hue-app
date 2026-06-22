@@ -1,5 +1,8 @@
 import { Card } from "@/components/ui/card";
-import { TILE_INTERACTION_TRANSITION_CLASS } from "@/lib/tile-theme";
+import {
+  SCENE_TILE_SURFACE_CLASS,
+  TILE_INTERACTION_TRANSITION_CLASS,
+} from "@/lib/tile-theme";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { cn } from "@/lib/utils";
 
@@ -63,9 +66,9 @@ export const SceneTile: React.FC<{
       }
     }}
     className={cn(
-      "group relative shrink-0 cursor-pointer items-center justify-between rounded-[1.75rem] bg-tile px-4 py-5 text-center outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      "group relative shrink-0 cursor-pointer items-center justify-between bg-tile px-4 py-5 text-center outline-none ring-transparent focus-visible:ring-2 focus-visible:ring-ring",
+      SCENE_TILE_SURFACE_CLASS,
       TILE_INTERACTION_TRANSITION_CLASS,
-      activeBackground && "ring-transparent",
       fullWidth ? "h-40 w-full" : "h-40 w-36",
       className,
     )}

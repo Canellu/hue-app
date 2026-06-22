@@ -45,6 +45,15 @@ interface PacedSliderProps {
    * `"ends"` labels just the min and max. Requires `showTicks` and `step`.
    */
   tickLabels?: "all" | "ends";
+  /**
+   * Expands the click-swallow area around the slider. The slider lives inside a
+   * card whose own click opens a side pane; without this, a tap that lands in
+   * the padding just above/below the track falls through to the card and opens
+   * the pane by accident. The values are CSS lengths the hit area extends past
+   * each edge — by default the full section below and half the gap above. They
+   * are clamped by the card's `overflow-hidden`, so over-reaching is harmless.
+   */
+  hitInset?: { top?: string; bottom?: string; x?: string };
   /** Fires the paced value (leading, trailing, and on release). */
   onCommit: (value: number, phase: "live" | "final") => void;
   /** Per-frame callback for local visual feedback (fires every move). */
@@ -105,6 +114,7 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   tickLabels,
   easeMs = UI_EASE_MS.sliderFill,
   animateKey,
+  hitInset,
   onCommit,
   onInput,
 }) => {
@@ -306,6 +316,25 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
     />
   );
 
+  // A transparent layer behind the slider that extends the click-swallow zone
+  // into the surrounding card padding. It sits below the slider (earlier in DOM)
+  // so the track/thumb still take every pointer event over their own box; it
+  // only catches taps in the dead space around them and stops them bubbling to
+  // the card. Stopping propagation on the wrapper covers direct slider taps too.
+  const hitOverlay = (
+    <span
+      aria-hidden
+      className="pointer-events-auto absolute"
+      style={{
+        top: `calc(-1 * ${hitInset?.top ?? "0.75rem"})`,
+        bottom: `calc(-1 * ${hitInset?.bottom ?? "1.5rem"})`,
+        left: `calc(-1 * ${hitInset?.x ?? "1.5rem"})`,
+        right: `calc(-1 * ${hitInset?.x ?? "1.5rem"})`,
+      }}
+    />
+  );
+  const swallow = (e: React.MouseEvent) => e.stopPropagation();
+
   // The track has discrete snap points: draw a subtle line at each. Lines past
   // the thumb (unfilled track) and lines under the fill get different colors so
   // they stay legible against either background.
@@ -335,8 +364,9 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
           : [0, count - 1]
         : [];
       return (
-        <div className={cn("flex flex-col", className)}>
+        <div className={cn("flex flex-col", className)} onClick={swallow}>
           <div ref={wrapperRef} className="relative w-full">
+            {hitOverlay}
             {slider}
             <div
               aria-hidden
@@ -391,7 +421,12 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   }
 
   return (
-    <div ref={wrapperRef} className={cn("w-full", !showTicks && className)}>
+    <div
+      ref={wrapperRef}
+      className={cn("relative w-full", !showTicks && className)}
+      onClick={swallow}
+    >
+      {hitOverlay}
       {slider}
     </div>
   );

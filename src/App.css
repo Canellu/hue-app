@@ -63,7 +63,7 @@
      → popover) is lighter in both themes, so elevation reads consistently. In
      light mode card sits just under the white ceiling so it reads as its own
      surface against the background; tile/popover hit white and lean on shadow. */
-  --background: oklch(0.965 0 0);
+  --background: oklch(0.96 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(0.99 0 0);
   --card-foreground: oklch(0.145 0 0);
@@ -222,6 +222,11 @@
 
 .tile-brightness-slider {
   --tile-slider-track-alpha-effective: var(--tile-slider-track-alpha, 0.2);
+}
+
+.tile-surface-scene {
+  border-radius: 64px;
+  corner-shape: squircle;
 }
 
 .tile-brightness-slider-off {

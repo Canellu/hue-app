@@ -30,6 +30,8 @@ export const TILE_BRIGHTNESS_SLIDER_CLASS =
 export const TILE_POWER_SWITCH_CLASS =
   "data-unchecked:bg-foreground/10 dark:data-checked:bg-foreground/35 dark:data-unchecked:bg-foreground/10 dark:**:data-[slot=switch-thumb]:data-unchecked:bg-background";
 
+export const SCENE_TILE_SURFACE_CLASS = "tile-surface-scene";
+
 // Background + text color ease over the bridge fade (`--tile-ease`) so a lit
 // tile re-tints in step with the bulb it mirrors.
 export const TILE_INTERACTION_TRANSITION_CLASS =

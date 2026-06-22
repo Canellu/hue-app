@@ -1,8 +1,8 @@
 import {
-  convertHueColorToCss,
   distinctHexes,
   paletteToCss,
 } from "@/features/space-screen/utils/color";
+import { hueDisplayColorHex } from "@/features/space-screen/utils/color-state";
 import { hueDynamicSpeedStepToValue } from "@/lib/hue-speed";
 
 export interface HueGallerySceneColor {
@@ -39,13 +39,13 @@ export interface HueGallerySceneSection {
 const color = (x: number, y: number): HueGallerySceneColor => ({
   xy: [x, y],
   mirek: null,
-  hex: convertHueColorToCss({ xy: [x, y] }) ?? "#ffffff",
+  hex: hueDisplayColorHex({ xy: [x, y] }) ?? "#ffffff",
 });
 
 const white = (mirek: number, xy: [number, number]): HueGallerySceneColor => ({
   xy,
   mirek,
-  hex: convertHueColorToCss({ mirek }) ?? "#ffffff",
+  hex: hueDisplayColorHex({ mirek }) ?? "#ffffff",
 });
 
 const preset = (

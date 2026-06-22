@@ -19,6 +19,7 @@ import {
   activeTileTheme,
   TILE_BRIGHTNESS_SLIDER_CLASS,
   TILE_INTERACTION_TRANSITION_CLASS,
+  TILE_POWER_SWITCH_CLASS,
 } from "@/lib/tile-theme";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { cn } from "@/lib/utils";
@@ -38,6 +39,8 @@ interface GroupControlsProps {
     pct: number,
     phase: ControlCommitPhase,
   ) => void;
+  /** Opens the multi-light group pane for adjusting every light at once. */
+  onOpen: (roomZone: HueRoomZone) => void;
   /** Transient speed change for the scene that is currently playing. */
   onDynamicSpeedLive: (scene: HueScene, step: number) => void;
 }
@@ -57,6 +60,7 @@ export const GroupControls: React.FC<GroupControlsProps> = ({
   hueEventRevision,
   onToggle,
   onBrightness,
+  onOpen,
   onDynamicSpeedLive,
 }) => {
   const [open, setOpen] = useState(false);
@@ -81,16 +85,32 @@ export const GroupControls: React.FC<GroupControlsProps> = ({
           // gap-0: the always-visible block (below) owns its own gap so the
           // collapsible panel sits flush and isn't a gap-spaced sibling — a
           // sibling gap is static layout that snaps when the panel hides.
-          className={cn("gap-0 bg-tile", TILE_INTERACTION_TRANSITION_CLASS)}
+          role="button"
+          tabIndex={0}
+          aria-label={`Adjust ${roomZone.name} lights`}
+          onClick={() => onOpen(roomZone)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onOpen(roomZone);
+            }
+          }}
+          className={cn(
+            "cursor-pointer gap-0 border border-tile-border bg-tile-off outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            TILE_INTERACTION_TRANSITION_CLASS,
+            tile.active && "ring-transparent",
+          )}
           style={
             {
               "--tile-ease": `${UI_EASE_MS.tileBackground}ms`,
               ...(tile.active && tile.background
-                ? activeTileTheme(
-                    tile.background,
-                    tile.glow ?? tile.background,
-                    brightnessPct,
-                  )
+                ? {
+                    ...activeTileTheme(
+                      tile.background,
+                      tile.glow ?? tile.background,
+                      brightnessPct,
+                    ),
+                  }
                 : null),
             } as React.CSSProperties
           }
@@ -116,21 +136,26 @@ export const GroupControls: React.FC<GroupControlsProps> = ({
                 >
                   {Math.round(brightnessPct)}%
                 </span>
-                <Switch
-                  size="xl"
-                  className="dark:data-checked:bg-foreground/35 dark:data-unchecked:bg-input dark:**:data-[slot=switch-thumb]:data-unchecked:bg-background"
-                  checked={roomZone.anyOn}
-                  aria-label={`Toggle ${roomZone.name}`}
-                  onCheckedChange={(checked) => onToggle(roomZone, checked)}
-                />
+                <div onClick={(e) => e.stopPropagation()}>
+                  <Switch
+                    size="xl"
+                    className={TILE_POWER_SWITCH_CLASS}
+                    checked={roomZone.anyOn}
+                    aria-label={`Toggle ${roomZone.name}`}
+                    onCheckedChange={(checked) => onToggle(roomZone, checked)}
+                  />
+                </div>
               </div>
             </div>
-            <div className="px-6">
+            <div className="px-6" onClick={(e) => e.stopPropagation()}>
               <PacedSlider
                 value={roomZone.anyOn ? Math.max(1, brightnessPct) : 1}
                 min={1}
                 ariaLabel={`${roomZone.name} brightness`}
-                className={TILE_BRIGHTNESS_SLIDER_CLASS}
+                className={cn(
+                  TILE_BRIGHTNESS_SLIDER_CLASS,
+                  !roomZone.anyOn && "tile-brightness-slider-off",
+                )}
                 isGroup
                 animateKey={hueEventRevision}
                 onCommit={(pct, phase) => onBrightness(roomZone, pct, phase)}
@@ -143,7 +168,7 @@ export const GroupControls: React.FC<GroupControlsProps> = ({
             no sibling gap/margin around it, so the whole card grows and shrinks
             as one continuous height animation with nothing to snap at the ends.
           */}
-          <CollapsibleContent>
+          <CollapsibleContent onClick={(e) => e.stopPropagation()}>
             <DynamicSpeedControl
               scene={playingScene}
               active={tile.active}
@@ -211,7 +236,10 @@ const DynamicSpeedControl: React.FC<{
         tickLabels="ends"
         disabled={disabled}
         ariaLabel={`${scene?.name ?? "Scene"} live scene speed`}
-        className={TILE_BRIGHTNESS_SLIDER_CLASS}
+        className={cn(
+          TILE_BRIGHTNESS_SLIDER_CLASS,
+          !active && "tile-brightness-slider-off",
+        )}
         isGroup
         onInput={(value) => setStep(Math.round(value))}
         onCommit={(value) => {

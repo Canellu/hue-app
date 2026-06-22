@@ -12,6 +12,7 @@ import {
   writeStoredHomeLayout,
 } from "@/features/home-screen/utils/homeLayout";
 import type { HueGalleryScenePreset } from "@/features/space-screen/data/hueSceneGallery";
+import { recordPickedColor } from "@/features/space-screen/utils/color-state";
 import {
   hueDynamicSpeedStepToValue,
   hueDynamicSpeedValueToStep,
@@ -32,6 +33,12 @@ export interface LightColorChange {
   xy?: [number, number];
   ct?: number;
   effect?: string;
+  /**
+   * The vivid (pre-gamut-clamp) color the wheel's thumb showed for an `xy` pick,
+   * recorded so cards/tiles/the side-pane icon render it instead of the duller
+   * readback of the clamped `xy` the bridge stores. See `recordPickedColor`.
+   */
+  vividHex?: string;
 }
 
 type ControlCommitPhase = "live" | "final";
@@ -70,11 +77,19 @@ export interface HueResourcesState extends LayoutState {
   // pushes the content aside.
   selectedLightId: string | null;
   setSelectedLightId: (id: string | null) => void;
+  toggleLightInspector: (id: string) => void;
 
   // The scene whose inspector panel content is selected, or null. Mutually
   // exclusive with `selectedLightId` — the shell renders one inspector at a time.
   selectedSceneId: string | null;
   setSelectedSceneId: (id: string | null) => void;
+  toggleSceneInspector: (id: string) => void;
+
+  // The room/zone whose inspector panel content is selected, or null. Opens the
+  // multi-light group pane. Mutually exclusive with the light/scene selections.
+  selectedGroupId: string | null;
+  setSelectedGroupId: (id: string | null) => void;
+  toggleGroupInspector: (id: string) => void;
 
   // Whether the side pane is visible. Kept separate from selection so tiles can
   // update the pane content without opening or closing it.
@@ -547,12 +562,48 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   isCreatingSection: false,
   selectedLightId: null,
   selectedSceneId: null,
+  selectedGroupId: null,
   inspectorPaneOpen: false,
 
   setSelectedLightId: (id) =>
-    set({ selectedLightId: id, selectedSceneId: null }),
+    set({ selectedLightId: id, selectedSceneId: null, selectedGroupId: null }),
+  toggleLightInspector: (id) =>
+    set((state) =>
+      state.inspectorPaneOpen && state.selectedLightId === id
+        ? { inspectorPaneOpen: false }
+        : {
+            selectedLightId: id,
+            selectedSceneId: null,
+            selectedGroupId: null,
+            inspectorPaneOpen: true,
+          },
+    ),
   setSelectedSceneId: (id) =>
-    set({ selectedSceneId: id, selectedLightId: null }),
+    set({ selectedSceneId: id, selectedLightId: null, selectedGroupId: null }),
+  toggleSceneInspector: (id) =>
+    set((state) =>
+      state.inspectorPaneOpen && state.selectedSceneId === id
+        ? { inspectorPaneOpen: false }
+        : {
+            selectedSceneId: id,
+            selectedLightId: null,
+            selectedGroupId: null,
+            inspectorPaneOpen: true,
+          },
+    ),
+  setSelectedGroupId: (id) =>
+    set({ selectedGroupId: id, selectedLightId: null, selectedSceneId: null }),
+  toggleGroupInspector: (id) =>
+    set((state) =>
+      state.inspectorPaneOpen && state.selectedGroupId === id
+        ? { inspectorPaneOpen: false }
+        : {
+            selectedGroupId: id,
+            selectedLightId: null,
+            selectedSceneId: null,
+            inspectorPaneOpen: true,
+          },
+    ),
   setInspectorPaneOpen: (open) => set({ inspectorPaneOpen: open }),
 
   setDraftLayout: (next) => set({ draftLayout: next }),
@@ -995,6 +1046,11 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   },
 
   setLightColor: (light, change) => {
+    // Remember the wheel's vivid pre-clamp color so cards/tiles/the side-pane
+    // icon show what the thumb showed rather than the duller clamped readback.
+    if (change.xy && change.vividHex) {
+      recordPickedColor(light.id, change.xy, change.vividHex);
+    }
     // Setting a color also turns the light on; lock so an in-flight off-echo
     // can't immediately flip it back.
     lockResource(light.id, {
@@ -1278,6 +1334,14 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
 
   setDynamicSpeedLive: (scene, step) => {
     const speed = hueDynamicSpeedStepToValue(step);
+    const roomZone =
+      scene.group != null
+        ? get().roomZones.find((candidate) => candidate.id === scene.group)
+        : undefined;
+    const brightness =
+      roomZone?.anyOn === true && roomZone.brightness != null
+        ? Math.max(1, Math.round(roomZone.brightness))
+        : null;
     patchSceneLocal(set, scene, { speed });
     void (async () => {
       try {
@@ -1287,8 +1351,12 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
           body: { speed },
         });
         // Updating `speed` only re-paces the palette once the scene is recalled
-        // again; without this the running animation keeps its old cadence.
-        await invoke("start-dynamic-scene", { sceneId: scene.id });
+        // again; carry the live group brightness so recall does not restore the
+        // scene's saved dimming level.
+        await invoke("start-dynamic-scene", {
+          sceneId: scene.id,
+          brightness,
+        });
       } catch (e) {
         set({ error: String(e) || "Unable to change dynamic speed." });
       }

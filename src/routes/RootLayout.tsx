@@ -1,5 +1,6 @@
 import { AppHeader } from "@/components/AppHeader";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { GroupPane } from "@/features/space-screen/components/GroupPane";
 import { LightPane } from "@/features/space-screen/components/LightPane";
 import { ScenePane } from "@/features/space-screen/components/ScenePane";
 import { cn } from "@/lib/utils";
@@ -15,7 +16,8 @@ import { useShallow } from "zustand/react/shallow";
 /** Whichever resource the inspector is currently showing. */
 type InspectorContent =
   | { kind: "light"; id: string; light: HueLight }
-  | { kind: "scene"; id: string; scene: HueScene };
+  | { kind: "scene"; id: string; scene: HueScene }
+  | { kind: "group"; id: string; roomZone: HueRoomZone; lights: HueLight[] };
 
 /**
  * Width of the inspector column; the floating card matches it. Caps at 28rem on
@@ -45,6 +47,7 @@ const LightInspector: React.FC = () => {
   const {
     selectedLightId,
     selectedSceneId,
+    selectedGroupId,
     inspectorPaneOpen,
     lights,
     scenes,
@@ -53,10 +56,12 @@ const LightInspector: React.FC = () => {
     setInspectorPaneOpen,
     setLightState,
     setLightColor,
+    setRoomZoneState,
   } = useHueResourcesStore(
     useShallow((state) => ({
       selectedLightId: state.selectedLightId,
       selectedSceneId: state.selectedSceneId,
+      selectedGroupId: state.selectedGroupId,
       inspectorPaneOpen: state.inspectorPaneOpen,
       lights: state.lights,
       scenes: state.scenes,
@@ -65,6 +70,7 @@ const LightInspector: React.FC = () => {
       setInspectorPaneOpen: state.setInspectorPaneOpen,
       setLightState: state.setLightState,
       setLightColor: state.setLightColor,
+      setRoomZoneState: state.setRoomZoneState,
     })),
   );
 
@@ -84,12 +90,21 @@ const LightInspector: React.FC = () => {
       const light = lights.find((l) => l.id === selectedLightId);
       return light ? { kind: "light", id: light.id, light } : null;
     }
+    if (selectedGroupId) {
+      const roomZone = roomZones.find((r) => r.id === selectedGroupId);
+      if (!roomZone) return null;
+      const ids = new Set(roomZone.lightIds);
+      const members = lights
+        .filter((light) => ids.has(light.id))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return { kind: "group", id: roomZone.id, roomZone, lights: members };
+    }
     if (selectedSceneId) {
       const scene = scenes.find((s) => s.id === selectedSceneId);
       return scene ? { kind: "scene", id: scene.id, scene } : null;
     }
     return null;
-  }, [selectedLightId, selectedSceneId, lights, scenes]);
+  }, [selectedLightId, selectedGroupId, selectedSceneId, lights, scenes, roomZones]);
 
   const open = inspectorPaneOpen;
   const close = () => setInspectorPaneOpen(false);
@@ -114,11 +129,12 @@ const LightInspector: React.FC = () => {
   }, [open]);
 
   const content = current ?? (open ? null : shown);
+  const paneWidth = PANE_WIDTH;
 
   return (
     <aside
       className="relative shrink-0"
-      style={{ width: open ? PANE_WIDTH : 0 }}
+      style={{ width: open ? paneWidth : 0 }}
       inert={!open}
     >
       {/*
@@ -131,12 +147,12 @@ const LightInspector: React.FC = () => {
       */}
       <div
         className="absolute inset-y-0 right-0 flex justify-end overflow-hidden transition-[width] duration-300 ease-out"
-        style={{ width: visible ? PANE_WIDTH : 0 }}
+        style={{ width: visible ? paneWidth : 0 }}
       >
-        <div className="h-full shrink-0 p-6 pl-0" style={{ width: PANE_WIDTH }}>
+        <div className="h-full shrink-0 p-6 pl-0" style={{ width: paneWidth }}>
           <div
             className={cn(
-              "flex h-full flex-col overflow-hidden rounded-3xl border border-border bg-popover text-popover-foreground transition-[opacity,transform] duration-300 ease-out",
+              "flex h-full flex-col overflow-hidden rounded-3xl border border-border bg-card text-card-foreground transition-[opacity,transform] duration-300 ease-out",
               visible ? "translate-x-0 opacity-100" : "translate-x-2 opacity-0",
             )}
             onTransitionEnd={() => {
@@ -154,6 +170,19 @@ const LightInspector: React.FC = () => {
                   onLightToggle={(l, on) => setLightState(l, on, null)}
                   onLightBrightness={(l, pct, phase) =>
                     setLightState(l, pct > 0, pct, phase)
+                  }
+                  onLightColor={(l, change) => setLightColor(l, change)}
+                />
+              ) : content.kind === "group" ? (
+                <GroupPane
+                  key={content.id}
+                  roomZone={content.roomZone}
+                  lights={content.lights}
+                  hueEventRevision={hueEventRevision}
+                  onClose={close}
+                  onToggle={(g, on) => setRoomZoneState(g, on, null)}
+                  onBrightness={(g, pct, phase) =>
+                    setRoomZoneState(g, pct > 0, pct, phase)
                   }
                   onLightColor={(l, change) => setLightColor(l, change)}
                 />

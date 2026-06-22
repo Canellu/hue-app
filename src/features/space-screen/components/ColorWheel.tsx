@@ -1,55 +1,49 @@
-import { useEffect, useRef, useState } from "react";
+import type { Gamut } from "@/features/space-screen/utils/color";
 import {
   hsvToRgb,
   rgbToCss,
-  rgbToHsv,
+  rgbToHex,
   rgbToXy,
-  xyBriToRgb,
 } from "@/features/space-screen/utils/color";
-import type { Gamut } from "@/features/space-screen/utils/color";
+import {
+  paintColorWheel,
+  WHEEL_CANVAS_SIZE,
+} from "@/features/space-screen/utils/wheel-canvas";
+import {
+  pinToHueSaturation,
+  xyToPin,
+} from "@/features/space-screen/utils/wheel-color";
+import { useEffect, useRef, useState } from "react";
 
 interface ColorWheelProps {
   /** Current CIE xy of the light, used to position the pin. */
   xy: [number, number] | null;
-  /** The light's gamut; the wheel is drawn within it and picks clamped to it. */
+  /** The light's gamut; picks are clamped into it before being sent. */
   gamut?: Gamut | null;
-  /** Throttled while dragging; always fired once more on release. */
-  onPick: (xy: [number, number]) => void;
+  /**
+   * Throttled while dragging; always fired once more on release. `vividHex` is
+   * the exact (pre-gamut-clamp) color the thumb shows, so cards and tiles can
+   * render the same vivid color instead of the duller readback of the clamped
+   * xy the bridge stores.
+   */
+  onPick: (xy: [number, number], vividHex: string) => void;
 }
 
-const CANVAS_SIZE = 360;
-const RADIUS = CANVAS_SIZE / 2;
 const THROTTLE_MS = 180;
 // Half the thumb's rendered diameter (size-8 = 32px). A press within this many
 // pixels of the thumb centre grabs it; a press outside snaps it to the cursor.
 const THUMB_HIT_RADIUS = 16;
 
-const normalizeHue = (hue: number): number => ((hue % 360) + 360) % 360;
-
-const hueFromVector = (dx: number, dy: number): number =>
-  normalizeHue((Math.atan2(dy, dx) * 180) / Math.PI + 90);
-
-const angleFromHue = (hue: number): number =>
-  ((normalizeHue(hue) - 90) * Math.PI) / 180;
+// A standard HSV wheel: hue is the angle, saturation is the radius, value is
+// fixed at full. Red (hue 0) sits at 12 o'clock and hues increase clockwise, so
+// a quarter turn is 90° of hue. White is at the center, fully saturated colors
+// at the rim. The hue/saturation math lives in `wheel-color.ts` so light cards
+// and tile gradients can render the same colors this wheel paints.
 
 /**
- * Color shown at a wheel position. When a gamut is known the HSV color is
- * round-tripped through the light's gamut (HSV -> sRGB -> clamped xy -> sRGB) so
- * the wheel only ever shows colors the bulb can actually make — regions outside
- * its gamut collapse onto the nearest reachable color instead of displaying
- * vivid hues the light can't reproduce.
- */
-const wheelColor = (hue: number, saturation: number, gamut?: Gamut | null) => {
-  const rgb = hsvToRgb(hue, saturation, 1);
-  if (!gamut) return rgb;
-  const [gx, gy] = rgbToXy(rgb.r, rgb.g, rgb.b, gamut);
-  return xyBriToRgb(gx, gy, 1);
-};
-
-/**
- * An HSV hue/saturation wheel. The chosen color is converted to CIE xy for the
- * bridge. Writes are throttled while dragging and committed once more on
- * pointer release.
+ * A standard HSV hue/saturation wheel. The chosen color is converted to CIE xy
+ * (clamped into the light's gamut) for the bridge. Writes are throttled while
+ * dragging and committed once more on pointer release.
  */
 export const ColorWheel: React.FC<ColorWheelProps> = ({
   xy,
@@ -66,44 +60,18 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
   const trailing = useRef<ReturnType<typeof setTimeout> | null>(null);
   // The xy we last sent. The picked color is clamped into the light's gamut, so
   // an edge pick resolves to a less-saturated reachable color whose reflection
-  // would land the pin back inside the rim. We keep the pin where the user put
+  // would pull the pin back inside the rim. We keep the pin where the user put
   // it by ignoring inbound xy that is (within rounding) the value we just sent.
   const lastEmitted = useRef<[number, number] | null>(null);
 
   // Local pin position (0–1 within the wheel), so dragging feels instant.
   const [pin, setPin] = useState<{ x: number; y: number }>({ x: 0.5, y: 0.5 });
 
-  // Paint the wheel; repaint when the gamut changes so it tracks the light.
+  // Paint the wheel once: hue from angle, saturation from radius, value = 1.
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    const image = ctx.createImageData(CANVAS_SIZE, CANVAS_SIZE);
-    const data = image.data;
-    for (let y = 0; y < CANVAS_SIZE; y++) {
-      for (let x = 0; x < CANVAS_SIZE; x++) {
-        const dx = x - RADIUS;
-        const dy = y - RADIUS;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        const idx = (y * CANVAS_SIZE + x) * 4;
-        if (dist > RADIUS) {
-          data[idx + 3] = 0;
-          continue;
-        }
-        const hue = hueFromVector(dx, dy);
-        const saturation = Math.min(dist / RADIUS, 1);
-        const { r, g, b } = wheelColor(hue, saturation, gamut);
-        data[idx] = r;
-        data[idx + 1] = g;
-        data[idx + 2] = b;
-        // Soft 1px antialiased edge.
-        data[idx + 3] =
-          dist > RADIUS - 1 ? Math.round((RADIUS - dist) * 255) : 255;
-      }
-    }
-    ctx.putImageData(image, 0, 0);
-  }, [gamut]);
+    const ctx = canvasRef.current?.getContext("2d");
+    if (ctx) paintColorWheel(ctx);
+  }, []);
 
   // Reflect the light's current color onto the pin (when not dragging) — unless
   // this xy is the echo of our own pick, in which case the pin already sits
@@ -118,24 +86,23 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
     ) {
       return;
     }
-    const { r, g, b } = xyBriToRgb(xy[0], xy[1], 1);
-    const [h, sat] = rgbToHsv(r, g, b);
-    const angle = angleFromHue(h);
-    setPin({
-      x: 0.5 + (Math.cos(angle) * sat) / 2,
-      y: 0.5 + (Math.sin(angle) * sat) / 2,
-    });
+    setPin(xyToPin(xy));
   }, [xy]);
 
-  const emit = (nx: number, ny: number, force: boolean) => {
-    const dx = nx - 0.5;
-    const dy = ny - 0.5;
-    const hue = hueFromVector(dx, dy);
-    const saturation = Math.min(Math.sqrt(dx * dx + dy * dy) * 2, 1);
-    const { r, g, b } = hsvToRgb(hue, saturation, 1);
-    const next = rgbToXy(r, g, b, gamut);
-    lastEmitted.current = next;
+  useEffect(
+    () => () => {
+      if (trailing.current) clearTimeout(trailing.current);
+    },
+    [],
+  );
 
+  const emit = (px: number, py: number, force: boolean) => {
+    const [hue, saturation] = pinToHueSaturation(px, py);
+    const rgb = hsvToRgb(hue, saturation, 1);
+    const next = rgbToXy(rgb.r, rgb.g, rgb.b, gamut);
+    // The vivid color the thumb shows for this pin, before gamut clamping.
+    const vividHex = rgbToHex(rgb);
+    lastEmitted.current = next;
     const now = Date.now();
     if (trailing.current) {
       clearTimeout(trailing.current);
@@ -143,11 +110,11 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
     }
     if (force || now - lastEmit.current >= THROTTLE_MS) {
       lastEmit.current = now;
-      onPick(next);
+      onPick(next, vividHex);
     } else {
       trailing.current = setTimeout(() => {
         lastEmit.current = Date.now();
-        onPick(next);
+        onPick(next, vividHex);
       }, THROTTLE_MS);
     }
   };
@@ -157,7 +124,6 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
     if (!rect) return null;
     let nx = (clientX + dragOffset.current.x - rect.left) / rect.width;
     let ny = (clientY + dragOffset.current.y - rect.top) / rect.height;
-    // Clamp to the circle.
     const dx = nx - 0.5;
     const dy = ny - 0.5;
     const dist = Math.sqrt(dx * dx + dy * dy);
@@ -175,66 +141,58 @@ export const ColorWheel: React.FC<ColorWheelProps> = ({
     emit(pos.x, pos.y, force);
   };
 
-  useEffect(
-    () => () => {
-      if (trailing.current) clearTimeout(trailing.current);
-    },
-    [],
-  );
-
   const pinColor = (() => {
-    const dx = pin.x - 0.5;
-    const dy = pin.y - 0.5;
-    const hue = hueFromVector(dx, dy);
-    const saturation = Math.min(Math.sqrt(dx * dx + dy * dy) * 2, 1);
-    return rgbToCss(wheelColor(hue, saturation, gamut));
+    const [hue, saturation] = pinToHueSaturation(pin.x, pin.y);
+    return rgbToCss(hsvToRgb(hue, saturation, 1));
   })();
 
   return (
-    <div
-      ref={containerRef}
-      className="relative aspect-square w-full cursor-pointer touch-none rounded-full"
-      onPointerDown={(e) => {
-        dragging.current = true;
-        (e.target as HTMLElement).setPointerCapture(e.pointerId);
-        const rect = containerRef.current?.getBoundingClientRect();
-        if (rect) {
-          const thumbX = rect.left + pin.x * rect.width;
-          const thumbY = rect.top + pin.y * rect.height;
-          const grabbed =
-            Math.hypot(e.clientX - thumbX, e.clientY - thumbY) <=
-            THUMB_HIT_RADIUS;
-          dragOffset.current = grabbed
-            ? { x: thumbX - e.clientX, y: thumbY - e.clientY }
-            : { x: 0, y: 0 };
-        }
-        handlePointer(e.clientX, e.clientY, false);
-      }}
-      onPointerMove={(e) => {
-        if (!dragging.current) return;
-        handlePointer(e.clientX, e.clientY, false);
-      }}
-      onPointerUp={(e) => {
-        if (!dragging.current) return;
-        dragging.current = false;
-        handlePointer(e.clientX, e.clientY, true);
-      }}
-    >
-      <canvas
-        ref={canvasRef}
-        width={CANVAS_SIZE}
-        height={CANVAS_SIZE}
-        className="size-full rounded-full"
-      />
-      <span
-        aria-hidden="true"
-        className="absolute z-10 size-8 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full border-2 border-white shadow-md ring-1 ring-black/20 transition-[width,height] hover:size-9.5 active:size-9"
-        style={{
-          left: `${pin.x * 100}%`,
-          top: `${pin.y * 100}%`,
-          background: pinColor,
+    <div className="flex w-full flex-col gap-3">
+      <div
+        ref={containerRef}
+        className="relative aspect-square w-full cursor-pointer touch-none rounded-full"
+        onPointerDown={(e) => {
+          dragging.current = true;
+          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+          const rect = containerRef.current?.getBoundingClientRect();
+          if (rect) {
+            const thumbX = rect.left + pin.x * rect.width;
+            const thumbY = rect.top + pin.y * rect.height;
+            const grabbed =
+              Math.hypot(e.clientX - thumbX, e.clientY - thumbY) <=
+              THUMB_HIT_RADIUS;
+            dragOffset.current = grabbed
+              ? { x: thumbX - e.clientX, y: thumbY - e.clientY }
+              : { x: 0, y: 0 };
+          }
+          handlePointer(e.clientX, e.clientY, false);
         }}
-      />
+        onPointerMove={(e) => {
+          if (!dragging.current) return;
+          handlePointer(e.clientX, e.clientY, false);
+        }}
+        onPointerUp={(e) => {
+          if (!dragging.current) return;
+          dragging.current = false;
+          handlePointer(e.clientX, e.clientY, true);
+        }}
+      >
+        <canvas
+          ref={canvasRef}
+          width={WHEEL_CANVAS_SIZE}
+          height={WHEEL_CANVAS_SIZE}
+          className="size-full rounded-full"
+        />
+        <span
+          aria-hidden="true"
+          className="absolute z-10 size-8 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full border-2 border-white shadow-md ring-1 ring-black/20 transition-[width,height] hover:size-9.5 active:size-9"
+          style={{
+            left: `${pin.x * 100}%`,
+            top: `${pin.y * 100}%`,
+            background: pinColor,
+          }}
+        />
+      </div>
     </div>
   );
 };

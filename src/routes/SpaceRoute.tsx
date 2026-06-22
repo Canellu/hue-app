@@ -24,6 +24,9 @@ export const SpaceRoute: React.FC = () => {
     setSelectedLightId,
     setSelectedSceneId,
     setInspectorPaneOpen,
+    toggleLightInspector,
+    toggleSceneInspector,
+    toggleGroupInspector,
     setRoomZoneState,
     setLightState,
     createGalleryScene,
@@ -43,6 +46,9 @@ export const SpaceRoute: React.FC = () => {
       setSelectedLightId: state.setSelectedLightId,
       setSelectedSceneId: state.setSelectedSceneId,
       setInspectorPaneOpen: state.setInspectorPaneOpen,
+      toggleLightInspector: state.toggleLightInspector,
+      toggleSceneInspector: state.toggleSceneInspector,
+      toggleGroupInspector: state.toggleGroupInspector,
       setRoomZoneState: state.setRoomZoneState,
       setLightState: state.setLightState,
       createGalleryScene: state.createGalleryScene,
@@ -148,18 +154,13 @@ export const SpaceRoute: React.FC = () => {
       onLightBrightness={(light, pct, phase) =>
         setLightState(light, pct > 0, pct, phase)
       }
-      onSelectLight={(id) => {
-        setSelectedLightId(id);
-        setInspectorPaneOpen(true);
-      }}
+      onOpenGroup={(group) => toggleGroupInspector(group.id)}
+      onSelectLight={(id) => toggleLightInspector(id)}
       onSceneApply={(scene) => {
         setSelectedSceneId(scene.id);
         void activateScene(scene, "apply");
       }}
-      onSceneInspect={(scene) => {
-        setSelectedSceneId(scene.id);
-        setInspectorPaneOpen(true);
-      }}
+      onSceneInspect={(scene) => toggleSceneInspector(scene.id)}
       onSceneTogglePlay={(scene) => void activateScene(scene, "dynamic")}
       onDynamicSpeedLive={(scene, step) => setDynamicSpeedLive(scene, step)}
       onGallerySceneCreate={(preset) => createGalleryScene(roomZone, preset)}

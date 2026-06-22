@@ -12,13 +12,16 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Hue Desktop",
         "width": 1200,
         "height": 1200,
         "minWidth": 200,
         "minHeight": 800,
         "decorations": false,
-        "resizable": true
+        "resizable": true,
+        "center": true,
+        "visible": false
       }
     ],
     "security": {

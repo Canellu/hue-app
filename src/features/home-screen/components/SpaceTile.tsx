@@ -5,8 +5,8 @@ import { roomZoneTileColor } from "@/features/space-screen/utils/color-state";
 import {
   activeTileTheme,
   TILE_BRIGHTNESS_SLIDER_CLASS,
-  TILE_HOVER_LIFT_CLASS,
   TILE_INTERACTION_TRANSITION_CLASS,
+  TILE_POWER_SWITCH_CLASS,
 } from "@/lib/tile-theme";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { cn } from "@/lib/utils";
@@ -66,20 +66,22 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
             }
       }
       className={cn(
-        "justify-center gap-6 bg-tile",
+        "justify-center gap-6 border border-tile-border bg-tile-off",
         TILE_INTERACTION_TRANSITION_CLASS,
         !editing && "cursor-pointer",
-        !editing && TILE_HOVER_LIFT_CLASS,
+        tile.active && "ring-transparent",
       )}
       style={
         {
           "--tile-ease": `${UI_EASE_MS.tileBackground}ms`,
           ...(tile.active && tile.background
-            ? activeTileTheme(
-                tile.background,
-                tile.glow ?? tile.background,
-                pct,
-              )
+            ? {
+                ...activeTileTheme(
+                  tile.background,
+                  tile.glow ?? tile.background,
+                  pct,
+                ),
+              }
             : null),
         } as React.CSSProperties
       }
@@ -99,7 +101,7 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
         <div onClick={(e) => e.stopPropagation()}>
           <Switch
             size="xl"
-            className="dark:data-checked:bg-foreground/35 dark:data-unchecked:bg-input dark:**:data-[slot=switch-thumb]:data-unchecked:bg-background"
+            className={TILE_POWER_SWITCH_CLASS}
             checked={roomZone.anyOn}
             disabled={controlsDisabled}
             aria-label={`Toggle ${roomZone.name}`}
@@ -114,7 +116,10 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
           min={1}
           disabled={controlsDisabled}
           ariaLabel={`${roomZone.name} brightness`}
-          className={TILE_BRIGHTNESS_SLIDER_CLASS}
+          className={cn(
+            TILE_BRIGHTNESS_SLIDER_CLASS,
+            !roomZone.anyOn && "tile-brightness-slider-off",
+          )}
           size="default"
           isGroup
           animateKey={hueEventRevision}

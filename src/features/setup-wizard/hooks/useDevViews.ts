@@ -14,8 +14,16 @@ const appDevViewOptions: { id: AppDevViewId; label: string }[] = [
   { id: "home-preview", label: "Ready app" },
 ];
 
-// Toolbar groups: the app-level preview states plus every wizard dev state.
+/** Dev-only id for the component gallery / living style guide. */
+export const COMPONENT_GALLERY_VIEW_ID = "component-gallery";
+
+// Toolbar groups: the component gallery, the app-level preview states, then
+// every wizard dev state. The gallery sits in its own group above "App".
 export const devViewGroups = [
+  {
+    label: "Design",
+    options: [{ id: COMPONENT_GALLERY_VIEW_ID, label: "Components" }],
+  },
   { label: "App", options: appDevViewOptions },
   {
     label: "Wizard",

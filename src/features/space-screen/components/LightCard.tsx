@@ -5,8 +5,8 @@ import { PacedSlider } from "@/components/PacedSlider";
 import {
   activeTileTheme,
   TILE_BRIGHTNESS_SLIDER_CLASS,
-  TILE_HOVER_LIFT_CLASS,
   TILE_INTERACTION_TRANSITION_CLASS,
+  TILE_POWER_SWITCH_CLASS,
 } from "@/lib/tile-theme";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { lightColorHex } from "@/features/space-screen/utils/color-state";
@@ -58,9 +58,9 @@ export const LightCard: React.FC<LightCardProps> = ({
         }
       }}
       className={cn(
-        "cursor-pointer justify-center gap-6 bg-tile outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "cursor-pointer justify-center gap-6 border border-tile-border bg-tile-off outline-none focus-visible:ring-2 focus-visible:ring-ring",
         TILE_INTERACTION_TRANSITION_CLASS,
-        TILE_HOVER_LIFT_CLASS,
+        active && "ring-transparent",
         unreachable && "opacity-50",
       )}
       style={
@@ -68,7 +68,11 @@ export const LightCard: React.FC<LightCardProps> = ({
           "--tile-ease": `${UI_EASE_MS.tileBackground}ms`,
           // A single light is always one solid color, so it doubles as the
           // contrast seed. The lit card also dims with the bulb's brightness.
-          ...(active && color ? activeTileTheme(color, color, pct) : null),
+          ...(active && color
+            ? {
+                ...activeTileTheme(color, color, pct),
+              }
+            : null),
         } as React.CSSProperties
       }
     >
@@ -89,7 +93,7 @@ export const LightCard: React.FC<LightCardProps> = ({
         <div onClick={(e) => e.stopPropagation()}>
           <Switch
             size="xl"
-            className="dark:data-checked:bg-foreground/35 dark:data-unchecked:bg-input dark:**:data-[slot=switch-thumb]:data-unchecked:bg-background"
+            className={TILE_POWER_SWITCH_CLASS}
             checked={light.isOn}
             disabled={unreachable}
             aria-label={`Toggle ${light.name}`}
@@ -104,7 +108,10 @@ export const LightCard: React.FC<LightCardProps> = ({
           min={1}
           disabled={unreachable}
           ariaLabel={`${light.name} brightness`}
-          className={TILE_BRIGHTNESS_SLIDER_CLASS}
+          className={cn(
+            TILE_BRIGHTNESS_SLIDER_CLASS,
+            !light.isOn && "tile-brightness-slider-off",
+          )}
           size="default"
           isGroup={false}
           animateKey={hueEventRevision}

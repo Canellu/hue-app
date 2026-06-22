@@ -216,7 +216,9 @@ export const LightPane: React.FC<LightPaneProps> = ({
               <ColorWheel
                 xy={light.xy}
                 gamut={light.gamut}
-                onPick={(xy) => onLightColor(light, { xy })}
+                onPick={(xy, vividHex) =>
+                  onLightColor(light, { xy, vividHex })
+                }
               />
             </TabsContent>
           )}
@@ -527,7 +529,7 @@ const EditPane: React.FC<{
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Choose function" />
                 </SelectTrigger>
-                <SelectContent alignItemWithTrigger={false}>
+                <SelectContent>
                   {FUNCTION_OPTIONS.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
@@ -554,7 +556,7 @@ const EditPane: React.FC<{
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="No room" />
                 </SelectTrigger>
-                <SelectContent alignItemWithTrigger={false}>
+                <SelectContent>
                   <SelectItem value={NONE}>No room</SelectItem>
                   {rooms.map((space) => (
                     <SelectItem key={space.id} value={space.id}>
@@ -589,7 +591,7 @@ const EditPane: React.FC<{
                     }
                   </SelectValue>
                 </SelectTrigger>
-                <SelectContent alignItemWithTrigger={false}>
+                <SelectContent>
                   {zones.map((space) => (
                     <SelectItem key={space.id} value={space.id}>
                       {space.name}

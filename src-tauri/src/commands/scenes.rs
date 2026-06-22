@@ -46,6 +46,7 @@ pub async fn start_dynamic_scene(
     app: AppHandle,
     scene_id: String,
     transition_ms: Option<u32>,
+    brightness: Option<f64>,
 ) -> Result<(), String> {
     let client = HueClient::new()?;
     let stored_bridge = client.get_stored_bridge(&app)?;
@@ -56,6 +57,7 @@ pub async fn start_dynamic_scene(
             &application_key,
             &scene_id,
             transition_ms,
+            brightness,
         )
         .await
 }

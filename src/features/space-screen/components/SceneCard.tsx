@@ -125,7 +125,7 @@ const SceneCardVisual: React.FC<{
         }}
         onKeyDown={(event) => event.stopPropagation()}
         className={cn(
-          "flex aspect-square shrink-0 items-center justify-center rounded-full shadow-sm ring-1 ring-foreground/15 backdrop-blur-sm outline-none transition-transform hover:scale-105 focus-visible:ring-2 focus-visible:ring-ring",
+          "flex aspect-square shrink-0 items-center justify-center rounded-full shadow-sm ring-1 ring-foreground/15 backdrop-blur-sm outline-none focus-visible:ring-2 focus-visible:ring-ring",
           showBubble
             ? "text-white"
             : active || bubble
@@ -133,7 +133,9 @@ const SceneCardVisual: React.FC<{
               : "bg-foreground/15 text-foreground",
           size,
         )}
-        style={showBubble ? { background: bubble } : undefined}
+        style={
+          showBubble ? { background: bubble } : undefined
+        }
       >
         <Icon
           className={cn(

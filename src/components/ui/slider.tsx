@@ -2,6 +2,11 @@ import { Slider as SliderPrimitive } from "@base-ui/react/slider";
 
 import { cn } from "@/lib/utils";
 
+type SliderStyle = React.CSSProperties & {
+  "--slider-thumb-size"?: string;
+  "--slider-track-size"?: string;
+};
+
 function Slider({
   className,
   defaultValue,
@@ -9,6 +14,7 @@ function Slider({
   min = 0,
   max = 100,
   size = "default",
+  style,
   ...props
 }: SliderPrimitive.Root.Props & {
   size?: "default" | "lg" | "xl";
@@ -22,7 +28,7 @@ function Slider({
   return (
     <SliderPrimitive.Root
       className={cn(
-        "group/slider data-horizontal:w-full data-vertical:h-full",
+        "group/slider data-horizontal:w-full data-vertical:h-full [--slider-default-range-background:color-mix(in_oklch,var(--foreground)_35%,transparent)] [--slider-default-track-background:var(--muted)] dark:[--slider-default-range-background:color-mix(in_oklch,var(--foreground)_25%,transparent)]",
         className,
       )}
       data-slot="slider"
@@ -32,23 +38,41 @@ function Slider({
       min={min}
       max={max}
       thumbAlignment="edge"
+      style={
+        {
+          "--slider-thumb-size":
+            size === "xl" ? "1.5rem" : size === "lg" ? "1.25rem" : "1rem",
+          "--slider-track-size":
+            size === "xl" ? "1.25rem" : size === "lg" ? "1rem" : "0.75rem",
+          ...style,
+        } as SliderStyle
+      }
       {...props}
     >
       <SliderPrimitive.Control className="relative flex w-full touch-none items-center select-none data-disabled:opacity-50 data-vertical:h-full data-vertical:min-h-40 data-vertical:w-auto data-vertical:flex-col">
         <SliderPrimitive.Track
           data-slot="slider-track"
-          className="relative grow overflow-hidden rounded-4xl bg-muted select-none data-horizontal:h-3 data-horizontal:w-full data-vertical:h-full data-vertical:w-3 group-data-[size=lg]/slider:data-horizontal:h-4 group-data-[size=lg]/slider:data-vertical:w-4 group-data-[size=xl]/slider:data-horizontal:h-5 group-data-[size=xl]/slider:data-vertical:w-5"
+          className="relative grow overflow-hidden rounded-4xl select-none data-horizontal:h-[var(--slider-track-size)] data-horizontal:w-full data-vertical:h-full data-vertical:w-[var(--slider-track-size)]"
+          style={{
+            background:
+              "var(--slider-track-background,var(--slider-default-track-background))",
+          }}
         >
           <SliderPrimitive.Indicator
             data-slot="slider-range"
-            className="bg-foreground/35 transition-[inset-inline-start,inset-inline-end,left,right,width,transform,translate] duration-[var(--paced-ease,0ms)] ease-out select-none data-horizontal:h-full data-vertical:w-full dark:bg-foreground/25"
+            className="transition-[inset-inline-start,inset-inline-end,left,right,width,transform,translate] duration-[var(--paced-ease,0ms)] ease-out select-none data-horizontal:h-full data-vertical:w-full"
+            style={{
+              background:
+                "var(--slider-range-background,var(--slider-default-range-background))",
+              backgroundSize: "var(--slider-range-background-size,auto)",
+            }}
           />
         </SliderPrimitive.Track>
         {Array.from({ length: _values.length }, (_, index) => (
           <SliderPrimitive.Thumb
             data-slot="slider-thumb"
             key={index}
-            className="block size-4 shrink-0 rounded-4xl border border-foreground/30 bg-background shadow-sm ring-ring/50 transition-[color,background-color,border-color,inset-inline-start,inset-inline-end,left,right,width,transform,translate] duration-[var(--paced-ease,0ms)] ease-out select-none hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50 dark:border-foreground/25 group-data-[size=lg]/slider:size-5 group-data-[size=xl]/slider:size-6"
+            className="block size-[var(--slider-thumb-size)] shrink-0 rounded-4xl border border-foreground/30 bg-background shadow-sm ring-ring/50 transition-[color,background-color,border-color,inset-inline-start,inset-inline-end,left,right,width,transform,translate] duration-[var(--paced-ease,0ms)] ease-out select-none hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50 dark:border-foreground/25"
           />
         ))}
       </SliderPrimitive.Control>

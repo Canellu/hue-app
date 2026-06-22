@@ -25,45 +25,68 @@ export const LIGHT_THEME = {
 // a wide thumb, a translucent track that lets the card's color show through,
 // and a white fill that fades from soft to bright across the filled portion.
 export const TILE_BRIGHTNESS_SLIDER_CLASS =
-  "w-full **:data-[slot=slider-thumb]:size-5 **:data-[slot=slider-track]:bg-foreground/20 **:data-[slot=slider-range]:bg-transparent **:data-[slot=slider-range]:bg-linear-to-r **:data-[slot=slider-range]:from-white/35 **:data-[slot=slider-range]:to-white/75";
+  "tile-brightness-slider w-full [--paced-slider-thumb-size-override:var(--tile-slider-thumb-size,1.25rem)] [--paced-slider-track-size-override:var(--tile-slider-track-size,0.75rem)]";
 
-// Each tile runs two transitions on deliberately different clocks:
-//   • background + text color ease over the bridge fade (`--tile-ease`) so a lit
-//     tile re-tints in step with the bulb it mirrors.
-//   • the hover lift (transform/translate/scale) is a fixed, snappy 150ms so the
-//     tile springs up responsively under the cursor instead of crawling over the
-//     much longer bridge window.
-// These must share one `transition` declaration (two `transition-*` utilities on
-// the same element would clobber each other's `transition-property`), so the
-// per-property durations are spelled out inline.
+export const TILE_POWER_SWITCH_CLASS =
+  "data-unchecked:bg-foreground/10 dark:data-checked:bg-foreground/35 dark:data-unchecked:bg-foreground/10 dark:**:data-[slot=switch-thumb]:data-unchecked:bg-background";
+
+// Background + text color ease over the bridge fade (`--tile-ease`) so a lit
+// tile re-tints in step with the bulb it mirrors.
 export const TILE_INTERACTION_TRANSITION_CLASS =
-  "ease-out [transition-property:background,color,transform,translate,scale] [transition-duration:var(--tile-ease),var(--tile-ease),150ms,150ms,150ms]";
+  "ease-out [transition-property:background,color] [transition-duration:var(--tile-ease),var(--tile-ease)]";
 
-export const TILE_HOVER_LIFT_CLASS =
-  "hover:-translate-y-0.5 hover:scale-[1.01]";
-
-// How dark the bottom of a tile gets. The shade is a dark gradient layered over
-// the lit color, scaled by how far the tile is from full brightness. It ramps
-// between a floor and a ceiling so a dim light reads as visibly darker while a
-// full-brightness light keeps a faint base shade rather than going flat.
-const MIN_SHADE_ALPHA = 0.12;
-const MAX_SHADE_ALPHA = 0.4;
+// Hue's mobile cards are taller, so their bottom shade has more vertical room.
+// Our wider desktop cards need brightness to darken faster and climb higher up
+// the surface, otherwise a 1% card still reads almost full-bright.
+const MIN_SHADE_ALPHA = 0.3;
+const MAX_SHADE_ALPHA = 0.64;
+const SHADE_CURVE_EXPONENT = 0.8;
+const SHADE_MID_RATIO = 0.64;
+const SHADE_MID_STOP_MIN = 38;
+const SHADE_MID_STOP_MAX = 62;
+const SHADE_CLEAR_STOP_MIN = 74;
+const SHADE_CLEAR_STOP_MAX = 98;
+const SHADE_STOP_CURVE_EXPONENT = 0.9;
+const HIGHLIGHT_MIN_ALPHA = 0.005;
+const HIGHLIGHT_MAX_ALPHA = 0.105;
+const HIGHLIGHT_CURVE_EXPONENT = 1.15;
+const HIGHLIGHT_PEAK_END = 16;
+const HIGHLIGHT_FADE_END = 34;
 
 /**
- * Layers a bottom-up dark gradient over `background` proportional to how dim the
- * tile is. Even at 100% brightness a faint shade (`MIN_SHADE_ALPHA`) remains so
- * the tile keeps its grounded base; the lower the brightness the stronger the
- * dark band rising from the tile's base, up to `MAX_SHADE_ALPHA`. `background`
- * may be a solid color or a gradient — the shade is just an extra top layer, so
- * either composites correctly.
+ * Layers a Hue-style lit-tile treatment over `background`: a top highlight plus
+ * a brightness-driven dark gradient. The lower the brightness, the more the
+ * dark layer climbs toward the top; even at 100% brightness the bottom still
+ * stays slightly darker so the card never goes flat.
  */
 function brightnessShade(background: string, brightness: number): string {
-  const intensity = 1 - Math.min(100, Math.max(0, brightness)) / 100;
+  const clampedBrightness = Math.min(100, Math.max(0, brightness));
+  const intensity = 1 - clampedBrightness / 100;
+  const weightedIntensity = Math.pow(intensity, SHADE_CURVE_EXPONENT);
+  const shadeReach = Math.pow(intensity, SHADE_STOP_CURVE_EXPONENT);
+  const brightnessLift = Math.pow(
+    clampedBrightness / 100,
+    HIGHLIGHT_CURVE_EXPONENT,
+  );
   const alpha = +(
     MIN_SHADE_ALPHA +
-    (MAX_SHADE_ALPHA - MIN_SHADE_ALPHA) * intensity
+    (MAX_SHADE_ALPHA - MIN_SHADE_ALPHA) * weightedIntensity
   ).toFixed(3);
-  return `linear-gradient(to top, rgba(0,0,0,${alpha}) 0%, rgba(0,0,0,0) 92%), ${background}`;
+  const midAlpha = +(alpha * SHADE_MID_RATIO).toFixed(3);
+  const midStop = +(
+    SHADE_MID_STOP_MIN +
+    (SHADE_MID_STOP_MAX - SHADE_MID_STOP_MIN) * shadeReach
+  ).toFixed(1);
+  const clearStop = +(
+    SHADE_CLEAR_STOP_MIN +
+    (SHADE_CLEAR_STOP_MAX - SHADE_CLEAR_STOP_MIN) * shadeReach
+  ).toFixed(3);
+  const highlightAlpha = +(
+    HIGHLIGHT_MIN_ALPHA +
+    (HIGHLIGHT_MAX_ALPHA - HIGHLIGHT_MIN_ALPHA) * brightnessLift
+  ).toFixed(3);
+  const highlightMidAlpha = +(highlightAlpha * 0.7).toFixed(3);
+  return `linear-gradient(to bottom, rgb(255 255 255 / calc(${highlightAlpha} * var(--tile-highlight-strength))) 0%, rgb(255 255 255 / calc(${highlightMidAlpha} * var(--tile-highlight-strength))) ${HIGHLIGHT_PEAK_END}%, rgb(255 255 255 / 0) ${HIGHLIGHT_FADE_END}%), linear-gradient(to top, rgb(0 0 0 / calc(${alpha} * var(--tile-shade-strength))) 0%, rgb(0 0 0 / calc(${midAlpha} * var(--tile-shade-mid-strength))) ${midStop}%, rgb(0 0 0 / 0) ${clearStop}%, rgb(0 0 0 / 0) 100%), ${background}`;
 }
 
 /**
@@ -96,5 +119,12 @@ export function activeTileTheme(
     "--tile-tint": tint,
     "--foreground": "contrast-color(var(--tile-tint))",
     "--card-foreground": "contrast-color(var(--tile-tint))",
+    // A solid neutral edge that tracks the app theme: gray in light mode, a
+    // dark step in dark mode (`--tile-border-lit` is left out of `LIGHT_THEME`
+    // on purpose, so it inherits the real `:root`/`.dark` value rather than the
+    // pinned-light one). Must stay solid — a translucent border lets the
+    // saturated fill bleed through and reads as the fill's complement
+    // (simultaneous contrast), so a whitish edge looks green over orange.
+    "--tile-border": "var(--tile-border-lit)",
   } as React.CSSProperties;
 }

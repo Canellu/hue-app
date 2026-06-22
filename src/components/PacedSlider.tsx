@@ -57,6 +57,8 @@ const first = (v: number | readonly number[]): number =>
 /** Hue Bridge command budgets, in ms between writes (see perf doc). */
 const GROUP_LIVE_MS = 1000;
 const LIGHT_LIVE_MS = 200;
+const PACED_SLIDER_CLASS =
+  "[--paced-slider-fill-alpha-active:var(--paced-slider-fill-alpha,0.25)] [--slider-range-background:color-mix(in_oklch,var(--foreground)_calc(var(--paced-slider-fill-alpha-active)*100%),transparent)] [--slider-range-background-size:var(--paced-slider-track-width,100%)_100%] dark:[--paced-slider-fill-alpha-active:var(--paced-slider-fill-alpha-dark,0.2)]";
 
 /**
  * How long to keep trusting the value we just sent over inbound bridge echoes.
@@ -120,20 +122,24 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   // is switched on only after that initial paint.
   const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => setHasMounted(true), []);
-  // Measured control width, used only by the tick block below to place marks on
-  // the same edge-adjusted scale Base UI uses for the thumb, so ticks sit under
-  // the thumb instead of drifting outward near the ends.
+  // Measured control width, used by the fixed full-track fill gradient and by
+  // ticks to place marks on the same edge-adjusted scale Base UI uses.
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [trackWidth, setTrackWidth] = useState(0);
   useLayoutEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
-    const measure = () => setTrackWidth(el.clientWidth);
+    const measure = () => {
+      const track = el.querySelector<HTMLElement>('[data-slot="slider-track"]');
+      setTrackWidth(track?.clientWidth ?? el.clientWidth);
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
+    const track = el.querySelector<HTMLElement>('[data-slot="slider-track"]');
+    if (track) observer.observe(track);
     return () => observer.disconnect();
-  }, [showTicks]);
+  }, []);
   // Timestamp (ms) of the last bridge write; 0 means "frame is open, commit now".
   const lastCommitAt = useRef(0);
   // Latest dragged value, read by the trailing timer.
@@ -270,6 +276,19 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   // snap ahead of the fill: sync reduces to a single shared duration.
   const eased = hasMounted && externalEasing && !interacting;
   const paceMs = eased ? easeMs : 0;
+  const fillRatio =
+    max === min ? 0 : Math.min(1, Math.max(0, (local - min) / (max - min)));
+
+  const sliderStyle = {
+    ...style,
+    "--paced-ease": `${paceMs}ms`,
+    "--slider-thumb-size":
+      "var(--paced-slider-thumb-size-override,var(--paced-slider-thumb-size,1rem))",
+    "--slider-track-size":
+      "var(--paced-slider-track-size-override,var(--paced-slider-track-size,0.75rem))",
+    "--paced-slider-track-width":
+      trackWidth > 0 ? `${trackWidth}px` : undefined,
+  } as React.CSSProperties;
 
   const slider = (
     <Slider
@@ -279,9 +298,9 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
       step={step}
       disabled={disabled}
       aria-label={ariaLabel}
-      className={cn(showTicks ? "w-full" : className)}
+      className={cn(PACED_SLIDER_CLASS, showTicks ? "w-full" : className)}
       size={size}
-      style={{ ...style, "--paced-ease": `${paceMs}ms` } as React.CSSProperties}
+      style={sliderStyle}
       onValueChange={(v) => schedule(first(v))}
       onValueCommitted={(v) => commitNow(first(v))}
     />
@@ -293,7 +312,7 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   if (showTicks && step) {
     const count = Math.round((max - min) / step) + 1;
     if (count > 1 && count <= 64) {
-      const fill = (local - min) / (max - min);
+      const fill = fillRatio;
       // Base UI positions the thumb on an edge-adjusted scale: its centre travels
       // (trackWidth − thumbWidth), inset by half a thumb width at each end so the
       // thumb never overhangs the track. A linear value%→position mapping drifts
@@ -371,5 +390,9 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
     }
   }
 
-  return slider;
+  return (
+    <div ref={wrapperRef} className={cn("w-full", !showTicks && className)}>
+      {slider}
+    </div>
+  );
 };

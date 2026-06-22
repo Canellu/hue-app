@@ -47,10 +47,7 @@ export const WizardDevToolbar = ({
           }
         }}
       >
-        <SelectTrigger
-          aria-label="Dev view"
-          className="min-w-56 bg-background/80 shadow-sm backdrop-blur-md"
-        >
+        <SelectTrigger aria-label="Dev view">
           <SelectValue>{currentOption?.label ?? value}</SelectValue>
         </SelectTrigger>
         <SelectContent align="end">

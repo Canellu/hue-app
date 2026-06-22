@@ -6,10 +6,7 @@ import {
   HUE_SCENE_GALLERY_COUNT,
   HUE_SCENE_GALLERY_PREVIEWS,
 } from "@/features/space-screen/data/hueSceneGallery";
-import {
-  TILE_HOVER_LIFT_CLASS,
-  TILE_INTERACTION_TRANSITION_CLASS,
-} from "@/lib/tile-theme";
+import { TILE_INTERACTION_TRANSITION_CLASS } from "@/lib/tile-theme";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { cn } from "@/lib/utils";
 
@@ -30,7 +27,6 @@ export const SceneGalleryCard: React.FC<{
     className={cn(
       "h-40 w-36 shrink-0 cursor-pointer items-center justify-center gap-4 rounded-[1.75rem] border-2 border-border bg-background px-4 text-center shadow-none outline-none focus-visible:ring-2 focus-visible:ring-ring",
       TILE_INTERACTION_TRANSITION_CLASS,
-      TILE_HOVER_LIFT_CLASS,
     )}
     style={
       {

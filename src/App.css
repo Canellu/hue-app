@@ -25,6 +25,13 @@
   --color-input: var(--input);
   --color-border: var(--border);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-warn: var(--warn);
+  --color-warn-foreground: var(--warn-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -38,6 +45,8 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
   --color-tile: var(--tile);
+  --color-tile-off: var(--tile-off);
+  --color-tile-border: var(--tile-border);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
   --radius-sm: calc(var(--radius) * 0.6);
@@ -50,13 +59,33 @@
 }
 
 :root {
-  --background: oklch(0.98 0 0);
+  /* Surface elevation ladder: each step up the stack (background → card → tile
+     → popover) is lighter in both themes, so elevation reads consistently. In
+     light mode card sits just under the white ceiling so it reads as its own
+     surface against the background; tile/popover hit white and lean on shadow. */
+  --background: oklch(0.965 0 0);
   --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
+  --card: oklch(0.99 0 0);
   --card-foreground: oklch(0.145 0 0);
-  /* Content tiles (lights/scenes/spaces). Pure white against the slightly tinted
-     background so cards read as raised without a border. */
-  --tile: oklch(1 0 0);
+  /* Content tiles (lights/scenes/spaces). */
+  --tile: oklch(0.99 0 0);
+  /* An *off* light/space tile. Unlike the bright `--tile` (which leans on shadow
+     at the white ceiling), this sits just below the background so a powered-off
+     tile reads as a dim, recessed surface instead of a lit white card. */
+  --tile-off: oklch(0.925 0 0);
+  /* Edge for light/space tiles. A solid step below the `--tile-off` surface
+     (0.925 − 0.05), matching the lightness delta dark mode uses between its
+     tile and border so the edge reads with the same strength in both themes. */
+  --tile-border: oklch(0.875 0 0);
+  /* Edge for a *lit* (color-tinted) tile. A solid neutral can't be translucent
+     here — alpha would let the saturated fill bleed through and read as the
+     fill's complement. In light mode it matches the off-tile edge above. */
+  --tile-border-lit: oklch(0.875 0 0);
+  /* Lit-tile overlay tuning. Light mode stays softer overall, but low
+     brightness still climbs high enough to read on wide desktop cards. */
+  --tile-shade-strength: 0.92;
+  --tile-shade-mid-strength: 0.82;
+  --tile-highlight-strength: 0.9;
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
@@ -67,7 +96,31 @@
   --muted-foreground: oklch(0.556 0 0);
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
+  /* Status feedback family, tuned as a set. warn is a deep amber so it carries
+     white fg like the rest of the family. The *-soft tokens are the hue source
+     for the low-emphasis "light" surfaces (wash bg + icon + same-hue text); they
+     stay at the pre-AA-bump values the light-surface mixes were verified against,
+     so darkening the solid fills for contrast doesn't drift the light variants. */
+  --destructive: oklch(0.58 0.19 27.54);
+  --destructive-foreground: oklch(0.985 0 0);
+  --destructive-soft: oklch(0.577 0.245 27.325);
+  --destructive-surface: oklch(0.85 0.05 15.3);
+  --destructive-text: oklch(0.39 0.16 28.52);
+  --info: oklch(0.55 0.13 253.75);
+  --info-foreground: oklch(0.985 0 0);
+  --info-soft: oklch(0.585 0.16 254);
+  --info-surface: oklch(0.88 0.03 249.71);
+  --info-text: oklch(0.4 0.11 254.33);
+  --warn: oklch(0.56 0.13 62.81);
+  --warn-foreground: oklch(0.985 0 0);
+  --warn-soft: oklch(0.72 0.16 75);
+  --warn-surface: oklch(0.91 0.04 83.87);
+  --warn-text: oklch(0.41 0.09 73.24);
+  --success: oklch(0.54 0.12 149.89);
+  --success-foreground: oklch(0.985 0 0);
+  --success-soft: oklch(0.6 0.15 150);
+  --success-surface: oklch(0.89 0.03 157.12);
+  --success-text: oklch(0.39 0.1 150.05);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -77,25 +130,34 @@
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
 }
 
 .dark {
-  --background: oklch(0.24 0 0);
+  /* Surface elevation ladder (monotonic, lighter = higher): background 0.19 →
+     card 0.25 → tile 0.265 → popover 0.275. No more card sinking below the
+     background the way the old palette did. */
+  --background: oklch(0.22 0 0);
   --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
+  --card: oklch(0.26 0 0);
   --card-foreground: oklch(0.985 0 0);
-  /* Slightly lighter than the background in dark mode (the inverse of light
-     mode), so tiles lift off the surface. `--card` stays reserved for chrome. */
-  --tile: oklch(0.295 0 0);
-  --popover: oklch(0.205 0 0);
+  /* Content tiles (lights/scenes/spaces). */
+  --tile: oklch(0.26 0 0);
+  /* Dark mode already reads an off tile correctly (it sits above the darker
+     background), so the off surface matches the base tile here. */
+  --tile-off: oklch(0.26 0 0);
+  /* Subtler than the global `--border` (white/10%) so the tile edge is just a
+     faint lift off the background rather than a visible outline. */
+  --tile-border: oklch(1 0 0 / 5%);
+  /* Lit-tile edge, solid so the colored fill can't bleed through. A step above
+     the 0.26 tile (matching the off-tile's effective white/5% lift) so a lit
+     tile in dark mode gets a dark edge instead of the light-mode gray. */
+  --tile-border-lit: oklch(0.31 0 0);
+  /* Dark mode carries a stronger shade so bright tiles do not flare against the
+     app chrome; the top highlight is toned down so low brightness stays dim. */
+  --tile-shade-strength: 1.08;
+  --tile-shade-mid-strength: 1;
+  --tile-highlight-strength: 0.48;
+  --popover: oklch(0.275 0 0);
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
@@ -105,7 +167,28 @@
   --muted-foreground: oklch(0.708 0 0);
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
+  /* Status family pulled back from the old glaring destructive (was 0.704).
+     *-soft = pre-AA-bump hue source for the light surfaces (see :root note). */
+  --destructive: oklch(0.57 0.16 27.04);
+  --destructive-foreground: oklch(0.985 0 0);
+  --destructive-soft: oklch(0.55 0.2 27.325);
+  --destructive-surface: oklch(0.28 0.05 20.85);
+  --destructive-text: oklch(0.81 0.09 27.17);
+  --info: oklch(0.56 0.12 253.97);
+  --info-foreground: oklch(0.985 0 0);
+  --info-soft: oklch(0.58 0.14 254);
+  --info-surface: oklch(0.3 0.03 252.27);
+  --info-text: oklch(0.82 0.06 253.3);
+  --warn: oklch(0.56 0.12 69);
+  --warn-foreground: oklch(0.985 0 0);
+  --warn-soft: oklch(0.7 0.14 75);
+  --warn-surface: oklch(0.33 0.04 80.85);
+  --warn-text: oklch(0.86 0.06 74.76);
+  --success: oklch(0.54 0.1 150.22);
+  --success-foreground: oklch(0.985 0 0);
+  --success-soft: oklch(0.58 0.13 150);
+  --success-surface: oklch(0.3 0.03 154.02);
+  --success-text: oklch(0.83 0.05 150.22);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
@@ -114,14 +197,6 @@
   --chart-3: oklch(0.439 0 0);
   --chart-4: oklch(0.371 0 0);
   --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
 }
 
 @layer base {
@@ -143,6 +218,60 @@
   html {
     @apply font-sans;
   }
+}
+
+.tile-brightness-slider {
+  --tile-slider-track-alpha-effective: var(--tile-slider-track-alpha, 0.2);
+}
+
+.tile-brightness-slider-off {
+  --tile-slider-track-alpha-effective: calc(
+    var(--tile-slider-track-alpha, 0.2) * 0.5
+  );
+}
+
+.tile-brightness-slider [data-slot="slider-track"] {
+  background: transparent !important;
+}
+
+.tile-brightness-slider [data-slot="slider-range"] {
+  position: relative !important;
+  overflow: visible !important;
+  background: linear-gradient(
+    to right,
+    rgb(
+        255 255 255 /
+          calc(
+            var(--tile-slider-fill-start-alpha, 0.2) *
+              var(--tile-slider-alpha, 1)
+          )
+      )
+      var(--tile-slider-fill-start-stop, 0%),
+    rgb(
+        255 255 255 /
+          calc(
+            var(--tile-slider-fill-end-alpha, 0.58) *
+              var(--tile-slider-alpha, 1)
+          )
+      )
+      var(--tile-slider-fill-end-stop, 100%)
+  ) !important;
+  background-size: var(--paced-slider-track-width, 100%) 100% !important;
+}
+
+.tile-brightness-slider [data-slot="slider-range"]::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 100%;
+  width: 100vw;
+  border-radius: inherit;
+  background: var(--foreground);
+  opacity: var(--tile-slider-track-alpha-effective);
+  pointer-events: none;
+  transition-property: opacity, background-color;
+  transition-duration: var(--paced-ease, 0ms);
+  transition-timing-function: ease-out;
 }
 
 .text-shimmer {

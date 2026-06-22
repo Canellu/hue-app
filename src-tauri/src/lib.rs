@@ -8,6 +8,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(commands::events::EventStreamState::default())
         .invoke_handler(tauri::generate_handler![
             commands::discovery::discover_bridges,

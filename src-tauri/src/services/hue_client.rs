@@ -1645,7 +1645,14 @@ impl HueClient {
         scene_id: &str,
         transition_ms: Option<u32>,
     ) -> Result<(), String> {
-        self.recall_scene(ip, application_key, scene_id, "active", transition_ms)
+        self.recall_scene(
+            ip,
+            application_key,
+            scene_id,
+            "active",
+            transition_ms,
+            None,
+        )
             .await
     }
 
@@ -1655,6 +1662,7 @@ impl HueClient {
         application_key: &str,
         scene_id: &str,
         transition_ms: Option<u32>,
+        brightness: Option<f64>,
     ) -> Result<(), String> {
         self.recall_scene(
             ip,
@@ -1662,6 +1670,7 @@ impl HueClient {
             scene_id,
             "dynamic_palette",
             transition_ms,
+            brightness,
         )
         .await
     }
@@ -1673,7 +1682,14 @@ impl HueClient {
         scene_id: &str,
         transition_ms: Option<u32>,
     ) -> Result<(), String> {
-        self.recall_scene(ip, application_key, scene_id, "static", transition_ms)
+        self.recall_scene(
+            ip,
+            application_key,
+            scene_id,
+            "static",
+            transition_ms,
+            None,
+        )
             .await
     }
 
@@ -1684,15 +1700,16 @@ impl HueClient {
         scene_id: &str,
         action: &str,
         transition_ms: Option<u32>,
+        brightness: Option<f64>,
     ) -> Result<(), String> {
-        let body = scene_recall_body(action, transition_ms);
+        let body = scene_recall_body(action, transition_ms, brightness);
         match self
             .put_v2(ip, application_key, "scene", scene_id, body)
             .await
         {
             Ok(()) => Ok(()),
             Err(error) if transition_ms.is_some() => {
-                let fallback_body = json!({ "recall": { "action": action } });
+                let fallback_body = scene_recall_body(action, None, brightness);
                 self.put_v2(ip, application_key, "scene", scene_id, fallback_body)
                     .await
                     .map_err(|fallback_error| {
@@ -2774,11 +2791,21 @@ fn insert_v2_transition(body: &mut Map<String, Value>, transition_ms: Option<u32
     }
 }
 
-fn scene_recall_body(action: &str, transition_ms: Option<u32>) -> Value {
+fn scene_recall_body(
+    action: &str,
+    transition_ms: Option<u32>,
+    brightness: Option<f64>,
+) -> Value {
     let mut recall = Map::new();
     recall.insert("action".to_string(), json!(action));
     if let Some(duration) = transition_ms {
         recall.insert("duration".to_string(), json!(duration));
+    }
+    if let Some(value) = brightness.filter(|value| value.is_finite()) {
+        recall.insert(
+            "dimming".to_string(),
+            json!({ "brightness": value.clamp(1.0, 100.0) }),
+        );
     }
     let mut body = Map::new();
     body.insert("recall".to_string(), Value::Object(recall));

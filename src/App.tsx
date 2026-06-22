@@ -6,6 +6,8 @@ import { BridgeStatus } from "@/components/BridgeStatus";
 import Logo from "@/components/Logo";
 import { StatusScreen } from "@/components/StatusScreen";
 import { Button } from "@/components/ui/button";
+import { ComponentGallery } from "@/features/dev-gallery/ComponentGallery";
+import { COMPONENT_GALLERY_VIEW_ID } from "@/features/setup-wizard/hooks/useDevViews";
 import { RouterProvider } from "@tanstack/react-router";
 import { motion, useReducedMotion, type Variants } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -146,6 +148,10 @@ function App() {
 
   // Dev preview path: the wizard dev toolbar drives which mock view shows.
   const renderDevContent = (): RenderedAppContent => {
+    if (dev.viewId === COMPONENT_GALLERY_VIEW_ID) {
+      return { viewKey: "component-gallery", content: <ComponentGallery /> };
+    }
+
     if (dev.viewId === "home-preview") {
       return { viewKey: "home-preview", content: <HomeApp /> };
     }

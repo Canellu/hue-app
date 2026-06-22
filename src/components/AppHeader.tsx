@@ -11,12 +11,7 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import type { HomeGroupingMode } from "@/types/app-layout";
-import {
-  ArrowLeft,
-  Pencil,
-  Plus,
-  Settings as SettingsIcon,
-} from "lucide-react";
+import { ArrowLeft, Pencil, Plus, Settings } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 /** Short labels for the current grouping mode, shown on the layout control. */
@@ -50,11 +45,6 @@ interface AppHeaderProps {
   onSaveEditLayout: () => void;
   onCreateSection: () => void;
 }
-
-/** A short vertical rule separating clusters of header controls. */
-const Divider = () => (
-  <Separator orientation="vertical" className="mx-1 h-12" />
-);
 
 /**
  * Minimal global header with a fixed height so swapping its contents (back
@@ -133,7 +123,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               transition={crossfade}
             >
               <Button
-                variant="secondary"
+                variant="outline"
                 size="xl"
                 className="gap-1.5"
                 onClick={onCreateSection}
@@ -141,8 +131,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 <Plus size={20} />
                 Add New Section
               </Button>
-              <Divider />
-              <Button variant="ghost" size="xl" onClick={onCancelEditLayout}>
+              <Separator orientation="vertical" className="mx-4" />
+
+              <Button
+                variant="secondary"
+                size="xl"
+                onClick={onCancelEditLayout}
+              >
                 Cancel
               </Button>
               <Button size="xl" onClick={onSaveEditLayout}>
@@ -164,9 +159,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                     hand-built layout; the select switches modes either way. */}
                   {isCustomLayout && (
                     <Button
-                      variant="secondary"
+                      variant="ghost"
                       size="icon-xl"
-                      className="gap-2"
+                      className="rounded-2xl"
                       onClick={onEditLayout}
                     >
                       <Pencil size={18} />
@@ -178,17 +173,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                       onGroupingModeChange(value as HomeGroupingMode)
                     }
                   >
-                    <SelectTrigger aria-label="Change layout">
+                    <SelectTrigger size="xl" aria-label="Change layout">
                       <SelectValue>
                         {(value: HomeGroupingMode) =>
                           GROUPING_MODE_LABELS[value]
                         }
                       </SelectValue>
                     </SelectTrigger>
-                    <SelectContent
-                      alignItemWithTrigger={false}
-                      className="min-w-56"
-                    >
+                    <SelectContent className="min-w-56">
                       {/* Rooms/Zones only re-sort the auto-generated layout... */}
                       <SelectGroup>
                         <SelectLabel>Sort order</SelectLabel>
@@ -213,7 +205,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   aria-label="Settings"
                   onClick={onOpenSettings}
                 >
-                  <SettingsIcon size={26} />
+                  <Settings size={26} />
                 </Button>
               )}
             </motion.div>

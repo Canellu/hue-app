@@ -37,6 +37,8 @@ interface SpaceScreenProps {
     pct: number,
     phase: ControlCommitPhase,
   ) => void;
+  /** Open the multi-light group pane for the whole room/zone. */
+  onOpenGroup: (roomZone: HueRoomZone) => void;
   onSelectLight: (id: string) => void;
   /** Tapping a scene card: apply its stored colors to the room's lights. */
   onSceneApply: (scene: HueScene) => void;
@@ -68,6 +70,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
   onRoomZoneBrightness,
   onLightToggle,
   onLightBrightness,
+  onOpenGroup,
   onSelectLight,
   onSceneApply,
   onSceneInspect,
@@ -100,6 +103,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
         hueEventRevision={hueEventRevision}
         onToggle={onRoomZoneToggle}
         onBrightness={onRoomZoneBrightness}
+        onOpen={onOpenGroup}
         onDynamicSpeedLive={onDynamicSpeedLive}
       />
       {showScenes && (

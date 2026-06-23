@@ -8,6 +8,7 @@ export type AppViewKey =
   | "loading"
   | "home"
   | "disconnected"
+  | "error-boundary"
   | "wizard";
 
 type AppContentTransitionKind = "fade" | "setup-to-ready";

@@ -6,16 +6,24 @@ import {
   wizardDevStates,
 } from "../constants";
 
-type AppDevViewId = "splash" | "disconnected" | "home-preview";
+type AppDevViewId =
+  | "splash"
+  | "disconnected"
+  | "error-boundary"
+  | "home-preview";
 
 const appDevViewOptions: { id: AppDevViewId; label: string }[] = [
   { id: "splash", label: "Splash" },
   { id: "disconnected", label: "Disconnected" },
+  { id: "error-boundary", label: "Error" },
   { id: "home-preview", label: "Ready app" },
 ];
 
 /** Dev-only id for the component gallery / living style guide. */
 export const COMPONENT_GALLERY_VIEW_ID = "component-gallery";
+
+/** Dev-only id for the app-level error boundary fallback preview. */
+export const ERROR_BOUNDARY_VIEW_ID = "error-boundary";
 
 // Toolbar groups: the component gallery, the app-level preview states, then
 // every wizard dev state. The gallery sits in its own group above "App".

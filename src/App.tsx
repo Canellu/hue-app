@@ -6,8 +6,12 @@ import { BridgeStatus } from "@/components/BridgeStatus";
 import Logo from "@/components/Logo";
 import { StatusScreen } from "@/components/StatusScreen";
 import { Button } from "@/components/ui/button";
+import { ErrorScreen } from "@/components/ErrorScreen";
 import { ComponentGallery } from "@/features/dev-gallery/ComponentGallery";
-import { COMPONENT_GALLERY_VIEW_ID } from "@/features/setup-wizard/hooks/useDevViews";
+import {
+  COMPONENT_GALLERY_VIEW_ID,
+  ERROR_BOUNDARY_VIEW_ID,
+} from "@/features/setup-wizard/hooks/useDevViews";
 import { RouterProvider } from "@tanstack/react-router";
 import { motion, useReducedMotion, type Variants } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -29,6 +33,20 @@ interface RenderedAppContent {
   viewKey: AppViewKey;
   content: ReactNode;
 }
+
+// A representative error for the dev-only error boundary preview, with a fake
+// component stack so the "Technical details" disclosure has realistic content.
+const devSampleError = new Error(
+  "Cannot read properties of undefined (reading 'lights')",
+);
+
+const devSampleComponentStack = [
+  "",
+  "    at SpaceScreen (src/features/space-screen/SpaceScreen.tsx:42:7)",
+  "    at SpaceRoute (src/routes/SpaceRoute.tsx:18:5)",
+  "    at RootLayout (src/routes/RootLayout.tsx:24:3)",
+  "    at App (src/App.tsx:114:1)",
+].join("\n");
 
 const HomeApp = () => (
   <div className="h-full">
@@ -150,6 +168,19 @@ function App() {
   const renderDevContent = (): RenderedAppContent => {
     if (dev.viewId === COMPONENT_GALLERY_VIEW_ID) {
       return { viewKey: "component-gallery", content: <ComponentGallery /> };
+    }
+
+    if (dev.viewId === ERROR_BOUNDARY_VIEW_ID) {
+      return {
+        viewKey: "error-boundary",
+        content: (
+          <ErrorScreen
+            error={devSampleError}
+            componentStack={devSampleComponentStack}
+            onReset={() => dev.selectView("home-preview")}
+          />
+        ),
+      };
     }
 
     if (dev.viewId === "home-preview") {

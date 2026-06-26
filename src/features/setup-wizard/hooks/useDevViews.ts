@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
 import type { BridgeKind } from "@/types/setup-wizard";
+import { useEffect, useRef, useState } from "react";
 import {
   DEV_DEFAULT_BRIDGE_COUNT,
   DEV_DEFAULT_PAIRING_KIND,
@@ -25,8 +25,24 @@ export const COMPONENT_GALLERY_VIEW_ID = "component-gallery";
 /** Dev-only id for the app-level error boundary fallback preview. */
 export const ERROR_BOUNDARY_VIEW_ID = "error-boundary";
 
-// Toolbar groups: the component gallery, the app-level preview states, then
-// every wizard dev state. The gallery sits in its own group above "App".
+/**
+ * Dev-only previews of the create-widget wizard, one entry per screen. Each maps
+ * to a step the `WidgetWizard` mounts on, so the toolbar can jump
+ * straight to a single screen to work on it.
+ */
+export const widgetWizardDevViews = [
+  { id: "widget-wizard-profile", label: "Profile", step: 0 },
+  { id: "widget-wizard-targets", label: "Controls", step: 1 },
+  { id: "widget-wizard-configure", label: "Configure", step: 2 },
+] as const;
+
+/** Maps a dev view id to the wizard step it previews, or null if unrelated. */
+export const widgetWizardStepForViewId = (viewId: string): number | null =>
+  widgetWizardDevViews.find((view) => view.id === viewId)?.step ?? null;
+
+// Toolbar groups: the component gallery, the app-level preview states, the
+// create-widget wizard screens, then every setup wizard dev state. The gallery
+// sits in its own group above "App".
 export const devViewGroups = [
   {
     label: "Design",
@@ -34,7 +50,11 @@ export const devViewGroups = [
   },
   { label: "App", options: appDevViewOptions },
   {
-    label: "Wizard",
+    label: "Widget Wizard",
+    options: widgetWizardDevViews.map(({ id, label }) => ({ id, label })),
+  },
+  {
+    label: "Pairing Wizard",
     options: wizardDevStates.map(({ id, label }) => ({ id, label })),
   },
 ];

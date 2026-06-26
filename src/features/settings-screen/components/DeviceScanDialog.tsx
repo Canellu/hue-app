@@ -71,10 +71,7 @@ export const DeviceScanDialog: React.FC<DeviceScanDialogProps> = ({
     [roomZones],
   );
 
-  const placeInExisting = async (
-    device: FoundDevice,
-    space: HueRoomZone,
-  ) => {
+  const placeInExisting = async (device: FoundDevice, space: HueRoomZone) => {
     setPlacements((current) => ({
       ...current,
       [device.id]: { status: "saving" },
@@ -118,7 +115,7 @@ export const DeviceScanDialog: React.FC<DeviceScanDialogProps> = ({
       [device.id]: { status: "saving" },
     }));
     try {
-      await invoke("create-hue-room", { name, deviceId: device.id });
+      await invoke("create-hue-room", { name, deviceIds: [device.id] });
       setPlacements((current) => ({
         ...current,
         [device.id]: { status: "done", label: `Room · ${name}` },
@@ -172,8 +169,8 @@ export const DeviceScanDialog: React.FC<DeviceScanDialogProps> = ({
             </p>
             {found.length > 0 && (
               <p className="text-sm text-muted-foreground">
-                Found {found.length}{" "}
-                {found.length === 1 ? "device" : "devices"} so far.
+                Found {found.length} {found.length === 1 ? "device" : "devices"}{" "}
+                so far.
               </p>
             )}
           </div>
@@ -213,7 +210,11 @@ export const DeviceScanDialog: React.FC<DeviceScanDialogProps> = ({
             </Button>
           ) : (
             <>
-              <Button type="button" variant="outline" onClick={() => void start()}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void start()}
+              >
                 <Search size={16} />
                 Scan again
               </Button>
@@ -259,7 +260,8 @@ const FoundDeviceRow = ({
   const items = useMemo(() => {
     const map: Record<string, string> = {};
     for (const room of rooms) map[`room:${room.id}`] = `Room · ${room.name}`;
-    for (const zone of zoneOptions) map[`zone:${zone.id}`] = `Zone · ${zone.name}`;
+    for (const zone of zoneOptions)
+      map[`zone:${zone.id}`] = `Zone · ${zone.name}`;
     map[NEW_ROOM_VALUE] = "Create new room…";
     return map;
   }, [rooms, zoneOptions]);
@@ -278,7 +280,10 @@ const FoundDeviceRow = ({
             {placement.label}
           </span>
         ) : placement?.status === "saving" ? (
-          <Loader2 size={16} className="shrink-0 animate-spin text-muted-foreground" />
+          <Loader2
+            size={16}
+            className="shrink-0 animate-spin text-muted-foreground"
+          />
         ) : (
           !isCreatingRoom && (
             <Select

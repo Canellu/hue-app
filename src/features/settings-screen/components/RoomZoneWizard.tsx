@@ -1,0 +1,506 @@
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
+import { cn } from "@/lib/utils";
+import { useHueResourcesStore } from "@/stores/HueResourcesStore";
+import type { HueLight, HueSettingsDevice } from "@/types/hue";
+import {
+  Check,
+  ChevronLeft,
+  Home,
+  Layers3,
+  Lightbulb,
+  Search,
+} from "lucide-react";
+import type React from "react";
+import { useState } from "react";
+import { SPACE_ARCHETYPES } from "../constants";
+
+const steps = ["Type", "Name", "Members"];
+
+export type SpaceKind = "room" | "zone";
+
+export interface CreateSpaceOptions {
+  resourceType: SpaceKind;
+  name: string;
+  archetype: string;
+  /** Device ids for a room, light ids for a zone. */
+  memberIds: string[];
+}
+
+interface RoomZoneWizardProps {
+  /** Bridge devices, used as room members (rooms group whole devices). */
+  devices: HueSettingsDevice[];
+  onCreate: (options: CreateSpaceOptions) => void;
+  /** Step to mount on. Dev-only: lets a toolbar preview a single screen. */
+  initialStep?: number;
+}
+
+// Dev-only placeholder members so the selection screens aren't blank when no
+// bridge is connected (VITE_DEV_VIEWS preview). Never shown in production.
+const DUMMY_DEVICES: HueSettingsDevice[] = [
+  {
+    id: "dummy-dev-ceiling",
+    name: "Ceiling Light",
+    productName: "Hue White Ambiance",
+    modelId: null,
+    productArchetype: null,
+    swVersion: null,
+    reachable: true,
+    uniqueId: null,
+    serviceTypes: ["light"],
+  },
+  {
+    id: "dummy-dev-lamp",
+    name: "Floor Lamp",
+    productName: "Hue Signe Floor",
+    modelId: null,
+    productArchetype: null,
+    swVersion: null,
+    reachable: true,
+    uniqueId: null,
+    serviceTypes: ["light"],
+  },
+  {
+    id: "dummy-dev-dial",
+    name: "Smart Dial",
+    productName: "Hue Tap Dial",
+    modelId: null,
+    productArchetype: null,
+    swVersion: null,
+    reachable: false,
+    uniqueId: null,
+    serviceTypes: ["button", "relative_rotary"],
+  },
+];
+
+export const RoomZoneWizard = ({
+  devices,
+  onCreate,
+  initialStep = 0,
+}: RoomZoneWizardProps) => {
+  const lights = useHueResourcesStore((state) => state.lights);
+
+  const [step, setStep] = useState(initialStep);
+  const [maxUnlockedStep, setMaxUnlockedStep] = useState(initialStep);
+  const [resourceType, setResourceType] = useState<SpaceKind | null>(null);
+  const [name, setName] = useState("");
+  const [archetype, setArchetype] = useState("other");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+
+  // Fall back to placeholders in dev when the store/bridge is empty, so the
+  // member screens are never blank to design against.
+  const deviceOptions =
+    devices.length === 0 && import.meta.env.DEV ? DUMMY_DEVICES : devices;
+  const lightOptions = lights;
+
+  // Rooms group whole devices; zones group individual lights. The Type screen
+  // is what surfaces this distinction to the user.
+  const isRoom = resourceType === "room";
+  const memberOptions: Array<HueSettingsDevice | HueLight> = isRoom
+    ? deviceOptions
+    : lightOptions;
+
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredMembers = memberOptions.filter(
+    (option) =>
+      normalizedQuery.length === 0 ||
+      [option.name, option.productName].some((field) =>
+        field?.toLowerCase().includes(normalizedQuery),
+      ),
+  );
+
+  const toggleMember = (id: string) =>
+    setSelected((current) =>
+      current.includes(id)
+        ? current.filter((value) => value !== id)
+        : [...current, id],
+    );
+
+  const canContinue =
+    (step === 0 && resourceType != null) ||
+    (step === 1 && name.trim().length > 0) ||
+    step === 2;
+
+  const nextStep = () => {
+    if (!canContinue) return;
+    setStep((current) => {
+      const next = Math.min(2, current + 1);
+      setMaxUnlockedStep((unlocked) => Math.max(unlocked, next));
+      return next;
+    });
+  };
+
+  // Switching type changes what the member list means, so clear any selection
+  // carried over from the other kind.
+  const chooseType = (kind: SpaceKind) => {
+    setResourceType((current) => {
+      if (current !== kind) setSelected([]);
+      return kind;
+    });
+  };
+
+  const create = () => {
+    if (!resourceType || !name.trim()) return;
+    onCreate({
+      resourceType,
+      name: name.trim(),
+      archetype,
+      memberIds: selected,
+    });
+  };
+
+  const ArchetypeIcon = getRoomZoneIcon(archetype);
+
+  return (
+    <div className="mx-auto flex h-full w-full max-w-5xl flex-col text-foreground">
+      <header className="mx-auto w-full max-w-2xl shrink-0 pt-2 pb-8">
+        <div className="grid grid-cols-3 gap-2">
+          {steps.map((label, index) => {
+            const active = index === step;
+            const clickable = index <= maxUnlockedStep;
+            return (
+              <button
+                key={label}
+                type="button"
+                disabled={!clickable}
+                onClick={() => setStep(index)}
+                className={cn(
+                  "group flex flex-col items-center gap-2 text-center",
+                  clickable ? "cursor-pointer" : "cursor-default",
+                )}
+              >
+                <span
+                  className={cn(
+                    "block max-w-full truncate text-xs font-medium transition-colors",
+                    active ? "text-foreground" : "text-muted-foreground",
+                    clickable && !active && "group-hover:text-foreground/60",
+                  )}
+                >
+                  {label}
+                </span>
+                <span
+                  className={cn(
+                    "block h-1 w-full rounded-full transition-[opacity,background-color] duration-200 ease-out",
+                    active
+                      ? "bg-primary"
+                      : index <= maxUnlockedStep
+                        ? "bg-foreground"
+                        : "bg-border",
+                    clickable && "group-hover:opacity-60",
+                  )}
+                />
+              </button>
+            );
+          })}
+        </div>
+      </header>
+
+      <main
+        className={cn(
+          "flex min-h-0 flex-1 flex-col",
+          step === 2 ? "overflow-hidden" : "overflow-y-auto",
+        )}
+      >
+        <div
+          key={step}
+          className={cn(
+            "flex min-h-full flex-1 flex-col animate-in fade-in",
+            step !== 2 && "justify-center",
+          )}
+          style={{
+            animationDuration: "600ms",
+            animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+          }}
+        >
+          {step === 0 ? (
+            <section className="mx-auto flex w-full max-w-md flex-col gap-10 py-16">
+              <div className="space-y-3 text-center">
+                <h1 className="font-heading text-3xl font-semibold">
+                  Room or zone?
+                </h1>
+                <p className="text-base text-muted-foreground">
+                  Both group your lights for quick control and scenes — they just
+                  group them differently.
+                </p>
+              </div>
+              <div className="grid gap-4">
+                <TypeOption
+                  active={resourceType === "room"}
+                  icon={<Home size={22} />}
+                  title="Room"
+                  description="Groups whole devices by where they physically are. Each device lives in exactly one room."
+                  onClick={() => chooseType("room")}
+                />
+                <TypeOption
+                  active={resourceType === "zone"}
+                  icon={<Layers3 size={22} />}
+                  title="Zone"
+                  description="Groups individual lights across rooms — great for scenes. A light can belong to many zones."
+                  onClick={() => chooseType("zone")}
+                />
+              </div>
+            </section>
+          ) : null}
+
+          {step === 1 ? (
+            <section className="mx-auto flex w-full max-w-md flex-col gap-10 py-16">
+              <div className="space-y-3 text-center">
+                <h1 className="font-heading text-3xl font-semibold">
+                  Name your {resourceType}
+                </h1>
+                <p className="text-base text-muted-foreground">
+                  Pick a name and an icon so this {resourceType} is easy to spot.
+                </p>
+              </div>
+              <div className="flex flex-col items-center gap-3">
+                <span className="flex size-16 items-center justify-center rounded-2xl bg-foreground/5 text-foreground">
+                  <ArchetypeIcon size={28} />
+                </span>
+                <Input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && canContinue) nextStep();
+                  }}
+                  placeholder={isRoom ? "Living Room" : "Downstairs"}
+                  autoFocus
+                  size="xl"
+                  className="rounded-2xl border-foreground/15 bg-input/50 text-center text-lg"
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-muted-foreground">Icon</p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  {SPACE_ARCHETYPES.map((option) => {
+                    const Icon = getRoomZoneIcon(option.value);
+                    const isActive = archetype === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setArchetype(option.value)}
+                        title={option.label}
+                        aria-label={option.label}
+                        aria-pressed={isActive}
+                        className={cn(
+                          "flex size-11 items-center justify-center rounded-xl border transition-colors",
+                          isActive
+                            ? "border-primary bg-primary/10 text-foreground"
+                            : "border-foreground/15 text-muted-foreground hover:bg-foreground/5",
+                        )}
+                      >
+                        <Icon size={20} />
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </section>
+          ) : null}
+
+          {step === 2 ? (
+            <section className="mx-auto flex h-full w-full max-w-2xl flex-col">
+              <div className="my-auto flex max-h-full min-h-0 w-full flex-col gap-6 py-4">
+                <div className="shrink-0 space-y-3 text-center">
+                  <h1 className="font-heading text-3xl font-semibold">
+                    {isRoom ? "Add devices" : "Add lights"}
+                  </h1>
+                  <p className="text-base text-muted-foreground">
+                    {isRoom
+                      ? "Choose the devices that belong in this room. You can change this later."
+                      : "Choose the lights this zone controls. You can change this later."}
+                  </p>
+                </div>
+
+                <div className="relative w-full shrink-0">
+                  <Search
+                    size={18}
+                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
+                  />
+                  <Input
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder={isRoom ? "Search devices" : "Search lights"}
+                    size="xl"
+                    className="rounded-2xl border-foreground/15 bg-input/50 pl-12 text-left"
+                  />
+                </div>
+
+                {memberOptions.length === 0 ? (
+                  <p className="py-12 text-center text-sm text-muted-foreground">
+                    {isRoom
+                      ? "No devices are available yet."
+                      : "No lights are available yet."}
+                  </p>
+                ) : (
+                  <ScrollArea
+                    fade="bottom"
+                    className="min-h-0 flex-1"
+                    viewportClassName="pr-2"
+                  >
+                    <div className="divide-y divide-foreground/10 overflow-hidden rounded-2xl border border-foreground/12 bg-input/40">
+                      {filteredMembers.length > 0 ? (
+                        filteredMembers.map((option) => (
+                          <MemberRow
+                            key={option.id}
+                            checked={selected.includes(option.id)}
+                            icon={<Lightbulb size={18} />}
+                            title={option.name}
+                            meta={memberMeta(option)}
+                            onToggle={() => toggleMember(option.id)}
+                          />
+                        ))
+                      ) : (
+                        <p className="px-4 py-6 text-center text-xs text-muted-foreground">
+                          No matches
+                        </p>
+                      )}
+                    </div>
+                  </ScrollArea>
+                )}
+              </div>
+            </section>
+          ) : null}
+        </div>
+      </main>
+
+      <footer className="shrink-0 border-t border-foreground/10 py-5">
+        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-4">
+          {step > 0 ? (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setStep((current) => Math.max(0, current - 1))}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <ChevronLeft size={16} />
+              Back
+            </Button>
+          ) : (
+            <span />
+          )}
+          {step < 2 ? (
+            <Button
+              type="button"
+              size="lg"
+              disabled={!canContinue}
+              onClick={nextStep}
+              className="rounded-full px-10"
+            >
+              Continue
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              size="lg"
+              disabled={!resourceType || !name.trim()}
+              onClick={create}
+              className="rounded-full px-10"
+            >
+              Create {resourceType}
+            </Button>
+          )}
+        </div>
+      </footer>
+    </div>
+  );
+};
+
+const memberMeta = (option: HueSettingsDevice | HueLight) =>
+  [option.productName, option.reachable ? "Reachable" : "Offline"]
+    .filter(Boolean)
+    .join(" · ");
+
+const TypeOption = ({
+  active,
+  icon,
+  title,
+  description,
+  onClick,
+}: {
+  active: boolean;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  onClick: () => void;
+}) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-pressed={active}
+    className={cn(
+      "flex items-start gap-4 rounded-2xl border p-4 text-left transition-colors",
+      active
+        ? "border-primary bg-primary/5"
+        : "border-foreground/15 hover:bg-foreground/5",
+    )}
+  >
+    <span
+      className={cn(
+        "flex size-11 shrink-0 items-center justify-center rounded-xl",
+        active ? "bg-primary/15 text-foreground" : "bg-foreground/5",
+      )}
+    >
+      {icon}
+    </span>
+    <span className="min-w-0 flex-1">
+      <span className="flex items-center gap-2 text-base font-semibold">
+        {title}
+        {active ? <Check size={16} className="text-primary" /> : null}
+      </span>
+      <span className="mt-1 block text-sm text-muted-foreground">
+        {description}
+      </span>
+    </span>
+  </button>
+);
+
+const MemberRow = ({
+  checked,
+  icon,
+  title,
+  meta,
+  onToggle,
+}: {
+  checked: boolean;
+  icon: React.ReactNode;
+  title: string;
+  meta: string;
+  onToggle: () => void;
+}) => (
+  <label
+    className={cn(
+      "flex cursor-pointer items-center gap-3 px-4 py-2.5 transition-colors",
+      checked ? "bg-primary/5" : "hover:bg-foreground/3",
+    )}
+  >
+    <input
+      type="checkbox"
+      checked={checked}
+      onChange={onToggle}
+      className="sr-only"
+    />
+    <span
+      className={cn(
+        "flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",
+        checked
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-foreground/30",
+      )}
+    >
+      {checked ? <Check size={14} /> : null}
+    </span>
+    <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-muted-foreground">
+      {icon}
+    </span>
+    <span className="min-w-0">
+      <span className="block truncate text-sm font-medium">{title}</span>
+      <span className="block truncate text-xs text-muted-foreground">
+        {meta}
+      </span>
+    </span>
+  </label>
+);

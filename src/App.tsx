@@ -3,6 +3,7 @@ import {
   type AppViewKey,
 } from "@/components/AppContentTransition";
 import { BridgeStatus } from "@/components/BridgeStatus";
+import { DevUrlBar } from "@/components/DevUrlBar";
 import Logo from "@/components/Logo";
 import { StatusScreen } from "@/components/StatusScreen";
 import { Button } from "@/components/ui/button";
@@ -11,11 +12,12 @@ import { ComponentGallery } from "@/features/dev-gallery/ComponentGallery";
 import {
   COMPONENT_GALLERY_VIEW_ID,
   ERROR_BOUNDARY_VIEW_ID,
+  widgetWizardStepForViewId,
 } from "@/features/setup-wizard/hooks/useDevViews";
+import { WidgetWizard } from "@/features/settings-screen/components/WidgetWizard";
 import { RouterProvider } from "@tanstack/react-router";
 import { motion, useReducedMotion, type Variants } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import "./App.css";
 import { TitleBar } from "./components/TitleBar";
 import { useHue } from "./context/HueContext";
 import { WizardDevToolbar } from "./features/setup-wizard/components/WizardDevToolbar";
@@ -187,6 +189,22 @@ function App() {
       return { viewKey: "home-preview", content: <HomeApp /> };
     }
 
+    const widgetWizardStep = widgetWizardStepForViewId(dev.viewId);
+    if (widgetWizardStep !== null) {
+      return {
+        viewKey: "widget-wizard",
+        content: (
+          // Keyed by view id so picking another screen remounts the wizard at
+          // that step instead of keeping the previous step's internal state.
+          <WidgetWizard
+            key={dev.viewId}
+            initialStep={widgetWizardStep}
+            onCreate={() => dev.selectView("home-preview")}
+          />
+        ),
+      };
+    }
+
     if (dev.viewId === "splash" || dev.retryLoading) {
       return { viewKey: "loading", content: <SplashView /> };
     }
@@ -297,6 +315,7 @@ function App() {
       <AppContentTransition viewKey={rendered.viewKey}>
         {rendered.content}
       </AppContentTransition>
+      <DevUrlBar />
     </main>
   );
 }

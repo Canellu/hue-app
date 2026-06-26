@@ -152,6 +152,7 @@ export interface HueSettingsSummary {
 export interface HueSettingsBridge {
   bridgeId: string;
   bridgeIp: string;
+  name: string | null;
   productName: string | null;
   modelId: string | null;
   swVersion: string | null;

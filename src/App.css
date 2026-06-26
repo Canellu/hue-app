@@ -206,6 +206,17 @@
   body {
     @apply bg-background text-foreground select-none;
   }
+  html[data-window="widget"],
+  html[data-window="widget"] body {
+    background: transparent;
+    height: 100vh;
+    overflow: hidden;
+    width: 100vw;
+  }
+  html[data-window="widget"] #root {
+    height: 100vh;
+    width: 100vw;
+  }
   input,
   textarea,
   [contenteditable="true"] {
@@ -227,6 +238,37 @@
 .tile-surface-scene {
   border-radius: 64px;
   corner-shape: squircle;
+}
+
+/* Fixed folder-tab notch for the active settings tab. */
+.notch-tab {
+  --notch-radius: var(--radius-2xl);
+  --notch-height: var(--radius-2xl);
+  position: relative;
+}
+.notch-tab::before,
+.notch-tab::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  background: var(--card);
+  corner-shape: scoop;
+}
+.notch-tab::before {
+  left: calc(-1 * var(--notch-radius));
+  width: var(--notch-radius);
+  height: var(--notch-height);
+  border-top-left-radius: var(--notch-radius) var(--notch-height);
+  border-top: 1px solid var(--border);
+  border-left: 1px solid var(--border);
+}
+.notch-tab::after {
+  right: calc(-1 * var(--notch-radius));
+  width: var(--notch-radius);
+  height: var(--notch-height);
+  border-top-right-radius: var(--notch-radius) var(--notch-height);
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
 }
 
 .tile-brightness-slider-off {

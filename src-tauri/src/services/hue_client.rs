@@ -234,6 +234,7 @@ pub struct HueSettingsSummary {
 pub struct HueSettingsBridge {
     pub bridge_id: String,
     pub bridge_ip: String,
+    pub name: Option<String>,
     pub product_name: Option<String>,
     pub model_id: Option<String>,
     pub sw_version: Option<String>,
@@ -1645,14 +1646,7 @@ impl HueClient {
         scene_id: &str,
         transition_ms: Option<u32>,
     ) -> Result<(), String> {
-        self.recall_scene(
-            ip,
-            application_key,
-            scene_id,
-            "active",
-            transition_ms,
-            None,
-        )
+        self.recall_scene(ip, application_key, scene_id, "active", transition_ms, None)
             .await
     }
 
@@ -1682,14 +1676,7 @@ impl HueClient {
         scene_id: &str,
         transition_ms: Option<u32>,
     ) -> Result<(), String> {
-        self.recall_scene(
-            ip,
-            application_key,
-            scene_id,
-            "static",
-            transition_ms,
-            None,
-        )
+        self.recall_scene(ip, application_key, scene_id, "static", transition_ms, None)
             .await
     }
 
@@ -2098,6 +2085,10 @@ impl HueClient {
                     .map(|name| name.to_lowercase().contains("bridge"))
                     .unwrap_or(false)
         });
+        let bridge_name = bridge_device
+            .and_then(|device| device.metadata.as_ref())
+            .map(|metadata| metadata.name.clone())
+            .filter(|name| !name.is_empty());
         let bridge_product = bridge_device.and_then(|device| device.product_data.as_ref());
         let bridge_product_name = bridge_product.and_then(|product| product.product_name.clone());
         let bridge_model_id = bridge_product.and_then(|product| product.model_id.clone());
@@ -2142,6 +2133,7 @@ impl HueClient {
             bridge: HueSettingsBridge {
                 bridge_id: reported_bridge_id,
                 bridge_ip: bridge.bridge_ip.clone(),
+                name: bridge_name,
                 product_name: bridge_product_name,
                 model_id: bridge_model_id,
                 sw_version: bridge_sw_version,
@@ -2466,15 +2458,16 @@ impl HueClient {
         .await
     }
 
-    /// Creates a room containing the given device. Hue requires an archetype;
-    /// `"other"` is used when the caller supplies none.
+    /// Creates a room grouping the given devices. Hue requires an archetype;
+    /// `"other"` is used when the caller supplies none. The device list may be
+    /// empty — the bridge allows an empty room that devices are added to later.
     pub async fn create_room(
         &self,
         ip: &str,
         application_key: &str,
         name: &str,
         archetype: Option<&str>,
-        device_id: &str,
+        device_ids: &[String],
     ) -> Result<String, String> {
         let trimmed = name.trim();
         if trimmed.is_empty() {
@@ -2483,10 +2476,15 @@ impl HueClient {
         let archetype = archetype
             .filter(|value| !value.is_empty())
             .unwrap_or("other");
+        let children = device_ids
+            .iter()
+            .filter(|id| !id.trim().is_empty())
+            .map(|id| json!({ "rid": id, "rtype": "device" }))
+            .collect::<Vec<_>>();
         let body = json!({
             "type": "room",
             "metadata": { "name": trimmed, "archetype": archetype },
-            "children": [{ "rid": device_id, "rtype": "device" }],
+            "children": children,
         });
         self.post_v2(ip, application_key, "room", body).await
     }
@@ -2791,11 +2789,7 @@ fn insert_v2_transition(body: &mut Map<String, Value>, transition_ms: Option<u32
     }
 }
 
-fn scene_recall_body(
-    action: &str,
-    transition_ms: Option<u32>,
-    brightness: Option<f64>,
-) -> Value {
+fn scene_recall_body(action: &str, transition_ms: Option<u32>, brightness: Option<f64>) -> Value {
     let mut recall = Map::new();
     recall.insert("action".to_string(), json!(action));
     if let Some(duration) = transition_ms {
@@ -2909,7 +2903,12 @@ fn scene_to_public(scene: HueSceneResource, fallback_type: &str) -> HueScene {
 /// scene only animates when one swatch *kind* on its own holds at least two
 /// entries, so take the larger of the two counts rather than their sum.
 fn palette_dynamic_color_count(palette: &Value) -> usize {
-    let len = |key: &str| palette.get(key).and_then(Value::as_array).map_or(0, Vec::len);
+    let len = |key: &str| {
+        palette
+            .get(key)
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len)
+    };
     len("color").max(len("color_temperature"))
 }
 

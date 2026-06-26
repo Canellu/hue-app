@@ -6,9 +6,11 @@ import {
 } from "@tanstack/react-router";
 import { DeviceDiscoveryRoute } from "./routes/DeviceDiscoveryRoute";
 import { HomeRoute } from "./routes/HomeRoute";
+import { RoomZoneWizardRoute } from "./routes/RoomZoneWizardRoute";
 import { RootLayout } from "./routes/RootLayout";
 import { SettingsRoute } from "./routes/SettingsRoute";
 import { SpaceRoute } from "./routes/SpaceRoute";
+import { WidgetWizardRoute } from "./routes/WidgetWizardRoute";
 
 // The desktop shell has no addressable URL bar, so an in-memory history keeps
 // navigation state without touching the Tauri webview's location.
@@ -41,11 +43,25 @@ const deviceDiscoveryRoute = createRoute({
   component: DeviceDiscoveryRoute,
 });
 
+const widgetWizardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/widget-wizard",
+  component: WidgetWizardRoute,
+});
+
+const roomZoneWizardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/spaces-wizard",
+  component: RoomZoneWizardRoute,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   spaceRoute,
   settingsRoute,
   deviceDiscoveryRoute,
+  widgetWizardRoute,
+  roomZoneWizardRoute,
 ]);
 
 export const router = createRouter({

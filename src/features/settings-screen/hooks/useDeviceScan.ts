@@ -101,34 +101,43 @@ export const useDeviceScan = () => {
     }
   }, []);
 
-  const start = useCallback(async (mode: ScanMode = "generic", value?: string) => {
-    clearTimers();
-    setError(null);
-    setStatus("scanning");
-    activeRef.current = true;
+  const start = useCallback(
+    async (mode: ScanMode = "generic", value?: string) => {
+      clearTimers();
+      setError(null);
+      setStatus("scanning");
+      activeRef.current = true;
 
-    try {
-      const summary = await invoke<HueSettingsSummary>(
-        "get-hue-settings-summary",
-      );
-      baselineRef.current = new Set(summary.devices.map((device) => device.id));
-      if (mode === "qr") {
-        await invoke("start-hue-qr-device-discovery", { qrText: value ?? "" });
-      } else if (mode === "serial") {
-        await invoke("start-hue-serial-light-discovery", { serial: value ?? "" });
-      } else {
-        await invoke("start-hue-device-discovery");
+      try {
+        const summary = await invoke<HueSettingsSummary>(
+          "get-hue-settings-summary",
+        );
+        baselineRef.current = new Set(
+          summary.devices.map((device) => device.id),
+        );
+        if (mode === "qr") {
+          await invoke("start-hue-qr-device-discovery", {
+            qrText: value ?? "",
+          });
+        } else if (mode === "serial") {
+          await invoke("start-hue-serial-light-discovery", {
+            serial: value ?? "",
+          });
+        } else {
+          await invoke("start-hue-device-discovery");
+        }
+      } catch (startError) {
+        activeRef.current = false;
+        setStatus("idle");
+        setError(String(startError) || "Unable to start the scan.");
+        return;
       }
-    } catch (startError) {
-      activeRef.current = false;
-      setStatus("idle");
-      setError(String(startError) || "Unable to start the scan.");
-      return;
-    }
 
-    deadlineRef.current = setTimeout(stop, SCAN_WINDOW_MS);
-    pollRef.current = setTimeout(() => void poll(), POLL_INTERVAL_MS);
-  }, [clearTimers, poll, stop]);
+      deadlineRef.current = setTimeout(stop, SCAN_WINDOW_MS);
+      pollRef.current = setTimeout(() => void poll(), POLL_INTERVAL_MS);
+    },
+    [clearTimers, poll, stop],
+  );
 
   const reset = useCallback(() => {
     activeRef.current = false;

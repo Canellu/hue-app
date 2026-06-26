@@ -91,13 +91,60 @@ function brightnessShade(background: string, brightness: number): string {
   return `linear-gradient(to bottom, rgb(255 255 255 / calc(${highlightAlpha} * var(--tile-highlight-strength))) 0%, rgb(255 255 255 / calc(${highlightMidAlpha} * var(--tile-highlight-strength))) ${HIGHLIGHT_PEAK_END}%, rgb(255 255 255 / 0) ${HIGHLIGHT_FADE_END}%), linear-gradient(to top, rgb(0 0 0 / calc(${alpha} * var(--tile-shade-strength))) 0%, rgb(0 0 0 / calc(${midAlpha} * var(--tile-shade-mid-strength))) ${midStop}%, rgb(0 0 0 / 0) ${clearStop}%, rgb(0 0 0 / 0) 100%), ${background}`;
 }
 
+export const supportsContrastColor = (): boolean =>
+  typeof CSS !== "undefined" &&
+  CSS.supports?.("color", "contrast-color(red)") === true;
+
+const parseSolidColor = (
+  color: string,
+): { r: number; g: number; b: number } | null => {
+  const value = color.trim();
+  const hex = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i)?.[1];
+  if (hex) {
+    const expanded =
+      hex.length === 3
+        ? hex
+            .split("")
+            .map((part) => part + part)
+            .join("")
+        : hex;
+    const int = Number.parseInt(expanded, 16);
+    return { r: (int >> 16) & 255, g: (int >> 8) & 255, b: int & 255 };
+  }
+
+  const rgb = value.match(
+    /^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)/i,
+  );
+  if (!rgb) return null;
+  return {
+    r: Math.min(255, Math.max(0, Number(rgb[1]))),
+    g: Math.min(255, Math.max(0, Number(rgb[2]))),
+    b: Math.min(255, Math.max(0, Number(rgb[3]))),
+  };
+};
+
+const relativeLuminance = ({ r, g, b }: { r: number; g: number; b: number }) => {
+  const channel = (value: number) => {
+    const normalized = value / 255;
+    return normalized <= 0.03928
+      ? normalized / 12.92
+      : Math.pow((normalized + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+};
+
+const contrastForeground = (color: string): string => {
+  const rgb = parseSolidColor(color);
+  if (!rgb) return "oklch(0.145 0 0)";
+  return relativeLuminance(rgb) > 0.45 ? "oklch(0.145 0 0)" : "oklch(0.985 0 0)";
+};
+
 /**
  * Inline style for an *active* (lit) tile. Paints the card with the light's live
- * color and derives a legible ink color from it via CSS `contrast-color()`, so
- * text and icons flip to black or white depending on how light or dark the tint
- * is. The `background` may be a gradient (multi-color palettes), which
- * `contrast-color()` cannot evaluate, so contrast is resolved against `tint` —
- * the palette's dominant solid color.
+ * color and derives a legible ink color from the dominant solid `tint`, so text
+ * and icons flip to black or white depending on how light or dark the tint is.
+ * The `background` may be a gradient (multi-color palettes), so contrast is
+ * resolved against `tint` — the palette's dominant solid color.
  *
  * When `brightness` (0–100) is passed, a bottom-up dark gradient is layered over
  * the color so a dim tile looks dim — strongest at low brightness, easing to a
@@ -114,13 +161,18 @@ export function activeTileTheme(
   tint: string,
   brightness?: number,
 ): React.CSSProperties {
+  const fallbackForeground = contrastForeground(tint);
+  const foreground = supportsContrastColor()
+    ? `contrast-color(var(--tile-tint))`
+    : fallbackForeground;
   return {
     ...LIGHT_THEME,
     background:
       brightness == null ? background : brightnessShade(background, brightness),
     "--tile-tint": tint,
-    "--foreground": "contrast-color(var(--tile-tint))",
-    "--card-foreground": "contrast-color(var(--tile-tint))",
+    "--tile-contrast-fallback": fallbackForeground,
+    "--foreground": foreground,
+    "--card-foreground": foreground,
     // A solid neutral edge that tracks the app theme: gray in light mode, a
     // dark step in dark mode (`--tile-border-lit` is left out of `LIGHT_THEME`
     // on purpose, so it inherits the real `:root`/`.dark` value rather than the

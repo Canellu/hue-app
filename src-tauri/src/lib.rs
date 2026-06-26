@@ -1,16 +1,34 @@
 mod commands;
 mod services;
 
-use tauri::Manager;
+use tauri::{
+    menu::{Menu, MenuItem},
+    Manager,
+};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            // Let the plugin restore size/position, but not visibility — the
+            // setup hook decides whether to show the window so a login launch
+            // (`--autostart`) can stay hidden in the tray.
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        & !tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
+                .build(),
+        )
         .manage(commands::events::EventStreamState::default())
         .invoke_handler(tauri::generate_handler![
+            commands::app_settings::get_app_settings,
+            commands::app_settings::set_close_button_behavior,
+            commands::app_settings::set_auto_start,
+            commands::app_settings::handle_main_window_close,
+            commands::app_settings::minimize_main_window,
             commands::discovery::discover_bridges,
             commands::discovery::pair_bridge,
             commands::discovery::get_hue_session,
@@ -52,8 +70,75 @@ pub fn run() {
             commands::settings::create_hue_room,
             commands::events::start_hue_events,
             commands::events::stop_hue_events,
+            commands::widget::open_widget_window,
+            commands::widget::list_widgets,
+            commands::widget::get_widget_state,
+            commands::widget::close_widget_window,
+            commands::widget::save_widget_bounds,
+            commands::widget::sync_widget_layout,
+            commands::widget::widget_frontend_ready,
+            commands::widget::set_widget_pinned,
+            commands::widget::set_widget_always_on_top,
+            commands::widget::get_widget_controls,
+            commands::widget::set_widget_controls,
+            commands::widget::preview_widget_config,
+            commands::widget::set_widget_config,
+            commands::widget::set_widget_style_preset,
+            commands::widget::set_widget_titlebar,
+            commands::widget::open_widget_settings,
+            commands::widget::remove_widget,
+            commands::widget::set_widget_acrylic,
         ])
         .setup(|app| {
+            #[cfg(desktop)]
+            {
+                let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
+
+                let show_item =
+                    MenuItem::with_id(app, "show", "Show Hue Desktop", true, None::<&str>)?;
+                let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
+
+                tauri::tray::TrayIconBuilder::with_id("main")
+                    .icon(icon)
+                    .tooltip("Hue Desktop")
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id().as_ref() {
+                        "show" => {
+                            let _ = commands::app_settings::show_main_window(app);
+                        }
+                        "quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| match event {
+                        tauri::tray::TrayIconEvent::Click {
+                            button: tauri::tray::MouseButton::Left,
+                            ..
+                        }
+                        | tauri::tray::TrayIconEvent::DoubleClick {
+                            button: tauri::tray::MouseButton::Left,
+                            ..
+                        } => {
+                            let _ = commands::app_settings::show_main_window(tray.app_handle());
+                        }
+                        _ => {}
+                    })
+                    .build(app)?;
+            }
+
+            if let Some(window) = app.get_webview_window("main") {
+                let app_handle = app.handle().clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        if commands::app_settings::should_minimize_to_tray(&app_handle) {
+                            api.prevent_close();
+                            let _ = commands::app_settings::hide_main_window(&app_handle);
+                        }
+                    }
+                });
+            }
+
             #[cfg(target_os = "windows")]
             {
                 if let Some(window) = app.get_webview_window("main") {
@@ -88,6 +173,15 @@ pub fn run() {
                         }
                     }
                 }
+            }
+            // The main window is configured `visible: false`; show it now unless
+            // this was a login launch, which should start quietly in the tray.
+            if !commands::app_settings::launched_via_autostart() {
+                let _ = commands::app_settings::show_main_window(app.handle());
+            }
+
+            if let Err(error) = commands::widget::restore_widget_window(app.handle()) {
+                eprintln!("failed to restore widget window: {error}");
             }
             Ok(())
         })

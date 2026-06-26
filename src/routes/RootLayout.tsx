@@ -10,6 +10,7 @@ import {
 } from "@/stores/HueResourcesStore";
 import type { HueLight, HueRoomZone, HueScene } from "@/types/hue";
 import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
+import { listen } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 
@@ -104,7 +105,14 @@ const LightInspector: React.FC = () => {
       return scene ? { kind: "scene", id: scene.id, scene } : null;
     }
     return null;
-  }, [selectedLightId, selectedGroupId, selectedSceneId, lights, scenes, roomZones]);
+  }, [
+    selectedLightId,
+    selectedGroupId,
+    selectedSceneId,
+    lights,
+    scenes,
+    roomZones,
+  ]);
 
   const open = inspectorPaneOpen;
   const close = () => setInspectorPaneOpen(false);
@@ -247,20 +255,30 @@ const ShellHeader: React.FC = () => {
     ? roomZones.find((roomZone) => roomZone.id === activeSpaceId)
     : null;
   const onDeviceDiscovery = pathname === "/settings/device-discovery";
+  const onWidgetWizard = pathname === "/settings/widget-wizard";
+  const onSpacesWizard = pathname === "/settings/spaces-wizard";
   const title = onDeviceDiscovery
     ? "Add devices"
-    : pathname === "/settings"
-      ? "Settings"
-      : activeSpace?.name;
+    : onWidgetWizard
+      ? "Create widget"
+      : onSpacesWizard
+        ? "Create room or zone"
+        : pathname === "/settings"
+          ? "Settings"
+          : activeSpace?.name;
   const description = onDeviceDiscovery
     ? "Discover and place Hue devices"
-    : pathname === "/settings"
-      ? "Bridge & app preferences"
-      : activeSpace
-        ? `${activeSpace.lightCount} ${
-            activeSpace.lightCount === 1 ? "light" : "lights"
-          } · ${activeSpace.anyOn ? "On" : "Off"}`
-        : undefined;
+    : onWidgetWizard
+      ? "Build a pinned desktop widget"
+      : onSpacesWizard
+        ? "Group your devices and lights"
+        : pathname === "/settings"
+          ? "Bridge & app preferences"
+          : activeSpace
+            ? `${activeSpace.lightCount} ${
+                activeSpace.lightCount === 1 ? "light" : "lights"
+              } · ${activeSpace.anyOn ? "On" : "Off"}`
+            : undefined;
   return (
     <AppHeader
       onBack={
@@ -269,7 +287,11 @@ const ShellHeader: React.FC = () => {
           : () =>
               void (onDeviceDiscovery
                 ? navigate({ to: "/settings", search: { tab: "devices" } })
-                : navigate({ to: "/" }))
+                : onWidgetWizard
+                  ? navigate({ to: "/settings", search: { tab: "widget" } })
+                  : onSpacesWizard
+                    ? navigate({ to: "/settings", search: { tab: "spaces" } })
+                    : navigate({ to: "/" }))
       }
       title={title}
       description={description}
@@ -297,6 +319,7 @@ const ShellHeader: React.FC = () => {
 export const RootLayout: React.FC = () => {
   const viewportRef = useRef<HTMLDivElement>(null);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const navigate = useNavigate();
 
   // The viewport is a single persistent element across route changes, so its
   // scroll offset would otherwise carry over to the next page. Reset to the top
@@ -304,6 +327,15 @@ export const RootLayout: React.FC = () => {
   useEffect(() => {
     viewportRef.current?.scrollTo({ top: 0 });
   }, [pathname]);
+
+  useEffect(() => {
+    const unlisten = listen("open-widget-settings", () => {
+      void navigate({ to: "/settings", search: { tab: "widget" } });
+    });
+    return () => {
+      void unlisten.then((dispose) => dispose());
+    };
+  }, [navigate]);
 
   return (
     <>

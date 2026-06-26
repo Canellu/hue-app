@@ -239,7 +239,7 @@ pub async fn create_hue_room(
     app: AppHandle,
     name: String,
     archetype: Option<String>,
-    device_id: String,
+    device_ids: Vec<String>,
 ) -> Result<String, String> {
     let client = HueClient::new()?;
     let stored_bridge = client.get_stored_bridge(&app)?;
@@ -250,7 +250,7 @@ pub async fn create_hue_room(
             &application_key,
             &name,
             archetype.as_deref(),
-            &device_id,
+            &device_ids,
         )
         .await
 }

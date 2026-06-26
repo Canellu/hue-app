@@ -45,12 +45,12 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
   const roomZones = useHueResourcesStore((state) => state.roomZones);
   const loadAll = useHueResourcesStore((state) => state.loadAll);
   const { status, found, error, start, stop, reset } = useDeviceScan();
-  const [roomAssignments, setRoomAssignments] = useState<Record<string, string>>(
-    {},
-  );
-  const [zoneAssignments, setZoneAssignments] = useState<Record<string, string[]>>(
-    {},
-  );
+  const [roomAssignments, setRoomAssignments] = useState<
+    Record<string, string>
+  >({});
+  const [zoneAssignments, setZoneAssignments] = useState<
+    Record<string, string[]>
+  >({});
   const [draftRooms, setDraftRooms] = useState<DraftRoom[]>([]);
   const [newRoomName, setNewRoomName] = useState("");
   const [serial, setSerial] = useState("");
@@ -88,8 +88,13 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
     ],
     [draftRooms, rooms],
   );
-  const foundIds = useMemo(() => new Set(found.map((device) => device.id)), [found]);
-  const unassignedCount = found.filter((device) => !roomAssignments[device.id]).length;
+  const foundIds = useMemo(
+    () => new Set(found.map((device) => device.id)),
+    [found],
+  );
+  const unassignedCount = found.filter(
+    (device) => !roomAssignments[device.id],
+  ).length;
   const canSave = found.length > 0 && unassignedCount === 0 && !isSaving;
 
   const assignRoom = (deviceId: string, roomId: string) => {
@@ -122,7 +127,10 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
     event.preventDefault();
     const name = newRoomName.trim();
     if (!name) return;
-    setDraftRooms((current) => [...current, { id: newRoomId(), name, isNew: true }]);
+    setDraftRooms((current) => [
+      ...current,
+      { id: newRoomId(), name, isNew: true },
+    ]);
     setNewRoomName("");
   };
 
@@ -169,19 +177,12 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
         const assignedDeviceIds = found
           .filter((device) => roomAssignments[device.id] === room.id)
           .map((device) => device.id);
-        const [firstDeviceId] = assignedDeviceIds;
-        if (!firstDeviceId) continue;
+        if (assignedDeviceIds.length === 0) continue;
         const createdRoomId = await invoke<string>("create-hue-room", {
           name: room.name,
-          deviceId: firstDeviceId,
+          deviceIds: assignedDeviceIds,
         });
         newRoomIdMap.set(room.id, createdRoomId);
-        if (assignedDeviceIds.length > 1) {
-          await invoke("update-room-members", {
-            roomId: createdRoomId,
-            deviceIds: assignedDeviceIds,
-          });
-        }
       }
 
       for (const room of rooms) {
@@ -202,7 +203,10 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
       for (const device of found) {
         if (!device.hasLight) continue;
         for (const zoneId of zoneAssignments[device.id] ?? []) {
-          await invoke("assign-device-to-zone", { deviceId: device.id, zoneId });
+          await invoke("assign-device-to-zone", {
+            deviceId: device.id,
+            zoneId,
+          });
         }
       }
 
@@ -257,7 +261,8 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
               </nav>
               <h1 className="mt-1 text-2xl font-semibold">Add devices</h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                Place every new device in a room. Lights can also be added to zones.
+                Place every new device in a room. Lights can also be added to
+                zones.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -269,8 +274,16 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
                 <X size={16} />
                 Cancel
               </Button>
-              <Button type="button" disabled={!canSave} onClick={() => void savePlacements()}>
-                {isSaving ? <Loader2 className="animate-spin" /> : <Save size={16} />}
+              <Button
+                type="button"
+                disabled={!canSave}
+                onClick={() => void savePlacements()}
+              >
+                {isSaving ? (
+                  <Loader2 className="animate-spin" />
+                ) : (
+                  <Save size={16} />
+                )}
                 Save placement
               </Button>
             </div>
@@ -288,11 +301,21 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
                   </p>
                 </div>
                 {status === "scanning" ? (
-                  <Button type="button" variant="outline" size="sm" onClick={stop}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={stop}
+                  >
                     Stop
                   </Button>
                 ) : (
-                  <Button type="button" variant="outline" size="sm" onClick={() => void start()}>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void start()}
+                  >
                     <RefreshCcw size={14} />
                     Scan again
                   </Button>
@@ -300,9 +323,14 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
               </div>
             </div>
 
-            <form className="rounded-xl bg-background/70 p-3" onSubmit={startSerialSearch}>
+            <form
+              className="rounded-xl bg-background/70 p-3"
+              onSubmit={startSerialSearch}
+            >
               <p className="text-sm font-medium">Serial number</p>
-              <p className="text-xs text-muted-foreground">Light-focused legacy search.</p>
+              <p className="text-xs text-muted-foreground">
+                Light-focused legacy search.
+              </p>
               <div className="mt-3 flex gap-2">
                 <Input
                   value={serial}
@@ -310,7 +338,12 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
                   placeholder="Serial number"
                   aria-label="Serial number"
                 />
-                <Button type="submit" variant="outline" size="icon" disabled={!serial.trim()}>
+                <Button
+                  type="submit"
+                  variant="outline"
+                  size="icon"
+                  disabled={!serial.trim()}
+                >
                   <Search />
                 </Button>
               </div>
@@ -343,7 +376,10 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
                 Found devices
               </h2>
               {status === "scanning" && (
-                <Loader2 size={16} className="animate-spin text-muted-foreground" />
+                <Loader2
+                  size={16}
+                  className="animate-spin text-muted-foreground"
+                />
               )}
             </div>
             <div className="grid gap-3">
@@ -351,7 +387,11 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
                 <DeviceCard
                   key={device.id}
                   device={device}
-                  roomName={allRooms.find((room) => room.id === roomAssignments[device.id])?.name}
+                  roomName={
+                    allRooms.find(
+                      (room) => room.id === roomAssignments[device.id],
+                    )?.name
+                  }
                   zoneCount={(zoneAssignments[device.id] ?? []).length}
                 />
               ))}
@@ -378,7 +418,11 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
                     placeholder="New room name"
                     aria-label="New room name"
                   />
-                  <Button type="submit" variant="outline" disabled={!newRoomName.trim()}>
+                  <Button
+                    type="submit"
+                    variant="outline"
+                    disabled={!newRoomName.trim()}
+                  >
                     <Plus size={16} />
                     Add room
                   </Button>
@@ -389,7 +433,9 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
                   <RoomDropTarget
                     key={room.id}
                     room={room}
-                    devices={found.filter((device) => roomAssignments[device.id] === room.id)}
+                    devices={found.filter(
+                      (device) => roomAssignments[device.id] === room.id,
+                    )}
                   />
                 ))}
               </div>
@@ -412,7 +458,8 @@ export const DeviceDiscoveryScreen: React.FC<DeviceDiscoveryScreenProps> = ({
                 ))}
                 {zones.length === 0 && (
                   <p className="rounded-xl bg-background/70 px-3 py-6 text-sm text-muted-foreground">
-                    No zones exist yet. Save room placement first, then create zones in Settings.
+                    No zones exist yet. Save room placement first, then create
+                    zones in Settings.
                   </p>
                 )}
               </div>
@@ -450,7 +497,11 @@ const QrImportPanel = ({
         htmlFor="hue-qr-image-input"
         className="inline-flex h-8 cursor-pointer items-center justify-center gap-1 rounded-4xl border border-border bg-input/30 px-3 text-sm font-medium hover:bg-input/50"
       >
-        {isReading ? <Loader2 className="animate-spin" /> : <ImageUp size={14} />}
+        {isReading ? (
+          <Loader2 className="animate-spin" />
+        ) : (
+          <ImageUp size={14} />
+        )}
         Choose image
       </label>
       <input
@@ -474,9 +525,10 @@ const DeviceCard = ({
   roomName?: string;
   zoneCount: number;
 }) => {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: device.id,
-  });
+  const { attributes, listeners, setNodeRef, transform, isDragging } =
+    useDraggable({
+      id: device.id,
+    });
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
     : undefined;
@@ -497,7 +549,9 @@ const DeviceCard = ({
           <p className="text-xs text-muted-foreground">{device.eyebrow}</p>
           <p className="truncate font-medium">{device.name}</p>
           <p className="truncate text-xs text-muted-foreground">
-            {[device.modelId, device.swVersion, device.uniqueId].filter(Boolean).join(" · ")}
+            {[device.modelId, device.swVersion, device.uniqueId]
+              .filter(Boolean)
+              .join(" · ")}
           </p>
         </div>
         <Badge variant={device.reachable ? "secondary" : "destructive"}>
@@ -597,7 +651,10 @@ const AssignedDeviceList = ({
   devices.length > 0 ? (
     <div className="grid gap-2">
       {devices.map((device) => (
-        <div key={device.id} className="rounded-lg bg-muted/50 px-2 py-2 text-sm">
+        <div
+          key={device.id}
+          className="rounded-lg bg-muted/50 px-2 py-2 text-sm"
+        >
           <span className="font-medium">{device.name}</span>
           <span className="ml-2 text-xs text-muted-foreground">
             {device.productName ?? device.productArchetype ?? "Hue device"}

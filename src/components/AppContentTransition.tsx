@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, type ReactNode } from "react";
 export type AppViewKey =
   | "wizard-dev"
   | "component-gallery"
+  | "widget-wizard"
   | "home-preview"
   | "loading"
   | "home"

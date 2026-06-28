@@ -1,105 +1,72 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { ManageControls } from "@/features/widget-screen/components/ManageControls";
-import {
-  resolveLight,
-  resolveRoomZone,
-  ControlWizard,
-  type ResolvedTarget,
-} from "@/features/widget-screen/onboarding/ControlWizard";
 import type {
-  WidgetButtonAlignment,
-  WidgetDensity,
-  WidgetControl,
-  WidgetStylePreset,
+  WidgetSizeMode,
   WidgetThemeMode,
-  WidgetTitleBarPosition,
 } from "@/features/widget-screen/types";
 import type {
   WidgetConfigDraft,
   WidgetSummary,
 } from "@/features/widget-screen/useWidgets";
-import { WIDGET_PRESET_LABELS } from "@/features/widget-screen/widgetShell";
 import { cn } from "@/lib/utils";
-import { useHueResourcesStore } from "@/stores/HueResourcesStore";
-import { ChevronDown, Lock, MonitorSmartphone, Pin, PinOff } from "lucide-react";
 import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+  ChevronDown,
+  Monitor,
+  MonitorSmartphone,
+  Maximize2,
+  Minimize2,
+  Moon,
+  Pin,
+  PinOff,
+  Sun,
+  Scaling,
+  X,
+} from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useEffect, useMemo, useState } from "react";
 import { FLAT_CARD } from "../constants";
 import { DeleteResourceButton } from "./DeleteResourceButton";
+import {
+  SegmentedControl,
+  type SegmentIcon,
+} from "./SegmentedControl";
+import { WidgetPositionPicker } from "./WidgetPositionPicker";
 
-type WizardState =
-  | { mode: "add" }
-  | { mode: "edit"; control: WidgetControl; resolved: ResolvedTarget };
-
-const STYLE_PRESETS: WidgetStylePreset[] = ["windows11", "macos", "borderless"];
-const THEME_MODES: Array<{ value: WidgetThemeMode; label: string }> = [
-  { value: "system", label: "System" },
-  { value: "light", label: "Light" },
-  { value: "dark", label: "Dark" },
-];
-const DENSITIES: Array<{ value: WidgetDensity; label: string }> = [
-  { value: "compact", label: "Single column" },
-  { value: "expanded", label: "Two columns" },
-];
-
-const TITLE_BAR_POSITIONS: { value: WidgetTitleBarPosition; label: string }[] =
-  [
-    { value: "top", label: "Top" },
-    { value: "bottom", label: "Bottom" },
-    { value: "left", label: "Left" },
-    { value: "right", label: "Right" },
-  ];
-
-/** Alignment labels read differently along a horizontal vs. vertical bar. */
-const ALIGNMENT_LABELS: Record<
-  "horizontal" | "vertical",
-  Record<WidgetButtonAlignment, string>
-> = {
-  horizontal: { start: "Left", center: "Center", end: "Right" },
-  vertical: { start: "Top", center: "Center", end: "Bottom" },
-};
-
-const BUTTON_ALIGNMENTS: WidgetButtonAlignment[] = ["start", "center", "end"];
-
-const IconTooltip = ({
-  label,
-  children,
-}: {
+const THEME_MODES = [
+  { value: "system", label: "System", icon: Monitor },
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+] satisfies Array<{
+  value: WidgetThemeMode;
   label: string;
-  children: ReactNode;
-}) => (
-  <TooltipProvider>
-    <Tooltip>
-      <TooltipTrigger
-        render={<span className="inline-flex">{children}</span>}
-      />
-      <TooltipContent side="bottom">{label}</TooltipContent>
-    </Tooltip>
-  </TooltipProvider>
-);
+  icon: SegmentIcon;
+}>;
+
+const SIZE_MODES = [
+  { value: "small", label: "Small", icon: Minimize2 },
+  { value: "default", label: "Default", icon: Scaling },
+  { value: "large", label: "Large", icon: Maximize2 },
+] satisfies Array<{
+  value: WidgetSizeMode;
+  label: string;
+  icon: SegmentIcon;
+}>;
 
 export const WidgetCard = ({
   widget,
+  openRequest,
   onReopen,
   onClose,
   onRemove,
@@ -109,6 +76,7 @@ export const WidgetCard = ({
   onSetConfig,
 }: {
   widget: WidgetSummary;
+  openRequest?: number;
   onReopen: (id: string) => void;
   onClose: (id: string) => void;
   onRemove: (id: string) => Promise<void>;
@@ -122,46 +90,35 @@ export const WidgetCard = ({
     enabled,
     pinned,
     alwaysOnTop,
-    stylePreset,
     themeMode,
-    density,
-    titleBarPosition,
-    buttonAlignment,
+    sizeMode,
     controls,
   } = widget;
-  const [wizard, setWizard] = useState<WizardState | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
+  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [draft, setDraft] = useState<WidgetConfigDraft | null>(null);
+  const prefersReducedMotion = useReducedMotion();
   const count = controls.length;
   const currentConfig = useMemo<WidgetConfigDraft>(
     () => ({
       controls,
-      stylePreset,
       themeMode,
-      density,
-      titleBarPosition,
-      buttonAlignment,
+      sizeMode,
     }),
-    [
-      buttonAlignment,
-      density,
-      controls,
-      stylePreset,
-      themeMode,
-      titleBarPosition,
-    ],
+    [controls, sizeMode, themeMode],
   );
   const activeConfig = draft ?? currentConfig;
-  const alignmentLabels =
-    activeConfig.titleBarPosition === "left" ||
-    activeConfig.titleBarPosition === "right"
-      ? ALIGNMENT_LABELS.vertical
-      : ALIGNMENT_LABELS.horizontal;
 
   useEffect(() => {
     if (!configOpen || !draft) return;
     onPreviewConfig(widgetId, draft);
   }, [configOpen, draft, onPreviewConfig, widgetId]);
+
+  useEffect(() => {
+    if (openRequest === undefined) return;
+    setDraft(currentConfig);
+    setConfigOpen(true);
+  }, [currentConfig, openRequest]);
 
   const updateDraft = (next: Partial<WidgetConfigDraft>) =>
     setDraft((current) => ({ ...(current ?? currentConfig), ...next }));
@@ -171,62 +128,37 @@ export const WidgetCard = ({
     setConfigOpen(true);
   };
 
-  const cancelConfigure = () => {
+  const hasChanges =
+    draft !== null && JSON.stringify(draft) !== JSON.stringify(currentConfig);
+
+  // Closes the panel (used by the header toggle); discards any unsaved edits
+  // and rolls the live preview back to the saved config.
+  const closeConfigure = () => {
     onPreviewConfig(widgetId, currentConfig);
-    setWizard(null);
     setDraft(null);
     setConfigOpen(false);
   };
 
+  // Reverts edits back to the saved config but keeps the panel open.
+  const resetConfigure = () => {
+    onPreviewConfig(widgetId, currentConfig);
+    setDraft(null);
+  };
+
+  // Persists the draft but keeps the panel open. Once the parent props reflect
+  // the saved values, `hasChanges` flips back to false and Save disables again.
   const saveConfigure = () => {
     if (draft) onSetConfig(widgetId, draft);
-    setWizard(null);
-    setDraft(null);
-    setConfigOpen(false);
   };
 
-  const openEdit = useCallback((control: WidgetControl) => {
-    const { roomZones, lights } = useHueResourcesStore.getState();
-    let resolved: ResolvedTarget;
-    if (control.target.kind === "light") {
-      const light = lights.find(
-        (candidate) => candidate.id === control.target.id,
-      );
-      resolved = light
-        ? resolveLight(light)
-        : {
-            target: control.target,
-            name: control.label ?? "Light",
-            dimmable: control.showBrightness,
-            icon: null,
-          };
+  const toggleConfigure = () => {
+    if (!configOpen) {
+      openConfigure();
+    } else if (hasChanges) {
+      setConfirmCloseOpen(true);
     } else {
-      const roomZone = roomZones.find(
-        (candidate) => candidate.id === control.target.id,
-      );
-      resolved = roomZone
-        ? resolveRoomZone(roomZone)
-        : {
-            target: control.target,
-            name: control.label ?? "Space",
-            dimmable: control.showBrightness,
-            icon: null,
-          };
+      closeConfigure();
     }
-    setWizard({ mode: "edit", control, resolved });
-  }, []);
-
-  const completeWizard = (control: WidgetControl) => {
-    const list = activeConfig.controls;
-    const exists = list.some((existing) => existing.id === control.id);
-    updateDraft({
-      controls: exists
-        ? list.map((existing) =>
-            existing.id === control.id ? control : existing,
-          )
-        : [...list, control],
-    });
-    setWizard(null);
   };
 
   return (
@@ -240,58 +172,95 @@ export const WidgetCard = ({
           : FLAT_CARD,
       )}
     >
-      <button
-        type="button"
-        onClick={() => (configOpen ? cancelConfigure() : openConfigure())}
-        aria-expanded={configOpen}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40"
-      >
-        <span
-          className={cn(
-            "flex size-7 shrink-0 items-center justify-center rounded-lg border",
-            enabled
-              ? "border-primary/30 bg-primary/10 text-primary"
-              : "border-border/60 text-muted-foreground",
-          )}
-        >
-          <MonitorSmartphone size={15} />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium">
-            {widget.title ?? "Hue Widget"}
-          </span>
-          <span className="block truncate text-xs text-muted-foreground">
-            {count === 0
-              ? "No controls"
-              : `${count} control${count > 1 ? "s" : ""}`}
-          </span>
-        </span>
-
-        {pinned ? (
-          <Lock size={12} className="shrink-0 text-muted-foreground" />
-        ) : null}
-
-        {enabled ? (
-          <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-(--success-surface) px-2.5 py-1 text-xs font-medium text-(--success-text)">
-            <span className="size-1.5 rounded-full bg-success" />
-            Active
-          </span>
-        ) : (
-          <span className="shrink-0 text-xs font-medium text-muted-foreground">
-            Inactive
-          </span>
+      <div
+        className={cn(
+          "flex items-center transition-colors hover:bg-[oklch(0.95_0_0)] dark:hover:bg-[oklch(0.30_0_0)]",
+          configOpen &&
+            "bg-[oklch(0.97_0_0)] dark:bg-[oklch(0.28_0_0)]",
         )}
+      >
+        <button
+          type="button"
+          onClick={toggleConfigure}
+          aria-expanded={configOpen}
+          className="flex min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left"
+        >
+          <span
+            className={cn(
+              "flex size-7 shrink-0 items-center justify-center rounded-lg border",
+              enabled
+                ? "border-primary/30 bg-primary/10 text-primary"
+                : "border-border/60 text-muted-foreground",
+            )}
+          >
+            <MonitorSmartphone size={15} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">
+              {widget.title ?? "Hue Widget"}
+            </span>
+            <span className="block truncate text-xs text-muted-foreground">
+              {count === 0
+                ? "No controls"
+                : `${count} control${count > 1 ? "s" : ""}`}
+            </span>
+          </span>
 
-        <ChevronDown
-          size={16}
+          {pinned ? (
+            <Pin size={12} className="shrink-0 text-muted-foreground" />
+          ) : null}
+        </button>
+        <button
+          type="button"
+          aria-label={enabled ? "Deactivate widget" : "Activate widget"}
           className={cn(
-            "shrink-0 text-muted-foreground transition-transform",
-            configOpen && "rotate-180",
+            "mr-2 flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-opacity hover:opacity-75",
+            enabled
+              ? "bg-(--success-surface) text-(--success-text)"
+              : "bg-muted text-muted-foreground",
           )}
-        />
-      </button>
-      {configOpen ? (
-        <div className="border-t border-border/60 px-4 py-4">
+          onClick={() => enabled ? onClose(widgetId) : onReopen(widgetId)}
+        >
+          <span
+            className={cn(
+              "size-1.5 rounded-full",
+              enabled ? "bg-success" : "bg-muted-foreground",
+            )}
+          />
+          {enabled ? "Active" : "Inactive"}
+        </button>
+        <button
+          type="button"
+          onClick={toggleConfigure}
+          aria-label={
+            configOpen ? "Close widget settings" : "Open widget settings"
+          }
+          aria-expanded={configOpen}
+          className="mr-4 flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground"
+        >
+          <ChevronDown
+            size={16}
+            className={cn(
+              "transition-transform",
+              configOpen && "rotate-180",
+            )}
+          />
+        </button>
+      </div>
+      <AnimatePresence initial={false}>
+        {configOpen ? (
+          <motion.div
+            key="configuration"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{
+              duration: prefersReducedMotion ? 0 : 0.2,
+              ease: [0.4, 0, 0.2, 1],
+            }}
+            className="overflow-hidden"
+          >
+            <div className="border-t border-border/60 px-4 py-4">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-medium">Active</p>
@@ -308,70 +277,41 @@ export const WidgetCard = ({
             />
           </div>
 
-          {enabled ? (
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium">Pinned</p>
-                <p className="text-xs text-muted-foreground">
-                  Lock this widget to its current position.
-                </p>
-              </div>
-              <IconTooltip label={pinned ? "Unpin widget" : "Pin widget"}>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="ghost"
-                  aria-label={pinned ? "Unpin widget" : "Pin widget"}
-                  onClick={() => onSetPinned(widgetId, !pinned)}
-                >
-                  {pinned ? <Pin /> : <PinOff />}
-                </Button>
-              </IconTooltip>
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium">Pinned</p>
+              <p className="text-xs text-muted-foreground">
+                Lock this widget to its current position.
+              </p>
             </div>
-          ) : null}
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="rounded-lg"
+              aria-label={pinned ? "Unpin widget" : "Pin widget"}
+              onClick={() => onSetPinned(widgetId, !pinned)}
+            >
+              {pinned ? <PinOff /> : <Pin />}
+              {pinned ? "Unpin" : "Pin"}
+            </Button>
+          </div>
 
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <p className="text-sm font-medium">Always on top</p>
               <p className="text-xs text-muted-foreground">
-                {pinned
-                  ? "Pinned widgets always stay on top."
-                  : "Keep this widget floating above other windows."}
+                Keep this widget floating above other windows.
               </p>
             </div>
             <Switch
-              checked={pinned || alwaysOnTop}
-              disabled={pinned}
+              checked={alwaysOnTop}
               onCheckedChange={(checked) => onSetAlwaysOnTop(widgetId, checked)}
               aria-label="Always on top"
             />
           </div>
 
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium">Visual preset</p>
-              <p className="text-xs text-muted-foreground">
-                Uses the current app theme automatically.
-              </p>
-            </div>
-            <Select
-              value={activeConfig.stylePreset}
-              onValueChange={(value) =>
-                updateDraft({ stylePreset: value as WidgetStylePreset })
-              }
-            >
-              <SelectTrigger size="sm" className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                {STYLE_PRESETS.map((preset) => (
-                  <SelectItem key={preset} value={preset}>
-                    {WIDGET_PRESET_LABELS[preset]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <WidgetPositionPicker widgetId={widgetId} />
 
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
@@ -380,123 +320,39 @@ export const WidgetCard = ({
                 Choose the widget's light or dark appearance.
               </p>
             </div>
-            <Select
+            <SegmentedControl
               value={activeConfig.themeMode}
               onValueChange={(value) =>
                 updateDraft({ themeMode: value as WidgetThemeMode })
               }
-            >
-              <SelectTrigger size="sm" className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                {THEME_MODES.map((mode) => (
-                  <SelectItem key={mode.value} value={mode.value}>
-                    {mode.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium">Layout</p>
-              <p className="text-xs text-muted-foreground">
-                Match the column layout from the widget wizard.
-              </p>
-            </div>
-            <Select
-              value={activeConfig.density}
-              onValueChange={(value) =>
-                updateDraft({ density: value as WidgetDensity })
-              }
-            >
-              <SelectTrigger size="sm" className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                {DENSITIES.map((density) => (
-                  <SelectItem key={density.value} value={density.value}>
-                    {density.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium">Title bar position</p>
-              <p className="text-xs text-muted-foreground">
-                Which edge the window controls sit on.
-              </p>
-            </div>
-            <Select
-              value={activeConfig.titleBarPosition}
-              onValueChange={(value) =>
-                updateDraft({
-                  titleBarPosition: value as WidgetTitleBarPosition,
-                })
-              }
-            >
-              <SelectTrigger size="sm" className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                {TITLE_BAR_POSITIONS.map((position) => (
-                  <SelectItem key={position.value} value={position.value}>
-                    {position.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="mb-4 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm font-medium">Button alignment</p>
-              <p className="text-xs text-muted-foreground">
-                Where the controls align along the bar.
-              </p>
-            </div>
-            <Select
-              value={activeConfig.buttonAlignment}
-              onValueChange={(value) =>
-                updateDraft({ buttonAlignment: value as WidgetButtonAlignment })
-              }
-            >
-              <SelectTrigger size="sm" className="w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                {BUTTON_ALIGNMENTS.map((alignment) => (
-                  <SelectItem key={alignment} value={alignment}>
-                    {alignmentLabels[alignment]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {wizard ? (
-            <ControlWizard
-              editing={
-                wizard.mode === "edit"
-                  ? { control: wizard.control, resolved: wizard.resolved }
-                  : undefined
-              }
-              onCancel={() => setWizard(null)}
-              onComplete={completeWizard}
+              ariaLabel="Widget theme"
+              options={THEME_MODES}
+              layoutId={`widget-theme-mode-pill-${widgetId}`}
             />
-          ) : (
-            <ManageControls
-              controls={activeConfig.controls}
-              onAdd={() => setWizard({ mode: "add" })}
-              onEdit={openEdit}
-              onChange={(controls) => updateDraft({ controls })}
+          </div>
+
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium">Widget size</p>
+              <p className="text-xs text-muted-foreground">
+                Adjust the dimensions of the widget controls.
+              </p>
+            </div>
+            <SegmentedControl
+              value={activeConfig.sizeMode}
+              onValueChange={(value) =>
+                updateDraft({ sizeMode: value as WidgetSizeMode })
+              }
+              ariaLabel="Widget size"
+              options={SIZE_MODES}
+              layoutId={`widget-size-mode-pill-${widgetId}`}
             />
-          )}
+          </div>
+
+          <ManageControls
+            controls={activeConfig.controls}
+            onChange={(controls) => updateDraft({ controls })}
+          />
 
           <div className="mt-5 flex justify-end gap-2 border-t border-border/60 pt-4">
             <span className="mr-auto">
@@ -507,15 +363,62 @@ export const WidgetCard = ({
                 onDelete={() => onRemove(widgetId)}
               />
             </span>
-            <Button type="button" variant="ghost" onClick={cancelConfigure}>
-              Cancel
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={resetConfigure}
+              disabled={!hasChanges}
+            >
+              Reset
             </Button>
-            <Button type="button" onClick={saveConfigure}>
+            <Button type="button" onClick={saveConfigure} disabled={!hasChanges}>
               Save
             </Button>
           </div>
-        </div>
-      ) : null}
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <AlertDialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
+        <AlertDialogContent>
+          <AlertDialogCancel
+            variant="ghost"
+            size="icon"
+            aria-label="Keep editing"
+            className="absolute top-4 right-4 size-8 rounded-full text-muted-foreground"
+          >
+            <X size={16} />
+          </AlertDialogCancel>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have unsaved changes to this widget. Closing now will discard
+              them and revert to the last saved configuration.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                setConfirmCloseOpen(false);
+                closeConfigure();
+              }}
+            >
+              Discard
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                saveConfigure();
+                setConfirmCloseOpen(false);
+                setConfigOpen(false);
+              }}
+            >
+              Save changes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 };

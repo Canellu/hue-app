@@ -362,6 +362,8 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               <TabsContent value="widget">
                 <WidgetTab
                   widgets={widgets}
+                  focusedWidgetId={search.widgetId}
+                  focusRequest={search.widgetRequest}
                   onReopen={(id) => void openWidget(id)}
                   onClose={(id) => void closeWidget(id)}
                   onRemove={removeWidget}

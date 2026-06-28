@@ -10,22 +10,16 @@ import {
 
 export const settingsTabs = [
   {
-    value: "app",
-    label: "General",
-    description: "Set app appearance and desktop window behavior.",
-    icon: Monitor,
-  },
-  {
-    value: "widget",
-    label: "Widget",
-    description: "Prepare pinned desktop widget windows.",
-    icon: Blocks,
-  },
-  {
     value: "bridge",
     label: "Bridge",
     description: "Manage bridge connection and saved credentials.",
     icon: Router,
+  },
+  {
+    value: "app",
+    label: "General",
+    description: "Set app appearance and desktop window behavior.",
+    icon: Monitor,
   },
   {
     value: "devices",
@@ -44,6 +38,12 @@ export const settingsTabs = [
     label: "Scenes",
     description: "Create and manage room and zone scenes.",
     icon: Palette,
+  },
+  {
+    value: "widget",
+    label: "Widget",
+    description: "Prepare pinned desktop widget windows.",
+    icon: Blocks,
   },
 ] satisfies Array<{
   value: string;

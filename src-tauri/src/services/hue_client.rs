@@ -1343,6 +1343,30 @@ impl HueClient {
             .await
     }
 
+    /// Runs the bridge-native on/off identification signal without changing the
+    /// light's persisted state.
+    pub async fn signal_light(
+        &self,
+        ip: &str,
+        application_key: &str,
+        id: &str,
+        duration_ms: u32,
+    ) -> Result<(), String> {
+        self.put_v2(
+            ip,
+            application_key,
+            "light",
+            id,
+            json!({
+                "signaling": {
+                    "signal": "on_off",
+                    "duration": duration_ms,
+                }
+            }),
+        )
+        .await
+    }
+
     /// Updates an individual light's color attributes. Any combination of `xy`,
     /// `ct` (mireds) or `effect` may be supplied; setting one also turns the
     /// light on so the change is visible immediately.

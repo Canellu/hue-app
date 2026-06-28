@@ -33,6 +33,8 @@ export const SceneTile: React.FC<{
   topRightAction?: React.ReactNode;
   disabled?: boolean;
   ariaPressed?: boolean;
+  /** "sm" shrinks the tile for tight surfaces; "xs" is the miniature widget rail. */
+  size?: "default" | "sm" | "xs";
   className?: string;
   style?: React.CSSProperties;
 }> = ({
@@ -46,9 +48,13 @@ export const SceneTile: React.FC<{
   topRightAction,
   disabled = false,
   ariaPressed,
+  size = "default",
   className,
   style,
-}) => (
+}) => {
+  const tiny = size === "xs";
+  const small = size === "sm";
+  return (
   <Card
     size="sm"
     role="button"
@@ -66,10 +72,21 @@ export const SceneTile: React.FC<{
       }
     }}
     className={cn(
-      "group relative shrink-0 cursor-pointer items-center justify-between bg-tile px-4 py-5 text-center outline-none ring-transparent focus-visible:ring-2 focus-visible:ring-ring",
+      "group relative shrink-0 cursor-pointer items-center justify-between bg-tile text-center outline-none ring-transparent focus-visible:ring-2 focus-visible:ring-ring",
       SCENE_TILE_SURFACE_CLASS,
       TILE_INTERACTION_TRANSITION_CLASS,
-      fullWidth ? "h-40 w-full" : "h-40 w-36",
+      tiny ? "gap-1 px-1.5 py-2" : small ? "gap-1.5 px-2 py-3" : "gap-2 px-4 py-5",
+      tiny
+        ? fullWidth
+          ? "h-20 w-full"
+          : "h-20 w-16"
+        : small
+          ? fullWidth
+            ? "h-28 w-full"
+            : "h-28 w-24"
+          : fullWidth
+            ? "h-40 w-full"
+            : "h-40 w-36",
       className,
     )}
     style={
@@ -108,11 +125,23 @@ export const SceneTile: React.FC<{
         {cornerLabelLeft}
       </span>
     )}
-    <div className="mt-2 flex">{visual}</div>
-    <span className="flex h-10 min-w-0 flex-col items-center justify-center">
+    <div className={cn("flex", tiny ? "mt-0.5" : small ? "mt-1" : "mt-2")}>
+      {visual}
+    </div>
+    <span
+      className={cn(
+        "flex min-w-0 flex-col items-center justify-center",
+        tiny ? "h-7" : small ? "h-9" : "h-11",
+      )}
+    >
       <span
         className={cn(
-          "line-clamp-2 max-w-full text-base leading-tight font-medium break-words",
+          "line-clamp-2 max-w-full font-medium wrap-break-word",
+          tiny
+            ? "text-[11px] leading-tight tracking-[0.03em]"
+            : small
+              ? "text-xs leading-snug"
+              : "text-base leading-snug",
           activeBackground && "drop-shadow",
         )}
       >
@@ -120,4 +149,5 @@ export const SceneTile: React.FC<{
       </span>
     </span>
   </Card>
-);
+  );
+};

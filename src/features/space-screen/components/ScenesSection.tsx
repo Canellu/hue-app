@@ -8,8 +8,8 @@ import {
   CarouselNext,
   CarouselPrevious,
 } from "@/components/ui/carousel";
+import { CarouselDots } from "@/components/ui/carousel-dots";
 import type { HueGalleryScenePreset } from "@/features/space-screen/data/hueSceneGallery";
-import { cn } from "@/lib/utils";
 import type { HueScene } from "@/types/hue";
 import { SceneCard } from "./SceneCard";
 import { SceneGalleryCard } from "./SceneGalleryCard";
@@ -122,19 +122,10 @@ export const ScenesSection: React.FC<ScenesSectionProps> = ({
   // carousel chrome — which is the nicer UX the slider would otherwise clutter.
   const [api, setApi] = useState<CarouselApi>();
   const [canScroll, setCanScroll] = useState(false);
-  // Drives the segmented page indicator: one segment per snap point (page), with
-  // `selectedIndex` marking the active one. This reads the carousel as discrete
-  // pages — you can count the segments to see how many times it pages left/right.
-  const [snaps, setSnaps] = useState<number[]>([]);
-  const [selectedIndex, setSelectedIndex] = useState(0);
 
   useEffect(() => {
     if (!api) return;
-    const update = () => {
-      setCanScroll(api.canScrollPrev() || api.canScrollNext());
-      setSnaps(api.scrollSnapList());
-      setSelectedIndex(api.selectedScrollSnap());
-    };
+    const update = () => setCanScroll(api.canScrollPrev() || api.canScrollNext());
     update();
     api.on("select", update);
     api.on("reInit", update);
@@ -143,22 +134,6 @@ export const ScenesSection: React.FC<ScenesSectionProps> = ({
       api.off("reInit", update);
     };
   }, [api]);
-
-  // Press-drag scrubbing across the dots: map the pointer's x within the track to
-  // a fraction, then page to the nearest dot. Because the dots are evenly spaced,
-  // fraction → index is a straight proportional map. Pointer capture keeps a
-  // press-drag tracking even when the cursor leaves the row.
-  const trackRef = useRef<HTMLDivElement>(null);
-  const scrubTo = (clientX: number) => {
-    const track = trackRef.current;
-    if (!api || !track || snaps.length === 0) return;
-    const rect = track.getBoundingClientRect();
-    const fraction = Math.min(
-      1,
-      Math.max(0, (clientX - rect.left) / rect.width),
-    );
-    api.scrollTo(Math.round(fraction * (snaps.length - 1)));
-  };
 
   // Saving keeps the gallery open — closing is explicit (the X or backdrop) so
   // the user can keep auditioning presets and add several without reopening.
@@ -216,35 +191,7 @@ export const ScenesSection: React.FC<ScenesSectionProps> = ({
             </CarouselItem>
           ))}
         </CarouselContent>
-        {canScroll && (
-          <div
-            ref={trackRef}
-            className="group mx-auto mt-3 flex h-5 w-fit cursor-pointer touch-none items-center gap-1.5 px-2"
-            role="presentation"
-            onPointerDown={(event) => {
-              event.currentTarget.setPointerCapture(event.pointerId);
-              scrubTo(event.clientX);
-            }}
-            onPointerMove={(event) => {
-              if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                scrubTo(event.clientX);
-              }
-            }}
-          >
-            {snaps.map((_, index) => (
-              <span
-                key={index}
-                aria-current={index === selectedIndex}
-                className={cn(
-                  "h-1.5 rounded-full transition-[width,height,background-color] duration-200",
-                  index === selectedIndex
-                    ? "w-7 bg-muted-foreground/70 group-hover:h-2.5 group-hover:bg-muted-foreground"
-                    : "w-3 bg-muted-foreground/30 group-hover:bg-muted-foreground/50",
-                )}
-              />
-            ))}
-          </div>
-        )}
+        <CarouselDots api={api} />
       </Carousel>
       <SceneGalleryDialog
         open={sceneGalleryOpen}

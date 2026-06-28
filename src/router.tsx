@@ -33,6 +33,12 @@ const settingsRoute = createRoute({
   path: "/settings",
   validateSearch: (search: Record<string, unknown>) => ({
     tab: typeof search.tab === "string" ? search.tab : undefined,
+    ...(typeof search.widgetId === "string"
+      ? { widgetId: search.widgetId }
+      : {}),
+    ...(typeof search.widgetRequest === "number"
+      ? { widgetRequest: search.widgetRequest }
+      : {}),
   }),
   component: SettingsRoute,
 });

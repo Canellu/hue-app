@@ -7,19 +7,26 @@ import {
   TabsList,
   TabsTrigger,
 } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
-import { sceneBubbleCss } from "@/features/space-screen/utils/color-state";
 import { ControlView } from "@/features/widget-screen/components/ControlCard";
 import {
-  MAX_CONTROL_SCENES,
+  SceneCardRail,
+  SceneRailItem,
+  SelectableSceneCard,
+} from "@/features/widget-screen/components/SceneCardRail";
+import {
   newControlId,
-  type WidgetDensity,
   type WidgetControl,
-  type WidgetStylePreset,
   type WidgetThemeMode,
 } from "@/features/widget-screen/types";
 import {
-  WIDGET_PRESET_LABELS,
+  WIDGET_CARD_GRID_COLUMNS,
   resolveWidgetTheme,
   widgetShellStyle,
 } from "@/features/widget-screen/widgetShell";
@@ -41,20 +48,21 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Check,
   ChevronDown,
   ChevronLeft,
-  Columns2,
   GripVertical,
-  Layers3,
   Lightbulb,
-  Rows3,
   Search,
   Sparkles,
+  Spotlight,
 } from "lucide-react";
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+
+const BLINK_DURATION_MS = 3_000;
 
 const steps = ["Name", "Controls", "Configure"];
 
@@ -78,13 +86,11 @@ const SUGGESTED_NAMES = [
 
 const randomSuggestedName = () =>
   SUGGESTED_NAMES[Math.floor(Math.random() * SUGGESTED_NAMES.length)];
-const stylePresets: WidgetStylePreset[] = ["windows11", "macos", "borderless"];
 const themeModes: Array<{ value: WidgetThemeMode; label: string }> = [
   { value: "system", label: "System" },
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
 ];
-
 // Dev-only placeholder targets so the Control screen has something to
 // select when no bridge is connected (e.g. the VITE_DEV_VIEWS preview). Never
 // surfaced in production builds — a real empty wizard shows no fake targets.
@@ -191,9 +197,7 @@ interface WidgetWizardProps {
   onCreate: (options: {
     title: string;
     controls: WidgetControl[];
-    stylePreset: WidgetStylePreset;
     themeMode: WidgetThemeMode;
-    density: WidgetDensity;
   }) => void;
   /** Step to mount on. Dev-only: lets the dev toolbar preview a single screen. */
   initialStep?: number;
@@ -209,10 +213,6 @@ export const WidgetWizard = ({
   const roomZones = useHueResourcesStore((state) => state.roomZones);
   const lights = useHueResourcesStore((state) => state.lights);
   const scenes = useHueResourcesStore((state) => state.scenes);
-  const setRoomZoneState = useHueResourcesStore(
-    (state) => state.setRoomZoneState,
-  );
-  const setLightState = useHueResourcesStore((state) => state.setLightState);
   const [step, setStep] = useState(initialStep);
   const [title, setTitle] = useState("");
   const [namePlaceholder] = useState(randomSuggestedName);
@@ -220,14 +220,14 @@ export const WidgetWizard = ({
   const [query, setQuery] = useState("");
   const [spacesOpen, setSpacesOpen] = useState(true);
   const [lightsOpen, setLightsOpen] = useState(true);
-  const [density, setDensity] = useState<WidgetDensity>("compact");
-  const [stylePreset, setStylePreset] =
-    useState<WidgetStylePreset>("windows11");
   const [themeMode, setThemeMode] = useState<WidgetThemeMode>("system");
   const [maxUnlockedStep, setMaxUnlockedStep] = useState(initialStep);
   // Editable list of controls, seeded from the step-1 selection. Held as state
   // (not derived) so it can be reordered and configured per-control.
   const [controls, setControls] = useState<WidgetControl[]>([]);
+  const [blinkingTargets, setBlinkingTargets] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   // Fall back to placeholder targets in dev when the store is empty (no bridge),
   // so the selection UI is never blank to design against. Production keeps the
@@ -340,7 +340,6 @@ export const WidgetWizard = ({
             sceneIds: control.sceneIds.filter((value) => value !== sceneId),
           };
         }
-        if (control.sceneIds.length >= MAX_CONTROL_SCENES) return control;
         return { ...control, sceneIds: [...control.sceneIds, sceneId] };
       }),
     );
@@ -364,29 +363,47 @@ export const WidgetWizard = ({
         : [...current, key],
     );
 
-  const flashRoomZone = (roomZone: HueRoomZone) => {
-    if (!roomZone.groupedLightId) return;
-    const wasOn = roomZone.anyOn;
-    setRoomZoneState(roomZone, !wasOn, null);
-    window.setTimeout(() => setRoomZoneState(roomZone, wasOn, null), 600);
+  const blinkLights = async (key: string, lightIds: string[]) => {
+    if (lightIds.length === 0 || blinkingTargets.has(key)) return;
+    setBlinkingTargets((current) => new Set(current).add(key));
+    try {
+      await Promise.all(
+        lightIds.map((id) =>
+          invoke("signal-light", { id, durationMs: BLINK_DURATION_MS }),
+        ),
+      );
+      await new Promise((resolve) =>
+        window.setTimeout(resolve, BLINK_DURATION_MS),
+      );
+    } catch (error) {
+      console.error("Failed to blink Hue lights", error);
+    } finally {
+      setBlinkingTargets((current) => {
+        const next = new Set(current);
+        next.delete(key);
+        return next;
+      });
+    }
   };
+
+  const flashRoomZone = (roomZone: HueRoomZone) =>
+    void blinkLights(
+      targetKey(roomZone.resourceType, roomZone.id),
+      roomZone.lightIds,
+    );
 
   const flashLight = (light: HueLight) => {
     // Placeholder dev lights aren't in the store; blinking them would hit the
     // backend for a non-existent resource, so no-op unless it's a real light.
     if (!lights.some((candidate) => candidate.id === light.id)) return;
-    const wasOn = light.isOn;
-    setLightState(light, !wasOn, null);
-    window.setTimeout(() => setLightState(light, wasOn, null), 600);
+    void blinkLights(targetKey("light", light.id), [light.id]);
   };
 
   const create = () =>
     onCreate({
       title: title.trim(),
       controls,
-      stylePreset,
       themeMode,
-      density,
     });
 
   const nextStep = () => {
@@ -540,6 +557,9 @@ export const WidgetWizard = ({
                                 checked={selected.includes(
                                   targetKey(target.resourceType, target.id),
                                 )}
+                                blinking={blinkingTargets.has(
+                                  targetKey(target.resourceType, target.id),
+                                )}
                                 icon={(() => {
                                   const Icon = getRoomZoneIcon(target.class);
                                   return <Icon size={18} />;
@@ -576,6 +596,9 @@ export const WidgetWizard = ({
                               <TargetRow
                                 key={light.id}
                                 checked={selected.includes(
+                                  targetKey("light", light.id),
+                                )}
+                                blinking={blinkingTargets.has(
                                   targetKey("light", light.id),
                                 )}
                                 icon={<Lightbulb size={18} />}
@@ -619,13 +642,15 @@ export const WidgetWizard = ({
                 </p>
               </div>
               <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
-                <Tabs defaultValue="controls" className="gap-4">
+                <Tabs defaultValue="controls" className="min-w-0 gap-4">
                   <TabsList className="w-full">
                     <TabsTrigger value="controls">Controls</TabsTrigger>
-                    <TabsTrigger value="layout">Layout</TabsTrigger>
                     <TabsTrigger value="appearance">Appearance</TabsTrigger>
                   </TabsList>
-                  <TabsContent value="controls" className="flex flex-col gap-3">
+                  <TabsContent
+                    value="controls"
+                    className="flex min-w-0 flex-col gap-3"
+                  >
                     {controls.length === 0 ? (
                       <p className="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-sm text-muted-foreground">
                         Go back and choose at least one control to configure it
@@ -661,35 +686,7 @@ export const WidgetWizard = ({
                       })
                     )}
                   </TabsContent>
-                  <TabsContent value="layout" className="flex flex-col gap-4">
-                    <OptionButton
-                      active={density === "compact"}
-                      icon={<Rows3 size={22} />}
-                      title="Single column"
-                      description="Controls stack in one narrow column."
-                      onClick={() => setDensity("compact")}
-                    />
-                    <OptionButton
-                      active={density === "expanded"}
-                      icon={<Columns2 size={22} />}
-                      title="Two columns"
-                      description="Controls lay out in a wider two-column grid."
-                      onClick={() => setDensity("expanded")}
-                    />
-                  </TabsContent>
                   <TabsContent value="appearance" className="space-y-5">
-                    <PickerGroup title="Window style">
-                      {stylePresets.map((preset) => (
-                        <OptionButton
-                          key={preset}
-                          active={stylePreset === preset}
-                          compact
-                          icon={<Layers3 size={16} />}
-                          title={WIDGET_PRESET_LABELS[preset]}
-                          onClick={() => setStylePreset(preset)}
-                        />
-                      ))}
-                    </PickerGroup>
                     <PickerGroup title="Theme">
                       {themeModes.map((mode) => (
                         <OptionButton
@@ -706,8 +703,6 @@ export const WidgetWizard = ({
                 </Tabs>
 
                 <WidgetPreview
-                  density={density}
-                  stylePreset={stylePreset}
                   theme={previewTheme}
                   controls={controls}
                   scenes={scenes}
@@ -821,6 +816,7 @@ const EmptyRow = () => (
 
 const TargetRow = ({
   checked,
+  blinking,
   icon,
   title,
   meta,
@@ -828,6 +824,7 @@ const TargetRow = ({
   onFlash,
 }: {
   checked: boolean;
+  blinking: boolean;
   icon: React.ReactNode;
   title: string;
   meta: string;
@@ -836,18 +833,19 @@ const TargetRow = ({
 }) => (
   <div
     className={cn(
-      "flex items-center gap-2 px-4 py-2.5 transition-colors",
+      "group flex items-center gap-2 px-4 py-2.5 transition-colors",
       checked ? "bg-primary/5" : "hover:bg-foreground/3",
     )}
   >
-    <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={onToggle}
-        className="sr-only"
-      />
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={checked}
+      onClick={onToggle}
+      className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
+    >
       <span
+        aria-hidden="true"
         className={cn(
           "flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",
           checked
@@ -866,17 +864,35 @@ const TargetRow = ({
           {meta}
         </span>
       </span>
-    </label>
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon"
-      aria-label={`Blink ${title}`}
-      title={`Blink ${title}`}
-      onClick={onFlash}
-    >
-      <Sparkles size={15} />
-    </Button>
+    </button>
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={`Blink ${title}`}
+              disabled={blinking}
+              className={cn(
+                "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
+                blinking && "opacity-100 disabled:opacity-100",
+              )}
+              onClick={onFlash}
+            >
+              <Spotlight
+                size={15}
+                className={cn(blinking && "animate-pulse")}
+              />
+            </Button>
+          }
+        />
+        <TooltipContent side="bottom">
+          {blinking ? `Blinking ${title}…` : `Blink ${title}`}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   </div>
 );
 
@@ -953,7 +969,6 @@ const ControlConfigRow = ({
 }) => {
   const compact = control.compact ?? false;
   const isLight = control.target.kind === "light";
-  const atSceneLimit = control.sceneIds.length >= MAX_CONTROL_SCENES;
 
   return (
     <div className="space-y-3 rounded-xl border border-border/60 bg-card p-3">
@@ -994,42 +1009,24 @@ const ControlConfigRow = ({
           <p className="text-xs text-muted-foreground">
             {groupScenes.length === 0
               ? "No scenes saved for this space yet."
-              : `Scenes — tap to add up to ${MAX_CONTROL_SCENES} quick buttons.`}
+              : "Scenes — tap to add them as quick buttons."}
           </p>
           {groupScenes.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5">
+            <SceneCardRail>
               {groupScenes.map((scene) => {
                 const selected = control.sceneIds.includes(scene.id);
-                const disabled = !selected && atSceneLimit;
-                const bubble = sceneBubbleCss(scene);
                 return (
-                  <button
-                    key={scene.id}
-                    type="button"
-                    onClick={() => onToggleScene(scene.id)}
-                    disabled={disabled}
-                    aria-pressed={selected}
-                    className={cn(
-                      "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                      selected
-                        ? "border-foreground/30 bg-foreground/10"
-                        : "border-border/60 hover:bg-muted/40",
-                      disabled && "opacity-40",
-                    )}
-                  >
-                    <span
-                      aria-hidden
-                      className="size-2.5 shrink-0 rounded-full ring-1 ring-border/60"
-                      style={{ background: bubble ?? "var(--muted)" }}
+                  <SceneRailItem key={scene.id}>
+                    <SelectableSceneCard
+                      scene={scene}
+                      selected={selected}
+                      disabled={false}
+                      onToggle={() => onToggleScene(scene.id)}
                     />
-                    <span className="truncate">{scene.name}</span>
-                    {selected ? (
-                      <Check size={12} className="shrink-0" />
-                    ) : null}
-                  </button>
+                  </SceneRailItem>
                 );
               })}
-            </div>
+            </SceneCardRail>
           ) : null}
         </div>
       ) : null}
@@ -1038,15 +1035,11 @@ const ControlConfigRow = ({
 };
 
 const WidgetPreview = ({
-  density,
-  stylePreset,
   theme,
   controls,
   scenes,
   onReorder,
 }: {
-  density: WidgetDensity;
-  stylePreset: WidgetStylePreset;
   theme: ReturnType<typeof resolveWidgetTheme>;
   controls: WidgetControl[];
   scenes: HueScene[];
@@ -1101,26 +1094,21 @@ const WidgetPreview = ({
   }, []);
 
   const grid = (
+    // Mirror the live widget's uniform `auto-fill` grid at a representative
+    // width (two columns wide) so the preview reflects how cards wrap and share
+    // a row height.
     <div
-      className={cn(
-        "grid gap-(--widget-spacing)",
-        density === "expanded" && "grid-cols-2",
-      )}
-      style={{ width: density === "expanded" ? 652 : 320 }}
+      className="grid content-start gap-3"
+      style={{ width: 612, gridTemplateColumns: WIDGET_CARD_GRID_COLUMNS }}
     >
       {cards.map((control, index) => {
         const card = (
           <PreviewCard
             control={control}
-            preset={stylePreset}
             index={index}
-            scenes={
-              control.compact
-                ? []
-                : control.sceneIds
-                    .map((id) => sceneById.get(id))
-                    .filter((scene): scene is HueScene => scene != null)
-            }
+            scenes={control.sceneIds
+              .map((id) => sceneById.get(id))
+              .filter((scene): scene is HueScene => scene != null)}
           />
         );
         return sortable ? (
@@ -1128,7 +1116,10 @@ const WidgetPreview = ({
             {card}
           </SortablePreviewCard>
         ) : (
-          <div key={control.id} className="pointer-events-none">
+          <div
+            key={control.id}
+            className="pointer-events-none min-w-0"
+          >
             {card}
           </div>
         );
@@ -1144,9 +1135,16 @@ const WidgetPreview = ({
       >
         <div
           ref={shellRef}
-          className="border border-border/40 p-6 text-foreground shadow-2xl"
+          // Mark the preview shell with `dark` for a dark widget so Tailwind
+          // `dark:` variants resolve here (the document class reflects the app
+          // theme, not the previewed widget's); the inline tokens from
+          // `widgetShellStyle` keep the surface colors self-contained either way.
+          className={cn(
+            "border border-border/40 p-6 text-foreground shadow-2xl",
+            theme === "dark" && "dark",
+          )}
           style={{
-            ...widgetShellStyle(stylePreset, theme),
+            ...widgetShellStyle(theme),
             transform: `scale(${scale})`,
             transformOrigin: "center",
           }}
@@ -1205,7 +1203,7 @@ const SortablePreviewCard = ({
   return (
     <div
       ref={setNodeRef}
-      className="group/card relative"
+      className="group/card relative min-w-0"
       style={{
         transform: CSS.Transform.toString(adjusted),
         transition,
@@ -1243,12 +1241,10 @@ const PREVIEW_BRIGHTNESS = [78, 54, 66, 42];
  */
 const PreviewCard = ({
   control,
-  preset,
   index,
   scenes,
 }: {
   control: WidgetControl;
-  preset: WidgetStylePreset;
   index: number;
   scenes: HueScene[];
 }) => {
@@ -1263,10 +1259,10 @@ const PreviewCard = ({
       brightness={PREVIEW_BRIGHTNESS[index % PREVIEW_BRIGHTNESS.length]}
       tileBackground={tint}
       tileTint={tint}
-      preset={preset}
       dimmable
       showBrightness={!control.compact && control.showBrightness}
       scenes={scenes}
+      compact={control.compact ?? false}
       hueEventRevision={0}
       onToggle={() => undefined}
       onBrightness={() => undefined}

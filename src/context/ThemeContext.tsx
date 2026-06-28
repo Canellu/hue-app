@@ -43,7 +43,20 @@ const getSystemTheme = (): ResolvedThemeMode =>
  * document (the `dark` class, `color-scheme`, and localStorage). Also wires the
  * Cmd/Ctrl+J toggle shortcut.
  */
-export const ThemeProvider = ({ children }: { children: ReactNode }) => {
+export const ThemeProvider = ({
+  children,
+  /**
+   * Whether this provider mirrors its theme onto the document (the `dark` class,
+   * `color-scheme`, and shared localStorage). The widget window sets this to
+   * false: each widget owns its own light/dark appearance and drives the `dark`
+   * class itself (see `WidgetScreen`), so the app theme must not leak in — and a
+   * widget must never write the app's stored theme preference to localStorage.
+   */
+  manageDocument = true,
+}: {
+  children: ReactNode;
+  manageDocument?: boolean;
+}) => {
   const [themeMode, setThemeMode] = useState<ThemeMode>(getInitialTheme);
   const [systemThemeMode, setSystemThemeMode] =
     useState<ResolvedThemeMode>(getSystemTheme);
@@ -59,6 +72,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   useEffect(() => {
+    if (!manageDocument) return;
     if (resolvedThemeMode === "dark") {
       document.documentElement.classList.add("dark");
     } else {
@@ -66,7 +80,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     }
     document.documentElement.style.colorScheme = resolvedThemeMode;
     localStorage.setItem("themeMode", themeMode);
-  }, [resolvedThemeMode, themeMode]);
+  }, [resolvedThemeMode, themeMode, manageDocument]);
 
   const toggleTheme = useCallback(
     () => setThemeMode(resolvedThemeMode === "dark" ? "light" : "dark"),

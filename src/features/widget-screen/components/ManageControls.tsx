@@ -1,3 +1,14 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -7,7 +18,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
-import { sceneBubbleCss } from "@/features/space-screen/utils/color-state";
 import { cn } from "@/lib/utils";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HueScene } from "@/types/hue";
@@ -22,23 +32,28 @@ import {
 import {
   SortableContext,
   arrayMove,
-  verticalListSortingStrategy,
   useSortable,
+  verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  Check,
   ChevronDown,
   ChevronLeft,
   GripVertical,
   Lightbulb,
-  Pencil,
   Plus,
   Trash2,
+  X,
 } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useState, type ReactNode } from "react";
+import { ControlPicker } from "../onboarding/ControlPicker";
 import type { WidgetControl } from "../types";
-import { MAX_CONTROL_SCENES } from "../types";
+import {
+  SceneCardRail,
+  SceneRailItem,
+  SelectableSceneCard,
+} from "./SceneCardRail";
 
 const IconTooltip = ({
   label,
@@ -86,21 +101,19 @@ const useControlDisplay = (control: WidgetControl) => {
 const ControlRow = ({
   control,
   groupScenes,
-  onEdit,
   onDelete,
   onChange,
 }: {
   control: WidgetControl;
   groupScenes: HueScene[];
-  onEdit: () => void;
   onDelete: () => void;
   onChange: (control: WidgetControl) => void;
 }) => {
   const [open, setOpen] = useState(false);
+  const prefersReducedMotion = useReducedMotion();
   const display = useControlDisplay(control);
   const compact = control.compact ?? false;
   const sceneCount = control.sceneIds.length;
-  const atSceneLimit = sceneCount >= MAX_CONTROL_SCENES;
   const meta = [
     control.target.kind,
     control.showBrightness ? "dimmer" : null,
@@ -128,7 +141,6 @@ const ControlRow = ({
       });
       return;
     }
-    if (atSceneLimit) return;
     onChange({ ...control, sceneIds: [...control.sceneIds, sceneId] });
   };
 
@@ -143,7 +155,13 @@ const ControlRow = ({
       }}
       className="rounded-lg border border-border/60 bg-card"
     >
-      <div className="flex items-center gap-2 px-3 py-2">
+      <div
+        className={cn(
+          "flex items-center gap-2 px-3 py-2 transition-colors hover:bg-[oklch(0.95_0_0)] dark:hover:bg-[oklch(0.30_0_0)]",
+          open &&
+            "bg-[oklch(0.97_0_0)] dark:bg-[oklch(0.28_0_0)]",
+        )}
+      >
         <IconTooltip label="Drag to reorder">
           <button
             type="button"
@@ -175,6 +193,52 @@ const ControlRow = ({
               {meta}
             </p>
           </div>
+        </button>
+        {open ? (
+          <AlertDialog>
+            <AlertDialogTrigger
+              render={
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  className="shrink-0 text-destructive hover:text-destructive"
+                />
+              }
+            >
+              <Trash2 size={15} />
+              Remove
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Remove control?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This removes “{display.name}” from this widget. The room, zone,
+                  or light itself isn't affected.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel size="xl">Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  size="xl"
+                  className="gap-2"
+                  onClick={onDelete}
+                >
+                  <Trash2 size={15} />
+                  Remove
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-label={open ? "Collapse control" : "Expand control"}
+          aria-expanded={open}
+          className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground"
+        >
           <ChevronDown
             size={16}
             className={cn(
@@ -185,89 +249,127 @@ const ControlRow = ({
         </button>
       </div>
 
-      {open ? (
-      <div className="grid gap-3 border-t border-border/50 px-3 py-3">
-        <label className="flex items-center justify-between gap-3">
-          <span className="min-w-0">
-            <span className="block text-sm font-medium">Compact control</span>
-            <span className="block truncate text-xs text-muted-foreground">
-              Hide the slider and quick scene buttons.
+      <AnimatePresence initial={false}>
+        {open ? (
+          <motion.div
+            key="control-configuration"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{
+              duration: prefersReducedMotion ? 0 : 0.2,
+              ease: [0.4, 0, 0.2, 1],
+            }}
+            className="overflow-hidden"
+          >
+            <div className="grid gap-3 border-t border-border/50 px-3 py-3">
+          <label className="flex items-center justify-between gap-3">
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">Compact mode</span>
+              <span className="block truncate text-xs text-muted-foreground">
+                Hide the brightness slider — keep just the toggle and scenes.
+              </span>
             </span>
-          </span>
-          <Switch
-            checked={compact}
-            onCheckedChange={(checked) =>
-              onChange({ ...control, compact: checked })
-            }
-            aria-label="Compact control"
-          />
-        </label>
+            <Switch
+              checked={compact}
+              onCheckedChange={(checked) =>
+                onChange({ ...control, compact: checked })
+              }
+              aria-label="Compact mode"
+            />
+          </label>
 
-        {control.target.kind !== "light" && !compact ? (
-          <div className="grid gap-2">
-            <p className="text-xs text-muted-foreground">
-              {groupScenes.length === 0
-                ? "No scenes saved for this space yet."
-                : `Quick scenes, up to ${MAX_CONTROL_SCENES}.`}
-            </p>
-            {groupScenes.length > 0 ? (
-              <div className="flex flex-wrap gap-1.5">
-                {groupScenes.map((scene) => {
-                  const selected = control.sceneIds.includes(scene.id);
-                  const disabled = !selected && atSceneLimit;
-                  const bubble = sceneBubbleCss(scene);
-                  return (
-                    <button
-                      key={scene.id}
-                      type="button"
-                      onClick={() => toggleScene(scene.id)}
-                      disabled={disabled}
-                      aria-pressed={selected}
-                      className={cn(
-                        "flex max-w-full items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-                        selected
-                          ? "border-foreground/30 bg-foreground/10"
-                          : "border-border/60 hover:bg-muted/40",
-                        disabled && "opacity-40",
-                      )}
-                    >
-                      <span
-                        aria-hidden
-                        className="size-2.5 shrink-0 rounded-full ring-1 ring-border/60"
-                        style={{ background: bubble ?? "var(--muted)" }}
-                      />
-                      <span className="truncate">{scene.name}</span>
-                      {selected ? <Check size={12} /> : null}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
+          {control.target.kind !== "light" ? (
+            <div className="grid gap-2">
+              <p className="text-xs text-muted-foreground">
+                {groupScenes.length === 0
+                  ? "No scenes saved for this space yet."
+                  : "Tap scenes to add them as quick buttons."}
+              </p>
+              {groupScenes.length > 0 ? (
+                <SceneCardRail>
+                  {groupScenes.map((scene) => {
+                    const selected = control.sceneIds.includes(scene.id);
+                    return (
+                      <SceneRailItem key={scene.id}>
+                        <SelectableSceneCard
+                          scene={scene}
+                          selected={selected}
+                          disabled={false}
+                          onToggle={() => toggleScene(scene.id)}
+                        />
+                      </SceneRailItem>
+                    );
+                  })}
+                </SceneCardRail>
+              ) : null}
+            </div>
+          ) : null}
+
+            </div>
+          </motion.div>
         ) : null}
+      </AnimatePresence>
+    </div>
+  );
+};
 
-        <div className="flex items-center justify-end gap-1 border-t border-border/50 pt-3">
-          <Button
+/**
+ * A placeholder row shown while adding a control. It starts collapsed with a
+ * "nothing selected" hint; expanding reveals the picker, and choosing a target
+ * promotes it into a real control.
+ */
+const PendingControlRow = ({
+  onSelect,
+  onCancel,
+}: {
+  onSelect: (control: WidgetControl) => void;
+  onCancel: () => void;
+}) => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="rounded-lg border border-dashed border-border/70 bg-card">
+      <div className="flex items-center gap-2 px-3 py-2">
+        <button
+          type="button"
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center text-muted-foreground">
+            <Plus size={18} strokeWidth={2.5} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">Nothing selected</p>
+            <p className="truncate text-xs text-muted-foreground">
+              Expand to choose a room, zone, or light.
+            </p>
+          </div>
+          <ChevronDown
+            size={16}
+            className={cn(
+              "shrink-0 text-muted-foreground transition-transform",
+              open && "rotate-180",
+            )}
+          />
+        </button>
+        <IconTooltip label="Cancel">
+          <button
             type="button"
-            size="sm"
-            variant="ghost"
-            onClick={onEdit}
+            onClick={onCancel}
+            aria-label="Cancel adding control"
+            className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
-            <Pencil size={15} />
-            Edit
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="text-destructive hover:text-destructive"
-            onClick={onDelete}
-          >
-            <Trash2 size={15} />
-            Delete
-          </Button>
-        </div>
+            <X size={16} />
+          </button>
+        </IconTooltip>
       </div>
+
+      {open ? (
+        <div className="border-t border-border/50 px-3 py-3">
+          <ControlPicker onSelect={onSelect} />
+        </div>
       ) : null}
     </div>
   );
@@ -276,31 +378,28 @@ const ControlRow = ({
 export const ManageControls = ({
   controls,
   onClose,
-  onAdd,
-  onEdit,
   onChange,
 }: {
   controls: WidgetControl[];
   onClose?: () => void;
-  onAdd: () => void;
-  onEdit: (control: WidgetControl) => void;
   onChange: (next: WidgetControl[]) => void;
 }) => {
   const scenes = useHueResourcesStore((state) => state.scenes);
+  const [adding, setAdding] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
 
+  const addControl = (control: WidgetControl) => {
+    onChange([control, ...controls]);
+    setAdding(false);
+  };
+
+  // Compact only hides the brightness slider; scenes still render as the rail in
+  // both modes, so sceneIds are always preserved across a compact toggle.
   const updateControl = (next: WidgetControl) =>
     onChange(
-      controls.map((control) =>
-        control.id === next.id
-          ? {
-              ...next,
-              sceneIds: next.compact ? [] : next.sceneIds,
-            }
-          : control,
-      ),
+      controls.map((control) => (control.id === next.id ? next : control)),
     );
 
   const remove = (id: string) =>
@@ -316,7 +415,7 @@ export const ManageControls = ({
   };
 
   return (
-    <div className="grid gap-4">
+    <div className="grid gap-4 pt-8">
       <div className="flex items-center gap-2">
         {onClose ? (
           <IconTooltip label="Back">
@@ -332,12 +431,32 @@ export const ManageControls = ({
           </IconTooltip>
         ) : null}
         <p className="text-base font-semibold">Controls</p>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="ml-auto"
+          onClick={() => setAdding(true)}
+          disabled={adding}
+        >
+          <Plus size={16} />
+          Add control
+        </Button>
       </div>
 
+      {adding ? (
+        <PendingControlRow
+          onSelect={addControl}
+          onCancel={() => setAdding(false)}
+        />
+      ) : null}
+
       {controls.length === 0 ? (
-        <p className="px-1 text-sm text-muted-foreground">
-          No controls yet. Add one to start controlling your lights.
-        </p>
+        !adding ? (
+          <p className="px-1 text-sm text-muted-foreground">
+            No controls yet. Add one to start controlling your lights.
+          </p>
+        ) : null
       ) : (
         <DndContext
           sensors={sensors}
@@ -360,7 +479,6 @@ export const ManageControls = ({
                           (scene) => scene.group === control.target.id,
                         )
                   }
-                  onEdit={() => onEdit(control)}
                   onDelete={() => remove(control.id)}
                   onChange={updateControl}
                 />
@@ -369,16 +487,6 @@ export const ManageControls = ({
           </SortableContext>
         </DndContext>
       )}
-
-      <Button
-        type="button"
-        variant="outline"
-        onClick={onAdd}
-        className="w-full"
-      >
-        <Plus size={16} />
-        Add control
-      </Button>
     </div>
   );
 };

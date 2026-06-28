@@ -16,6 +16,13 @@ Scope here: **auth provider, database, "is there a backend," and the paywall.**
 Not scoped here: the homes/membership data model (owned by the membership plan)
 or the Hue OAuth handshake (owned by the cloud-control plan).
 
+> **Launch target: the Microsoft Store (Windows) first.** We ship to a single
+> storefront initially, which adds one hard constraint this doc must satisfy:
+> Microsoft Store policy governs how we may charge. See
+> [Windows Store policy compliance](#windows-store-policy-compliance-launch-target)
+> below — it constrains the payment-provider and Pro-tier sections, and is the
+> reason the Pro tier's "local depth, no backend" story changes for Store builds.
+
 ## The three questions, answered up front
 
 | Question | Answer | Why |
@@ -255,6 +262,12 @@ Because hue-app is a **desktop app distributed outside the iOS/Android stores**,
 we are **not** forced into Apple/Google IAP and their 30% cut — we can use web
 checkout. Main axis of choice is **who handles global sales tax / VAT**.
 
+> **Microsoft Store caveat.** Our launch storefront has its *own* commerce policy.
+> Web checkout (Stripe / Paddle / Lemon Squeezy) is only allowed if what we sell is
+> a **cloud service consumed outside the packaged app**, never a feature bundled in
+> the local installer. That requirement reshapes both this section and the Pro tier
+> — see [Windows Store policy compliance](#windows-store-policy-compliance-launch-target).
+
 | Provider | Model | Tax/VAT | Notes |
 |---|---|---|---|
 | **Paddle / Lemon Squeezy** | Merchant of Record | **They handle it** | MoR = they are the seller of record, remit VAT worldwide. Best for a small team selling globally. **Recommended.** |
@@ -268,6 +281,77 @@ owning tax, **Clerk Billing** is the lowest-plumbing path. Either way Convex hol
 the entitlement record updated by webhook; the provider is swappable behind that
 boundary.
 
+## Windows Store policy compliance (launch target)
+
+We launch on the **Microsoft Store** first, so its commerce policy is a gating
+constraint, not an afterthought. Get this wrong and certification rejects the app.
+
+### The strict constraint
+
+Microsoft Store policy prohibits selling **local desktop application features**
+(locally packaged widgets, themes, gallery scenes) through third-party payment
+processors like Stripe. If the premium code or asset files are bundled inside our
+local Tauri installer (`.msi` / `.exe`), Microsoft can **reject or ban** the app
+during certification review. Put bluntly: **if the thing we charge for already
+sits on disk after install, we may not charge for it with our own checkout.**
+
+### Architectural solution — the hybrid cloud SaaS model
+
+To use Clerk + Stripe (web checkout) legally on the Store *without* paying
+Microsoft's native-commerce commission, premium must be a **cloud service the app
+syncs**, not a local feature it unlocks:
+
+1. **Zero local premium assets.** No premium widget configurations, JSON
+   structures, or scene-rendering logic are statically compiled into the packaged
+   Tauri folder. The installer contains only the free app plus the *machinery* to
+   fetch premium content — never the content itself.
+2. **Web-based checkout.** All Stripe billing, invoicing, and subscription
+   activation happen externally in a standard browser window
+   (`https://yourwebsite.com`). The desktop app provides only an **external link
+   hook** — it never renders a purchase form in-process.
+3. **Dynamic asset streaming.** The desktop app is strictly a cloud-sync client.
+   After Clerk sign-in it inspects `user.publicMetadata.stripeSubscriptionStatus`;
+   if `active`, the React frontend **fetches and streams** the widget/gallery
+   assets over HTTPS from our server at runtime. Nothing premium exists on disk
+   until an entitled session pulls it.
+
+```
+Microsoft Store  ──installs──▶  free app + sync machinery only (no premium assets)
+                                       │
+user clicks "Upgrade"  ──opens──▶  https://yourwebsite.com  (Stripe checkout, browser)
+                                       │ webhook
+                              Stripe ──▶ Clerk publicMetadata.stripeSubscriptionStatus = active
+                                       │
+app reads metadata on sign-in ──active?──▶ stream widgets/scenes over HTTPS at runtime
+```
+
+### Tension with the offline-license / "Pro needs no backend" model
+
+This is a **real conflict** the rest of this doc must reconcile, not a footnote.
+The Pro tier above is sold as *full local depth that works offline with no
+backend*, enforced by an **offline signed license key**. That model is exactly
+what the Store policy forbids when distributed through the Store: local premium
+assets unlocked by a client-side check, paid for off-platform.
+
+So the offline-license path is **valid for direct/sideloaded distribution but not
+for the Store build.** For the Microsoft Store launch, "Pro" must be realized as
+the cloud-sync service above — which means the Store build **does** need the
+Clerk + Convex/cloud backend earlier than the phasing section's "Pro ships now,
+no server" milestone implies. Practical reconciliations:
+
+- **Store = cloud-only premium.** The Store SKU requires sign-in and streams
+  premium; the offline signed-license SKU is reserved for a future direct-download
+  channel. Cleanest legally, but pulls backend work forward to launch.
+- **Free-only on the Store, paid off-Store.** Ship a genuinely useful *free* app
+  to the Store purely as an acquisition funnel, and sell Pro only via our website /
+  direct download where offline licensing is unconstrained. No backend needed to
+  launch, but premium isn't monetizable *inside* the Store listing.
+
+This is an open decision — see the new entry under Open questions. The signed
+public key the app ships to *verify* a license is not itself a "premium asset" and
+is fine to bundle; the prohibition is on the premium **content/features**, not the
+verification machinery.
+
 ## How this maps onto the membership plan's phases
 
 This doc adds the stack for the membership plan's phases, plus a **Pro license
@@ -278,7 +362,12 @@ milestone that can ship before any of them**.
   Squeezy/Paddle. **First revenue, zero server** — monetizes the app we already
   built without waiting for Clerk/Convex/cloud. The earliest and lowest-risk
   money milestone. (Local depth only; personal remote joins Pro once Phase 1
-  cloud control exists.)
+  cloud control exists.) **Microsoft Store caveat:** this "no backend, offline
+  license" milestone is only compliant for **direct / sideloaded** distribution.
+  The Store launch cannot sell locally-bundled depth via web checkout (see
+  [Windows Store policy compliance](#windows-store-policy-compliance-launch-target)),
+  so the Store build either ships Pro as the cloud-sync service (backend pulled
+  forward) or stays free-on-Store with paid Pro sold off-Store.
 - **Phase 1-2 (no stateful backend):** unchanged from the other docs — stateless
   Vercel broker for cloud *control transport*. Still no Clerk/Convex. Personal
   remote control lands here and is **bundled into the existing one-time Pro** — no
@@ -327,6 +416,12 @@ never wants sharing — never requires Clerk, Convex, or a subscription at all.
   users don't get throttled by free-tier or abusive load.
 - **Refunds / chargebacks / downgrade grace** — webhook handling for the unhappy
   paths, not just `subscription.created`.
+- **Store-compliant Pro: cloud-only vs. free-on-Store.** The biggest launch
+  decision. Microsoft Store policy forbids selling locally-bundled features via our
+  own checkout, which collides with the offline-license "Pro needs no backend"
+  model. Either make the Store SKU cloud-sync premium (Clerk + backend at launch)
+  or ship free-on-Store and sell Pro off-Store. Decide before submitting to
+  certification — see [Windows Store policy compliance](#windows-store-policy-compliance-launch-target).
 
 ## Touch list (beyond the other two docs)
 

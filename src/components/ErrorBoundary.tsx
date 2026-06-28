@@ -1,8 +1,20 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { ErrorScreen } from "@/components/ErrorScreen";
 
+interface ErrorFallbackProps {
+  error: Error;
+  componentStack: string | null;
+  onReset: () => void;
+}
+
 interface ErrorBoundaryProps {
   children: ReactNode;
+  /**
+   * Custom fallback to render in place of the default full-screen ErrorScreen —
+   * e.g. the widget window supplies a compact, shell-backed fallback sized for
+   * its small window. Receives the caught error and a reset handler.
+   */
+  fallback?: (props: ErrorFallbackProps) => ReactNode;
 }
 
 interface ErrorBoundaryState {
@@ -39,6 +51,13 @@ export class ErrorBoundary extends Component<
     const { error, componentStack } = this.state;
 
     if (error) {
+      if (this.props.fallback) {
+        return this.props.fallback({
+          error,
+          componentStack,
+          onReset: this.handleReset,
+        });
+      }
       return (
         <ErrorScreen
           error={error}

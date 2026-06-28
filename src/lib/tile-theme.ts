@@ -91,10 +91,6 @@ function brightnessShade(background: string, brightness: number): string {
   return `linear-gradient(to bottom, rgb(255 255 255 / calc(${highlightAlpha} * var(--tile-highlight-strength))) 0%, rgb(255 255 255 / calc(${highlightMidAlpha} * var(--tile-highlight-strength))) ${HIGHLIGHT_PEAK_END}%, rgb(255 255 255 / 0) ${HIGHLIGHT_FADE_END}%), linear-gradient(to top, rgb(0 0 0 / calc(${alpha} * var(--tile-shade-strength))) 0%, rgb(0 0 0 / calc(${midAlpha} * var(--tile-shade-mid-strength))) ${midStop}%, rgb(0 0 0 / 0) ${clearStop}%, rgb(0 0 0 / 0) 100%), ${background}`;
 }
 
-export const supportsContrastColor = (): boolean =>
-  typeof CSS !== "undefined" &&
-  CSS.supports?.("color", "contrast-color(red)") === true;
-
 const parseSolidColor = (
   color: string,
 ): { r: number; g: number; b: number } | null => {
@@ -133,23 +129,99 @@ const relativeLuminance = ({ r, g, b }: { r: number; g: number; b: number }) => 
   return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 };
 
-const contrastForeground = (color: string): string => {
-  const rgb = parseSolidColor(color);
-  if (!rgb) return "oklch(0.145 0 0)";
-  return relativeLuminance(rgb) > 0.45 ? "oklch(0.145 0 0)" : "oklch(0.985 0 0)";
+// --- Ink (text/icon) color for a lit tile -----------------------------------
+// A lit tile renders text/icons in one of two app ink tokens. The CSS
+// `contrast-color()` function can't choose between them correctly here: it only
+// ever sees a single flat color, but our tiles paint a multi-color *gradient*
+// that is then *darkened* by the brightness shade — so a seed taken from one
+// full-brightness color drifts from what's actually behind the text (the
+// "random" feeling). Instead we resolve the ink in JS from every palette color,
+// after modeling the same darkening, and keep whichever ink has the better
+// worst-case contrast across the whole surface.
+
+// Soft near-black / near-white, matching the app's `--foreground` tokens (not
+// pure #000/#fff). Their approximate sRGB luminances are precomputed so the ink
+// choice never has to parse an oklch() string at runtime.
+const INK_DARK = "oklch(0.145 0 0)";
+const INK_LIGHT = "oklch(0.985 0 0)";
+const INK_DARK_LUM = relativeLuminance({ r: 33, g: 33, b: 33 });
+const INK_LIGHT_LUM = relativeLuminance({ r: 250, g: 250, b: 250 });
+
+/** WCAG contrast ratio between two relative luminances (order-independent). */
+const contrastRatio = (a: number, b: number): number =>
+  (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+
+/**
+ * Relative luminances of every solid color (hex or `rgb()`) referenced by a
+ * solid or `linear-gradient(...)` background. Non-color tokens in the gradient
+ * (angles, percentage stops) are ignored. Falls back to `seed` when nothing
+ * parses, so a single solid tint always yields one luminance.
+ */
+const paletteLuminances = (background: string, seed: string): number[] => {
+  const tokens = background.match(/#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)/g) ?? [];
+  const colors = tokens
+    .map(parseSolidColor)
+    .filter((c): c is { r: number; g: number; b: number } => c != null);
+  if (colors.length === 0) {
+    const fallback = parseSolidColor(seed);
+    if (fallback) colors.push(fallback);
+  }
+  return colors.map(relativeLuminance);
+};
+
+/**
+ * Approximate how much the brightness shade (see `brightnessShade`) darkens the
+ * surface where text sits — a black overlay whose bottom alpha climbs as the
+ * tile dims. Returns a representative darkening factor (0 = untouched) taken at
+ * roughly mid-card, so it suits both top-aligned text (the widget header) and
+ * bottom-aligned text (a tile name). A dimmer tile darkens more, so its ink
+ * flips to light sooner — matching what the eye actually sees on the card.
+ */
+const shadeDarkening = (brightness: number | undefined): number => {
+  if (brightness == null) return 0;
+  const intensity = 1 - Math.min(100, Math.max(0, brightness)) / 100;
+  const bottomAlpha =
+    MIN_SHADE_ALPHA +
+    (MAX_SHADE_ALPHA - MIN_SHADE_ALPHA) *
+      Math.pow(intensity, SHADE_CURVE_EXPONENT);
+  return bottomAlpha * 0.5;
+};
+
+/**
+ * Picks the legible ink token for a lit tile. Resolves contrast against the
+ * *whole* painted background — every palette color, dimmed by the brightness
+ * shade — and returns whichever ink keeps the better worst-case contrast, so
+ * text stays readable over both the brightest and the darkest part of a
+ * gradient (and as the tile dims toward dark).
+ */
+const tileInk = (
+  background: string,
+  seed: string,
+  brightness: number | undefined,
+): string => {
+  const keep = 1 - shadeDarkening(brightness);
+  const lums = paletteLuminances(background, seed).map((l) => l * keep);
+  if (lums.length === 0) return INK_DARK;
+  const darkest = Math.min(...lums);
+  const brightest = Math.max(...lums);
+  // Dark ink is weakest over the darkest region; light ink over the brightest.
+  // Whichever keeps the higher worst-case contrast wins the whole card.
+  const darkWorst = contrastRatio(INK_DARK_LUM, darkest);
+  const lightWorst = contrastRatio(INK_LIGHT_LUM, brightest);
+  return darkWorst >= lightWorst ? INK_DARK : INK_LIGHT;
 };
 
 /**
  * Inline style for an *active* (lit) tile. Paints the card with the light's live
- * color and derives a legible ink color from the dominant solid `tint`, so text
- * and icons flip to black or white depending on how light or dark the tint is.
- * The `background` may be a gradient (multi-color palettes), so contrast is
- * resolved against `tint` — the palette's dominant solid color.
+ * color and derives a legible ink color from the actual painted surface (see
+ * `tileInk`), so text and icons flip to light or dark based on the whole
+ * gradient rather than a single seed color. `tint` is only a fallback seed for
+ * the rare case the `background` string carries no parseable color.
  *
  * When `brightness` (0–100) is passed, a bottom-up dark gradient is layered over
  * the color so a dim tile looks dim — strongest at low brightness, easing to a
- * faint base shade (never fully gone) at 100%. Contrast is still resolved against
- * `tint` (the lit color), so the ink color stays stable as the tile dims.
+ * faint base shade (never fully gone) at 100%. The same brightness feeds the ink
+ * choice, so a tile dimmed toward dark flips its text to light in step.
  *
  * Builds on `LIGHT_THEME` so the Switch/Slider keep their colored-card styling,
  * then overrides the foreground tokens. Every card surface that reads text color
@@ -161,16 +233,11 @@ export function activeTileTheme(
   tint: string,
   brightness?: number,
 ): React.CSSProperties {
-  const fallbackForeground = contrastForeground(tint);
-  const foreground = supportsContrastColor()
-    ? `contrast-color(var(--tile-tint))`
-    : fallbackForeground;
+  const foreground = tileInk(background, tint, brightness);
   return {
     ...LIGHT_THEME,
     background:
       brightness == null ? background : brightnessShade(background, brightness),
-    "--tile-tint": tint,
-    "--tile-contrast-fallback": fallbackForeground,
     "--foreground": foreground,
     "--card-foreground": foreground,
     // A solid neutral edge that tracks the app theme: gray in light mode, a

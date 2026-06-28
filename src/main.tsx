@@ -6,6 +6,7 @@ import { Toaster } from "./components/ui/sonner";
 import { HueProvider } from "./context/HueContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import { WidgetScreen } from "./features/widget-screen/WidgetScreen";
+import { WidgetErrorScreen } from "./features/widget-screen/components/WidgetErrorScreen";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "./App.css";
 
@@ -31,8 +32,20 @@ const isWidgetWindow = isWidgetUrl || Boolean(widgetId);
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <ThemeProvider>
-      <ErrorBoundary>
+    <ThemeProvider manageDocument={!isWidgetWindow}>
+      <ErrorBoundary
+        fallback={
+          isWidgetWindow
+            ? ({ error, componentStack, onReset }) => (
+                <WidgetErrorScreen
+                  error={error}
+                  componentStack={componentStack}
+                  onReset={onReset}
+                />
+              )
+            : undefined
+        }
+      >
         {isWidgetWindow ? (
           <>
             <WidgetScreen widgetId={widgetId ?? "main"} />

@@ -18,6 +18,12 @@ export const normalizeSceneStatus = (
 export const isSceneDynamicActive = (scene: HueScene): boolean =>
   scene.dynamic && normalizeSceneStatus(scene.status) === "dynamic palette";
 
+/** A scene counts as active unless the bridge reports it inactive/blank. */
+export const isSceneActive = (scene: HueScene): boolean => {
+  const status = normalizeSceneStatus(scene.status);
+  return status !== "" && status !== "inactive";
+};
+
 // Gallery presets keyed by their exact name. Gallery scenes are created on the
 // bridge using the preset name verbatim, so the name is our handle back to the
 // preset — the bridge stores no gallery identifier of its own. The key is the

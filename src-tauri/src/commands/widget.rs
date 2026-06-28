@@ -27,15 +27,15 @@ const MAX_OPEN_WIDGETS: usize = 3;
 const CONTROL_TARGET_KINDS: [&str; 3] = ["room", "zone", "light"];
 /// The actions a control's global hotkey can perform.
 const CONTROL_HOTKEY_ACTIONS: [&str; 2] = ["toggle", "scene"];
-/// How many quick-scene buttons a single control may expose, keeping a widget
-/// card compact.
-const MAX_CONTROL_SCENES: usize = 6;
 
 /// Emitted to a widget window when its controls are changed elsewhere (e.g.
 /// from the Settings tab) so the live window updates without being reopened.
 const WIDGET_CONTROLS_EVENT: &str = "widget-controls-changed";
 const WIDGET_SETTINGS_CHANGED_EVENT: &str = "widget-settings-changed";
 const OPEN_WIDGET_SETTINGS_EVENT: &str = "open-widget-settings";
+/// Emitted to the main window while a widget window is dragged/moved on screen,
+/// so the Settings "Position" preview tracks the real widget live (two-way sync).
+const WIDGET_MOVED_EVENT: &str = "widget-moved";
 
 fn default_true() -> bool {
     true
@@ -102,22 +102,6 @@ pub struct StoredWidgetControl {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum WidgetStylePreset {
-    Windows11,
-    #[serde(alias = "rainmeter")]
-    Borderless,
-    #[serde(alias = "ios")]
-    Macos,
-}
-
-impl Default for WidgetStylePreset {
-    fn default() -> Self {
-        Self::Windows11
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub enum WidgetThemeMode {
     Light,
     Dark,
@@ -132,48 +116,15 @@ impl Default for WidgetThemeMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub enum WidgetDensity {
-    Compact,
-    Expanded,
+pub enum WidgetSizeMode {
+    Small,
+    Default,
+    Large,
 }
 
-impl Default for WidgetDensity {
+impl Default for WidgetSizeMode {
     fn default() -> Self {
-        Self::Compact
-    }
-}
-
-/// Which edge of the widget the hover title bar (drag region + window controls)
-/// sits on. Top/bottom lay the controls out horizontally; left/right vertically.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum WidgetTitleBarPosition {
-    Top,
-    Bottom,
-    Left,
-    Right,
-}
-
-impl Default for WidgetTitleBarPosition {
-    fn default() -> Self {
-        Self::Top
-    }
-}
-
-/// Where the window-control buttons sit along the title bar's axis. For a
-/// top/bottom bar this reads as left/center/right; for a left/right bar it
-/// reads as top/center/bottom.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum WidgetButtonAlignment {
-    Start,
-    Center,
-    End,
-}
-
-impl Default for WidgetButtonAlignment {
-    fn default() -> Self {
-        Self::End
+        Self::Default
     }
 }
 
@@ -189,18 +140,12 @@ struct StoredWidget {
     #[serde(default)]
     user_sized: bool,
     #[serde(default)]
-    style_preset: WidgetStylePreset,
-    #[serde(default)]
     theme_mode: WidgetThemeMode,
     #[serde(default)]
-    density: WidgetDensity,
-    #[serde(default)]
-    title_bar_position: WidgetTitleBarPosition,
-    #[serde(default)]
-    button_alignment: WidgetButtonAlignment,
-    /// Keeps the widget window floating above other windows. Independent of
-    /// `pinned` (which also locks position), though pinning always implies
-    /// on-top — see [`StoredWidget::keeps_on_top`].
+    size_mode: WidgetSizeMode,
+    /// Keeps the widget window floating above other windows. Fully independent
+    /// of `pinned`: pinning only locks the widget's position, it does not affect
+    /// stacking, and a widget can be on-top without being pinned.
     #[serde(default)]
     always_on_top: bool,
     #[serde(default)]
@@ -208,11 +153,11 @@ struct StoredWidget {
 }
 
 impl StoredWidget {
-    /// Whether the window should float above others. A pinned widget is locked
-    /// in place to stay visible, so it always stays on top regardless of the
-    /// independent `always_on_top` toggle.
+    /// Whether the window should float above others. Driven solely by the
+    /// `always_on_top` toggle; pinning a widget locks its position but leaves
+    /// stacking untouched.
     fn keeps_on_top(&self) -> bool {
-        self.pinned || self.always_on_top
+        self.always_on_top
     }
 }
 
@@ -238,11 +183,8 @@ pub struct WidgetState {
     always_on_top: bool,
     enabled: bool,
     user_sized: bool,
-    style_preset: WidgetStylePreset,
     theme_mode: WidgetThemeMode,
-    density: WidgetDensity,
-    title_bar_position: WidgetTitleBarPosition,
-    button_alignment: WidgetButtonAlignment,
+    size_mode: WidgetSizeMode,
     controls: Vec<StoredWidgetControl>,
 }
 
@@ -255,11 +197,8 @@ impl WidgetState {
             always_on_top: widget.always_on_top,
             enabled: widget.enabled,
             user_sized: widget.user_sized,
-            style_preset: widget.style_preset.clone(),
             theme_mode: widget.theme_mode.clone(),
-            density: widget.density.clone(),
-            title_bar_position: widget.title_bar_position,
-            button_alignment: widget.button_alignment,
+            size_mode: widget.size_mode.clone(),
             controls: widget.controls.clone(),
         }
     }
@@ -271,9 +210,8 @@ pub fn open_widget_window(
     widget_id: Option<String>,
     title: Option<String>,
     controls: Option<Vec<StoredWidgetControl>>,
-    style_preset: Option<WidgetStylePreset>,
     theme_mode: Option<WidgetThemeMode>,
-    density: Option<WidgetDensity>,
+    size_mode: Option<WidgetSizeMode>,
 ) -> Result<OpenWidgetResult, String> {
     let mut settings = read_widget_settings(&app)?;
     let sanitized_controls = controls.map(sanitize_controls);
@@ -322,11 +260,8 @@ pub fn open_widget_window(
             pinned: false,
             bounds: None,
             user_sized: false,
-            style_preset: style_preset.unwrap_or_default(),
             theme_mode: theme_mode.unwrap_or_default(),
-            density: density.unwrap_or_default(),
-            title_bar_position: WidgetTitleBarPosition::default(),
-            button_alignment: WidgetButtonAlignment::default(),
+            size_mode: size_mode.unwrap_or_default(),
             always_on_top: false,
             controls: sanitized_controls.unwrap_or_default(),
         };
@@ -386,11 +321,8 @@ pub fn get_widget_state(
             always_on_top: false,
             enabled: false,
             user_sized: false,
-            style_preset: WidgetStylePreset::default(),
             theme_mode: WidgetThemeMode::default(),
-            density: WidgetDensity::default(),
-            title_bar_position: WidgetTitleBarPosition::default(),
-            button_alignment: WidgetButtonAlignment::default(),
+            size_mode: WidgetSizeMode::default(),
             controls: Vec::new(),
         }))
 }
@@ -518,11 +450,8 @@ pub fn widget_frontend_ready(
             always_on_top: false,
             enabled: false,
             user_sized: false,
-            style_preset: WidgetStylePreset::default(),
             theme_mode: WidgetThemeMode::default(),
-            density: WidgetDensity::default(),
-            title_bar_position: WidgetTitleBarPosition::default(),
-            button_alignment: WidgetButtonAlignment::default(),
+            size_mode: WidgetSizeMode::default(),
             controls: Vec::new(),
         });
     };
@@ -598,7 +527,7 @@ fn show_widget_window(
             .resizable(true)
             .always_on_top(widget.keeps_on_top())
             .transparent(true)
-            .skip_taskbar(false)
+            .skip_taskbar(true)
             // Let the webview receive HTML5 drag-and-drop so the settings panel
             // can accept dropped image files; the OS handler would swallow them.
             .disable_drag_drop_handler()
@@ -654,19 +583,24 @@ pub fn set_widget_pinned(
     widget.pinned = pinned;
     // Pinning locks the widget to its current spot so it reopens there on the
     // next launch; unpinning forgets that spot and frees the window to move.
+    // Stacking is left to the independent always-on-top toggle.
     widget.bounds = if pinned {
         read_window_bounds(&window).or(widget.bounds)
     } else {
         None
     };
-    // Pinning forces on-top; unpinning falls back to the standalone toggle so a
-    // widget the user explicitly set to stay on top keeps doing so.
-    let keeps_on_top = widget.keeps_on_top();
+    let next_state = WidgetState::from_stored(widget);
     write_widget_settings(&app, &settings)?;
 
-    window
-        .set_always_on_top(keeps_on_top)
-        .map_err(|error| error.to_string())
+    // Broadcast so the other window's pin control stays in sync: the widget's own
+    // title bar (when toggled from the Settings tab) and the Settings tab's list
+    // (when toggled from the widget) both react to this.
+    let _ = app.emit_to(&label, WIDGET_SETTINGS_CHANGED_EVENT, &next_state);
+    if app.get_webview_window("main").is_some() {
+        let _ = app.emit_to("main", WIDGET_SETTINGS_CHANGED_EVENT, &next_state);
+    }
+
+    Ok(())
 }
 
 #[tauri::command(rename = "set-widget-always-on-top")]
@@ -746,11 +680,8 @@ pub fn preview_widget_config(
     app: tauri::AppHandle,
     widget_id: Option<String>,
     controls: Vec<StoredWidgetControl>,
-    style_preset: WidgetStylePreset,
     theme_mode: WidgetThemeMode,
-    density: WidgetDensity,
-    title_bar_position: WidgetTitleBarPosition,
-    button_alignment: WidgetButtonAlignment,
+    size_mode: WidgetSizeMode,
 ) -> Result<(), String> {
     let widget_id = resolve_widget_id(&app, widget_id)?;
     let settings = read_widget_settings(&app)?;
@@ -761,11 +692,8 @@ pub fn preview_widget_config(
         .ok_or_else(|| "Widget settings are not available.".to_string())?;
     let mut preview = widget.clone();
     preview.controls = sanitize_controls(controls);
-    preview.style_preset = style_preset;
     preview.theme_mode = theme_mode;
-    preview.density = density;
-    preview.title_bar_position = title_bar_position;
-    preview.button_alignment = button_alignment;
+    preview.size_mode = size_mode;
     let next_state = WidgetState::from_stored(&preview);
 
     let label = widget_label(&widget_id);
@@ -781,11 +709,8 @@ pub fn set_widget_config(
     app: tauri::AppHandle,
     widget_id: Option<String>,
     controls: Vec<StoredWidgetControl>,
-    style_preset: WidgetStylePreset,
     theme_mode: WidgetThemeMode,
-    density: WidgetDensity,
-    title_bar_position: WidgetTitleBarPosition,
-    button_alignment: WidgetButtonAlignment,
+    size_mode: WidgetSizeMode,
 ) -> Result<(), String> {
     let widget_id = resolve_widget_id(&app, widget_id)?;
     let mut settings = read_widget_settings(&app)?;
@@ -795,63 +720,8 @@ pub fn set_widget_config(
         .find(|widget| widget.id == widget_id)
         .ok_or_else(|| "Widget settings are not available.".to_string())?;
     widget.controls = sanitize_controls(controls);
-    widget.style_preset = style_preset;
     widget.theme_mode = theme_mode;
-    widget.density = density;
-    widget.title_bar_position = title_bar_position;
-    widget.button_alignment = button_alignment;
-    let next_state = WidgetState::from_stored(widget);
-    write_widget_settings(&app, &settings)?;
-
-    let label = widget_label(&widget_id);
-    if app.get_webview_window(&label).is_some() {
-        let _ = app.emit_to(&label, WIDGET_SETTINGS_CHANGED_EVENT, &next_state);
-    }
-
-    Ok(())
-}
-
-#[tauri::command(rename = "set-widget-style-preset")]
-pub fn set_widget_style_preset(
-    app: tauri::AppHandle,
-    widget_id: Option<String>,
-    style_preset: WidgetStylePreset,
-) -> Result<(), String> {
-    let widget_id = resolve_widget_id(&app, widget_id)?;
-    let mut settings = read_widget_settings(&app)?;
-    let widget = settings
-        .widgets
-        .iter_mut()
-        .find(|widget| widget.id == widget_id)
-        .ok_or_else(|| "Widget settings are not available.".to_string())?;
-    widget.style_preset = style_preset;
-    let next_state = WidgetState::from_stored(widget);
-    write_widget_settings(&app, &settings)?;
-
-    let label = widget_label(&widget_id);
-    if app.get_webview_window(&label).is_some() {
-        let _ = app.emit_to(&label, WIDGET_SETTINGS_CHANGED_EVENT, &next_state);
-    }
-
-    Ok(())
-}
-
-#[tauri::command(rename = "set-widget-titlebar")]
-pub fn set_widget_titlebar(
-    app: tauri::AppHandle,
-    widget_id: Option<String>,
-    position: WidgetTitleBarPosition,
-    alignment: WidgetButtonAlignment,
-) -> Result<(), String> {
-    let widget_id = resolve_widget_id(&app, widget_id)?;
-    let mut settings = read_widget_settings(&app)?;
-    let widget = settings
-        .widgets
-        .iter_mut()
-        .find(|widget| widget.id == widget_id)
-        .ok_or_else(|| "Widget settings are not available.".to_string())?;
-    widget.title_bar_position = position;
-    widget.button_alignment = alignment;
+    widget.size_mode = size_mode;
     let next_state = WidgetState::from_stored(widget);
     write_widget_settings(&app, &settings)?;
 
@@ -864,10 +734,18 @@ pub fn set_widget_titlebar(
 }
 
 #[tauri::command(rename = "open-widget-settings")]
-pub fn open_widget_settings(app: tauri::AppHandle) -> Result<(), String> {
+pub fn open_widget_settings(
+    app: tauri::AppHandle,
+    widget_id: Option<String>,
+) -> Result<(), String> {
+    let widget_id = resolve_widget_id(&app, widget_id)?;
     crate::commands::app_settings::show_main_window(&app)?;
     if app.get_webview_window("main").is_some() {
-        let _ = app.emit_to("main", OPEN_WIDGET_SETTINGS_EVENT, ());
+        let _ = app.emit_to(
+            "main",
+            OPEN_WIDGET_SETTINGS_EVENT,
+            serde_json::json!({ "widgetId": widget_id }),
+        );
     }
     Ok(())
 }
@@ -964,8 +842,8 @@ fn remove_window_border(_window: &WebviewWindow) {}
 
 fn install_widget_close_handler(window: &WebviewWindow, app: tauri::AppHandle, widget_id: String) {
     let window_for_handler = window.clone();
-    window.on_window_event(move |event| {
-        if let WindowEvent::CloseRequested { api, .. } = event {
+    window.on_window_event(move |event| match event {
+        WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
             if let Ok(mut settings) = read_widget_settings(&app) {
                 mark_widget_closed(&mut settings, &widget_id, &window_for_handler);
@@ -973,6 +851,25 @@ fn install_widget_close_handler(window: &WebviewWindow, app: tauri::AppHandle, w
             }
             let _ = window_for_handler.hide();
         }
+        // While the user drags the widget around the desktop, mirror its new spot
+        // into the Settings "Position" preview live. We read the full bounds (not
+        // just the event's position) so the preview rectangle stays the right
+        // size, and only emit when the main window is around to receive it.
+        WindowEvent::Moved(_) => {
+            if app.get_webview_window("main").is_some() {
+                if let Some(bounds) = read_window_bounds(&window_for_handler) {
+                    let _ = app.emit_to(
+                        "main",
+                        WIDGET_MOVED_EVENT,
+                        WidgetMovedEvent {
+                            widget_id: widget_id.clone(),
+                            bounds,
+                        },
+                    );
+                }
+            }
+        }
+        _ => {}
     });
 }
 
@@ -1216,12 +1113,9 @@ fn sanitize_controls(controls: Vec<StoredWidgetControl>) -> Vec<StoredWidgetCont
             {
                 return None;
             }
-            // Scenes only make sense for a group target, and stay capped so a card
-            // can't grow an unbounded row of buttons.
+            // Scenes only make sense for a group target.
             if control.target.kind == "light" {
                 control.scene_ids.clear();
-            } else {
-                control.scene_ids.truncate(MAX_CONTROL_SCENES);
             }
             if let Some(hotkey) = &control.hotkey {
                 let valid = !hotkey.accelerator.trim().is_empty()
@@ -1259,11 +1153,8 @@ fn legacy_widget_settings_from_value(value: &Value) -> StoredWidgetSettings {
             pinned,
             bounds,
             user_sized: false,
-            style_preset: WidgetStylePreset::default(),
             theme_mode: WidgetThemeMode::default(),
-            density: WidgetDensity::default(),
-            title_bar_position: WidgetTitleBarPosition::default(),
-            button_alignment: WidgetButtonAlignment::default(),
+            size_mode: WidgetSizeMode::default(),
             always_on_top: false,
             controls: Vec::new(),
         }],
@@ -1304,4 +1195,295 @@ fn value_as_u32(value: &Value) -> Option<u32> {
             .then_some(value.round())
             .and_then(|value| u32::try_from(value as i64).ok())
     })
+}
+
+/// One physical display, in the virtual-desktop coordinate space Tauri reports
+/// window positions in. The Settings "Position" picker arranges these to scale
+/// so the user can click a region to move the widget onto it.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorInfo {
+    name: Option<String>,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    scale_factor: f64,
+    is_primary: bool,
+}
+
+/// Everything the position picker needs to draw: every monitor plus the widget's
+/// current physical bounds (the live window's if open, otherwise the persisted
+/// bounds). `bounds` is `None` for a closed widget that has never been placed.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WidgetPlacement {
+    monitors: Vec<MonitorInfo>,
+    bounds: Option<StoredWidgetBounds>,
+}
+
+/// Payload for [`WIDGET_MOVED_EVENT`]: which widget moved and its new bounds, so
+/// the position preview can update the matching rectangle without a round-trip.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WidgetMovedEvent {
+    widget_id: String,
+    bounds: StoredWidgetBounds,
+}
+
+/// Any window we can query the monitor layout through. Monitor enumeration is a
+/// window method in Tauri; the main Settings window is the obvious source, but
+/// fall back to any open window (e.g. a widget) so this still works if the main
+/// window has been hidden to the tray.
+fn monitor_query_window(app: &tauri::AppHandle) -> Option<WebviewWindow> {
+    app.get_webview_window("main")
+        .or_else(|| app.webview_windows().into_values().next())
+}
+
+fn collect_monitors(app: &tauri::AppHandle) -> Result<Vec<MonitorInfo>, String> {
+    let window = monitor_query_window(app)
+        .ok_or_else(|| "No window is available to read the monitor layout.".to_string())?;
+    let monitors = window
+        .available_monitors()
+        .map_err(|error| error.to_string())?;
+    // Match the primary by its top-left corner; `Monitor` isn't comparable, but
+    // two displays can't share an origin in the virtual desktop.
+    let primary_origin = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| (monitor.position().x, monitor.position().y));
+
+    Ok(monitors
+        .iter()
+        .map(|monitor| {
+            let position = monitor.position();
+            let size = monitor.size();
+            MonitorInfo {
+                name: monitor.name().cloned(),
+                x: position.x,
+                y: position.y,
+                width: size.width,
+                height: size.height,
+                scale_factor: monitor.scale_factor(),
+                is_primary: primary_origin == Some((position.x, position.y)),
+            }
+        })
+        .collect())
+}
+
+#[cfg(windows)]
+fn primary_work_area(primary: &MonitorInfo) -> MonitorInfo {
+    use windows_sys::Win32::{
+        Foundation::RECT,
+        UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETWORKAREA},
+    };
+
+    let mut rect = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    let succeeded =
+        unsafe { SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut rect as *mut RECT).cast(), 0) };
+    if succeeded == 0 || rect.right <= rect.left || rect.bottom <= rect.top {
+        return primary.clone();
+    }
+
+    MonitorInfo {
+        name: primary.name.clone(),
+        x: rect.left,
+        y: rect.top,
+        width: (rect.right - rect.left) as u32,
+        height: (rect.bottom - rect.top) as u32,
+        scale_factor: primary.scale_factor,
+        is_primary: true,
+    }
+}
+
+#[cfg(not(windows))]
+fn primary_work_area(primary: &MonitorInfo) -> MonitorInfo {
+    primary.clone()
+}
+
+/// The widget's current physical bounds: the live window's when it's open,
+/// otherwise the persisted bounds (which may be `None`).
+fn current_widget_bounds(
+    app: &tauri::AppHandle,
+    widget_id: &str,
+) -> Result<Option<StoredWidgetBounds>, String> {
+    if let Some(window) = app.get_webview_window(&widget_label(widget_id)) {
+        if let Some(bounds) = read_window_bounds(&window) {
+            return Ok(Some(bounds));
+        }
+    }
+    let settings = read_widget_settings(app)?;
+    Ok(settings
+        .widgets
+        .iter()
+        .find(|widget| widget.id == widget_id)
+        .and_then(|widget| widget.bounds))
+}
+
+#[tauri::command(rename = "get-widget-placement")]
+pub fn get_widget_placement(
+    app: tauri::AppHandle,
+    widget_id: Option<String>,
+) -> Result<WidgetPlacement, String> {
+    let widget_id = resolve_widget_id(&app, widget_id)?;
+    Ok(WidgetPlacement {
+        monitors: collect_monitors(&app)?,
+        bounds: current_widget_bounds(&app, &widget_id)?,
+    })
+}
+
+/// Moves the widget's top-left corner to an absolute virtual-desktop position.
+/// When the window is open it moves live; either way the new spot is persisted so
+/// the widget reopens there. Closed widgets keep their stored size (or fall back
+/// to the default) since there's no live window to measure.
+#[tauri::command(rename = "set-widget-position")]
+pub fn set_widget_position(
+    app: tauri::AppHandle,
+    widget_id: Option<String>,
+    x: i32,
+    y: i32,
+) -> Result<(), String> {
+    let widget_id = resolve_widget_id(&app, widget_id)?;
+    let mut settings = read_widget_settings(&app)?;
+
+    if let Some(window) = app.get_webview_window(&widget_label(&widget_id)) {
+        window
+            .set_position(PhysicalPosition::new(x, y))
+            .map_err(|error| error.to_string())?;
+        if let Some(widget) = settings
+            .widgets
+            .iter_mut()
+            .find(|widget| widget.id == widget_id)
+        {
+            widget.bounds = read_window_bounds(&window).or(widget.bounds);
+        }
+    } else if let Some(widget) = settings
+        .widgets
+        .iter_mut()
+        .find(|widget| widget.id == widget_id)
+    {
+        let (width, height) = widget
+            .bounds
+            .map(|bounds| (bounds.width, bounds.height))
+            .unwrap_or((DEFAULT_WIDGET_WIDTH as u32, DEFAULT_WIDGET_HEIGHT as u32));
+        widget.bounds = Some(StoredWidgetBounds {
+            x,
+            y,
+            width,
+            height,
+        });
+    }
+
+    write_widget_settings(&app, &settings)
+}
+
+/// Recovers a widget that's been dragged or resized off-screen: clamps its size
+/// to fit the primary monitor and re-centres it there. Works whether the widget
+/// is open (moves and resizes live) or closed (rewrites its persisted bounds).
+#[tauri::command(rename = "reset-widget-position")]
+pub fn reset_widget_position(
+    app: tauri::AppHandle,
+    widget_id: Option<String>,
+) -> Result<(), String> {
+    let widget_id = resolve_widget_id(&app, widget_id)?;
+    let monitors = collect_monitors(&app)?;
+    let primary = monitors
+        .iter()
+        .find(|monitor| monitor.is_primary)
+        .or_else(|| monitors.first())
+        .ok_or_else(|| "No monitor is available.".to_string())?;
+    let work_area = primary_work_area(primary);
+
+    // Keep recovered widgets inside the usable desktop, excluding the taskbar.
+    let max_width = (((work_area.width as f64) * 0.9) as u32).max(MIN_WIDGET_WIDTH);
+    let max_height = (((work_area.height as f64) * 0.9) as u32).max(MIN_WIDGET_HEIGHT);
+
+    let mut settings = read_widget_settings(&app)?;
+
+    if let Some(window) = app.get_webview_window(&widget_label(&widget_id)) {
+        let size = window.inner_size().map_err(|error| error.to_string())?;
+        let width = size.width.clamp(MIN_WIDGET_WIDTH, max_width);
+        let height = size.height.clamp(MIN_WIDGET_HEIGHT, max_height);
+        // The layout synchronizer normally prevents the window from becoming
+        // shorter than its content. Recovery must relax that constraint first,
+        // otherwise Windows rejects the taskbar-safe size.
+        window
+            .set_min_size(Some(PhysicalSize::new(
+                MIN_WIDGET_WIDTH.min(width),
+                MIN_WIDGET_HEIGHT.min(height),
+            )))
+            .map_err(|error| error.to_string())?;
+        if width != size.width || height != size.height {
+            window
+                .set_size(PhysicalSize::new(width, height))
+                .map_err(|error| error.to_string())?;
+        }
+        let x = work_area.x + (work_area.width.saturating_sub(width) / 2) as i32;
+        let y = work_area.y + (work_area.height.saturating_sub(height) / 2) as i32;
+        window
+            .set_position(PhysicalPosition::new(x, y))
+            .map_err(|error| error.to_string())?;
+        if let Some(widget) = settings
+            .widgets
+            .iter_mut()
+            .find(|widget| widget.id == widget_id)
+        {
+            // Window mutations are asynchronous on Windows; persist the target
+            // instead of immediately reading back the stale pre-reset bounds.
+            widget.bounds = Some(StoredWidgetBounds {
+                x,
+                y,
+                width,
+                height,
+            });
+        }
+    } else if let Some(widget) = settings
+        .widgets
+        .iter_mut()
+        .find(|widget| widget.id == widget_id)
+    {
+        let (width, height) = widget
+            .bounds
+            .map(|bounds| {
+                (
+                    bounds.width.clamp(MIN_WIDGET_WIDTH, max_width),
+                    bounds.height.clamp(MIN_WIDGET_HEIGHT, max_height),
+                )
+            })
+            .unwrap_or((DEFAULT_WIDGET_WIDTH as u32, DEFAULT_WIDGET_HEIGHT as u32));
+        let x = work_area.x + (work_area.width.saturating_sub(width) / 2) as i32;
+        let y = work_area.y + (work_area.height.saturating_sub(height) / 2) as i32;
+        widget.bounds = Some(StoredWidgetBounds {
+            x,
+            y,
+            width,
+            height,
+        });
+    }
+
+    let next_state = settings
+        .widgets
+        .iter_mut()
+        .find(|widget| widget.id == widget_id)
+        .map(|widget| {
+            widget.pinned = false;
+            WidgetState::from_stored(widget)
+        });
+    write_widget_settings(&app, &settings)?;
+
+    if let Some(next_state) = next_state {
+        let label = widget_label(&widget_id);
+        let _ = app.emit_to(&label, WIDGET_SETTINGS_CHANGED_EVENT, &next_state);
+        if app.get_webview_window("main").is_some() {
+            let _ = app.emit_to("main", WIDGET_SETTINGS_CHANGED_EVENT, &next_state);
+        }
+    }
+
+    Ok(())
 }

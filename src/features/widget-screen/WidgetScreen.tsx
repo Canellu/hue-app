@@ -1,13 +1,19 @@
 import { Button } from "@/components/ui/button";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import {
   HueResourcesStoreEffects,
   useHueResourcesStore,
 } from "@/stores/HueResourcesStore";
-import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Lock, Pin, PinOff, Settings, X } from "lucide-react";
+import { Pin, PinOff, Settings, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -17,15 +23,14 @@ import {
   useState,
 } from "react";
 import { ControlCard } from "./components/ControlCard";
+import type { WidgetControl } from "./types";
 import { useWidgetControls } from "./useWidgetControls";
-import type {
-  WidgetButtonAlignment,
-  WidgetDensity,
-  WidgetControl,
-  WidgetStylePreset,
-  WidgetTitleBarPosition,
-} from "./types";
-import { resolveWidgetTheme, widgetShellStyle } from "./widgetShell";
+import {
+  WIDGET_SIZE_METRICS,
+  resolveWidgetTheme,
+  widgetCardGridColumns,
+  widgetShellStyle,
+} from "./widgetShell";
 
 interface WidgetWindowState {
   widgetId: string;
@@ -35,8 +40,6 @@ interface WidgetWindowState {
 
 const TITLE_BAR_HEIGHT = 36;
 const WIDGET_MIN_HEIGHT = 136;
-const WIDGET_CONTENT_WIDTH = 320;
-const RESIZE_IGNORE_MS = 650;
 const RESIZE_SAVE_DELAY_MS = 300;
 
 const TitleBarButton = ({
@@ -48,49 +51,32 @@ const TitleBarButton = ({
   onClick: (event: React.MouseEvent) => void;
   children: React.ReactNode;
 }) => (
-  <button
-    type="button"
-    aria-label={label}
-    title={label}
-    onClick={(event) => {
-      event.stopPropagation();
-      onClick(event);
-    }}
-    className="flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
-  >
-    {children}
-  </button>
+  <Tooltip>
+    <TooltipTrigger
+      render={
+        <button
+          type="button"
+          aria-label={label}
+          onClick={(event) => {
+            event.stopPropagation();
+            onClick(event);
+          }}
+          className="flex size-7 items-center justify-center rounded-lg text-foreground/75 transition-colors hover:bg-foreground/10 hover:text-foreground"
+        >
+          {children}
+        </button>
+      }
+    />
+    <TooltipContent side="bottom">{label}</TooltipContent>
+  </Tooltip>
 );
-
-/** Edge placement for the absolutely-positioned bar, plus whether its controls
- * stack vertically (left/right) or sit in a row (top/bottom). */
-const TITLE_BAR_EDGE: Record<
-  WidgetTitleBarPosition,
-  { container: string; vertical: boolean }
-> = {
-  top: { container: "inset-x-0 top-0 flex-row", vertical: false },
-  bottom: { container: "inset-x-0 bottom-0 flex-row", vertical: false },
-  left: { container: "inset-y-0 left-0 flex-col", vertical: true },
-  right: { container: "inset-y-0 right-0 flex-col", vertical: true },
-};
-
-/** `justify-*` along the bar's main axis, for the button group's alignment. */
-const TITLE_BAR_ALIGN: Record<WidgetButtonAlignment, string> = {
-  start: "justify-start",
-  center: "justify-center",
-  end: "justify-end",
-};
 
 const WidgetTitleBar = ({
   widgetId,
-  position,
-  alignment,
   onOpenSettings,
   onRevealChange,
 }: {
   widgetId: string;
-  position: WidgetTitleBarPosition;
-  alignment: WidgetButtonAlignment;
   onOpenSettings: () => void;
   /** Notifies the shell when the title bar is hovered/focused so it can reveal
    * its own background and border in step with the title bar. */
@@ -99,7 +85,10 @@ const WidgetTitleBar = ({
   const [pinned, setPinned] = useState(false);
   const [hovering, setHovering] = useState(false);
   const [focusing, setFocusing] = useState(false);
-  const revealed = hovering || focusing;
+  // An unpinned widget is "in arrangement mode": keep its background and title
+  // bar visible so it's easy to spot and grab. Once pinned, it settles in and
+  // only reveals its chrome on hover/focus.
+  const revealed = !pinned || hovering || focusing;
 
   useEffect(() => {
     onRevealChange(revealed);
@@ -109,6 +98,19 @@ const WidgetTitleBar = ({
     void invoke<WidgetWindowState>("get-widget-state", { widgetId })
       .then((state) => setPinned(state.pinned))
       .catch(() => setPinned(false));
+
+    // The pin can also be toggled from the Settings tab; mirror that change here
+    // so the title bar's pin icon and drag-lock stay in sync with the backend.
+    const unlisten = listen<{ widgetId: string; pinned: boolean }>(
+      "widget-settings-changed",
+      (event) => {
+        if (event.payload.widgetId !== widgetId) return;
+        setPinned(event.payload.pinned);
+      },
+    );
+    return () => {
+      void unlisten.then((dispose) => dispose());
+    };
   }, [widgetId]);
 
   const togglePinned = async () => {
@@ -121,23 +123,15 @@ const WidgetTitleBar = ({
     }
   };
 
-  const edge = TITLE_BAR_EDGE[position];
-
   return (
     <header
       className={cn(
-        "absolute z-10 flex items-center gap-1 px-2 text-foreground",
-        edge.container,
-        TITLE_BAR_ALIGN[alignment],
+        "absolute inset-x-0 top-0 z-10 flex flex-row items-center justify-end gap-1 px-2 text-foreground",
         "transition-opacity",
         revealed ? "opacity-100" : "opacity-0",
         pinned ? "cursor-default" : "cursor-grab",
       )}
-      style={
-        edge.vertical
-          ? { width: TITLE_BAR_HEIGHT }
-          : { height: TITLE_BAR_HEIGHT }
-      }
+      style={{ height: TITLE_BAR_HEIGHT }}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
       onFocus={() => setFocusing(true)}
@@ -162,51 +156,45 @@ const WidgetTitleBar = ({
           );
       }}
     >
-      <div
-        className={cn("flex items-center gap-0.5", edge.vertical && "flex-col")}
-      >
-        {pinned ? (
-          <Lock size={13} className="mx-1 text-muted-foreground" />
-        ) : null}
-        <TitleBarButton
-          label={pinned ? "Unpin widget" : "Pin widget to this spot"}
-          onClick={() => void togglePinned()}
-        >
-          {pinned ? <Pin size={15} /> : <PinOff size={15} />}
-        </TitleBarButton>
-        <TitleBarButton label="Widget settings" onClick={onOpenSettings}>
-          <Settings size={15} />
-        </TitleBarButton>
-        <TitleBarButton
-          label="Close widget"
-          onClick={() => void invoke("close-widget-window", { widgetId })}
-        >
-          <X size={16} />
-        </TitleBarButton>
-      </div>
+      <TooltipProvider>
+        <div className="flex items-center gap-0.5">
+          <TitleBarButton
+            label={pinned ? "Unpin widget" : "Pin widget"}
+            onClick={() => void togglePinned()}
+          >
+            {/* Swap to the slashed "off" glyph so the icon reflects what the
+                button will do; keep the same color in both states. */}
+            {pinned ? <PinOff size={15} /> : <Pin size={15} />}
+          </TitleBarButton>
+          <TitleBarButton label="Widget settings" onClick={onOpenSettings}>
+            <Settings size={15} />
+          </TitleBarButton>
+          <TitleBarButton
+            label="Close widget"
+            onClick={() => void invoke("close-widget-window", { widgetId })}
+          >
+            <X size={16} />
+          </TitleBarButton>
+        </div>
+      </TooltipProvider>
     </header>
   );
 };
 
 const Centered = ({ children }: { children: React.ReactNode }) => (
-  <div
-    className="flex min-h-24 flex-col items-center justify-center gap-2 px-6 text-center"
-    style={{ width: WIDGET_CONTENT_WIDTH }}
-  >
+  <div className="flex min-h-24 w-full flex-col items-center justify-center gap-2 px-6 text-center">
     {children}
   </div>
 );
 
-/** The scrollable control list, or an empty/loading/unconfigured prompt. */
+/** The responsive control grid, or an empty/loading/unconfigured prompt. */
 const ControlList = ({
   controls,
-  preset,
-  density,
+  sizeMode,
   onOpenSettings,
 }: {
   controls: WidgetControl[];
-  preset: WidgetStylePreset;
-  density: WidgetDensity;
+  sizeMode: import("./types").WidgetSizeMode;
   onOpenSettings: () => void;
 }) => {
   const hasLoaded = useHueResourcesStore((state) => state.hasLoaded);
@@ -251,52 +239,45 @@ const ControlList = ({
     );
   }
 
+  // The same uniform grid the main app's room/zone screen uses: `auto-fill`
+  // columns of a fixed basis that wrap into as many columns as fit the window.
+  // Every card is therefore one column wide (no card ever balloons to fill a
+  // sparse row, the way a flex-`grow` lone card would), and grid stretches each
+  // card to its row's height so siblings on a row read as one even band.
   return (
     <div
-      className={cn(
-        "content-start gap-[var(--widget-spacing)]",
-        density === "expanded" ? "grid grid-cols-2" : "grid",
-      )}
+      className="grid w-full content-start"
       style={{
-        width:
-          density === "expanded"
-            ? WIDGET_CONTENT_WIDTH * 2 + 12
-            : WIDGET_CONTENT_WIDTH,
+        gap: WIDGET_SIZE_METRICS[sizeMode].gridGap,
+        gridTemplateColumns: widgetCardGridColumns(sizeMode),
       }}
     >
       {controls.map((control) => (
-        <ControlCard key={control.id} control={control} preset={preset} />
+        <ControlCard key={control.id} control={control} sizeMode={sizeMode} />
       ))}
     </div>
   );
 };
 
 export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
-  const {
-    controls,
-    stylePreset,
-    themeMode,
-    density,
-    titleBarPosition,
-    buttonAlignment,
-  } = useWidgetControls(widgetId);
+  const { controls, themeMode, sizeMode } = useWidgetControls(widgetId);
+  const sizeMetrics = WIDGET_SIZE_METRICS[sizeMode];
   const [shellRevealed, setShellRevealed] = useState(false);
   const [systemDark, setSystemDark] = useState(
     () => window.matchMedia("(prefers-color-scheme: dark)").matches,
   );
+  const theme = resolveWidgetTheme(themeMode, systemDark);
   const [flashing, setFlashing] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
-  const userSizedRef = useRef(false);
-  const ignoreResizeUntilRef = useRef(0);
+  // We snap the window to the content once on first render so a fresh widget
+  // opens at a sensible size; after that the user owns the size and the grid
+  // simply reflows, so we never force the size again.
+  const hasAutoFitRef = useRef(false);
   const resizeSaveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.window = "widget";
-    void invoke<WidgetWindowState>("widget-frontend-ready", { widgetId })
-      .then((state) => {
-        userSizedRef.current = state.userSized;
-      })
-      .catch(() => undefined);
+    void invoke("widget-frontend-ready", { widgetId }).catch(() => undefined);
     return () => {
       delete document.documentElement.dataset.window;
     };
@@ -331,6 +312,17 @@ export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
     return () => media.removeEventListener("change", update);
   }, []);
 
+  // The widget owns its own light/dark appearance: drive the `dark` class (so
+  // Tailwind `dark:` variants resolve) and `color-scheme` from the widget's
+  // resolved theme rather than the app theme. ThemeProvider is told not to
+  // manage the document in widget windows (see `main.tsx`), so this is the only
+  // writer and the app's stored theme is never touched.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle("dark", theme === "dark");
+    root.style.colorScheme = theme;
+  }, [theme]);
+
   useEffect(() => {
     const unlisten = listen("widget-flash", () => {
       setFlashing(true);
@@ -345,29 +337,37 @@ export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
     const content = contentRef.current;
     if (!content || !("__TAURI_INTERNALS__" in window)) return;
 
-    const contentRect = content.getBoundingClientRect();
-    const contentWidth = Math.max(content.scrollWidth, contentRect.width);
-    const contentHeight = Math.max(content.scrollHeight, contentRect.height);
-    const width = Math.ceil(contentWidth);
-    const height = Math.ceil(Math.max(contentHeight, WIDGET_MIN_HEIGHT));
-    if (width <= 0 || height <= 0) return;
+    // `contentRef` wraps the cards (it is *not* stretched to the window), so its
+    // height is the controls' true intrinsic height at the current width. Adding
+    // the symmetric edge padding gives the height the window needs to show the
+    // content without clipping. Measuring the content itself — rather than the
+    // full-height shell — is what lets the window shrink again: the min height
+    // now tracks the content instead of ratcheting up to the tallest the window
+    // has ever been.
+    const contentHeight = content.getBoundingClientRect().height;
+    const height = Math.ceil(
+      Math.max(contentHeight + sizeMetrics.edgePadding * 2, WIDGET_MIN_HEIGHT),
+    );
+    if (height <= 0) return;
 
-    ignoreResizeUntilRef.current = Date.now() + RESIZE_IGNORE_MS;
-    void invoke<WidgetWindowState>("sync-widget-layout", {
+    // The min width is a single card (at its size setting) plus the padding, so
+    // the window can always shrink down to one column; flex handles everything
+    // wider than that. `autoFit` only fires on the very first sync (and only
+    // takes effect on a not-yet-user-sized widget) — later syncs just keep the
+    // min size in step with the content without ever forcing the window's size.
+    const autoFit = !hasAutoFitRef.current;
+    hasAutoFitRef.current = true;
+    void invoke("sync-widget-layout", {
       widgetId,
-      minWidth: width,
+      minWidth: sizeMetrics.cardBasis + sizeMetrics.edgePadding * 2,
       minHeight: height,
-      autoFit: true,
-    })
-      .then((state) => {
-        userSizedRef.current = state.userSized;
-      })
-      .catch(() => undefined);
-  }, [widgetId]);
+      autoFit,
+    }).catch(() => undefined);
+  }, [sizeMetrics.cardBasis, sizeMetrics.edgePadding, widgetId]);
 
   useLayoutEffect(() => {
     syncWidgetLayout();
-  }, [syncWidgetLayout, controls, stylePreset]);
+  }, [syncWidgetLayout, controls]);
 
   useEffect(() => {
     const content = contentRef.current;
@@ -384,12 +384,14 @@ export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
     let active = true;
     void getCurrentWindow()
       .onResized(() => {
-        if (!active || Date.now() < ignoreResizeUntilRef.current) return;
+        if (!active) return;
         if (resizeSaveTimerRef.current != null) {
           window.clearTimeout(resizeSaveTimerRef.current);
         }
+        // Persist whatever size the window currently has. The grid reflows in
+        // CSS, so this just remembers the user's chosen width/height/position
+        // (saving the auto-fit's own size here is harmless — it's correct too).
         resizeSaveTimerRef.current = window.setTimeout(() => {
-          userSizedRef.current = true;
           void invoke("save-widget-bounds", {
             widgetId,
             userSized: true,
@@ -409,19 +411,18 @@ export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
   }, [widgetId]);
 
   const openSettings = () =>
-    void invoke("open-widget-settings").catch(() => undefined);
+    void invoke("open-widget-settings", { widgetId }).catch(() => undefined);
 
   const shellStyle = useMemo(
-    () =>
-      widgetShellStyle(stylePreset, resolveWidgetTheme(themeMode, systemDark)),
-    [stylePreset, systemDark, themeMode],
+    () => widgetShellStyle(theme, sizeMode),
+    [sizeMode, theme],
   );
 
   return (
     <main
       className={cn(
         "group/widget relative h-screen w-screen overflow-hidden border text-foreground transition-colors",
-        shellRevealed ? "border-border/45 shadow-2xl" : "border-transparent",
+        shellRevealed ? "border-border/20 shadow-2xl" : "border-transparent",
         flashing && "bg-primary/35",
       )}
       style={
@@ -433,25 +434,28 @@ export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
       <HueResourcesStoreEffects />
       <WidgetTitleBar
         widgetId={widgetId}
-        position={titleBarPosition}
-        alignment={buttonAlignment}
         onOpenSettings={openSettings}
         onRevealChange={setShellRevealed}
       />
 
-      {/* Pad every edge by the title-bar height so the controls never touch
-          the window edges and the overlaid title bar never covers them. */}
+      {/* Fill the window and pad every edge by the title-bar height so the
+          controls never touch the window edges and the overlaid title bar never
+          covers them. The cards reflow to whatever width the user picks. The
+          inner wrapper carries `contentRef` and is *not* stretched to the
+          window, so its measured height is the controls' true content height —
+          that's what `syncWidgetLayout` reads to set a min height the window can
+          still shrink back down to. */}
       <section
-        ref={contentRef}
-        className="w-fit"
-        style={{ padding: TITLE_BAR_HEIGHT }}
+        className="h-full w-full overflow-hidden"
+        style={{ padding: sizeMetrics.edgePadding }}
       >
-        <ControlList
-          controls={controls}
-          preset={stylePreset}
-          density={density}
-          onOpenSettings={openSettings}
-        />
+        <div ref={contentRef}>
+          <ControlList
+            controls={controls}
+            sizeMode={sizeMode}
+            onOpenSettings={openSettings}
+          />
+        </div>
       </section>
     </main>
   );

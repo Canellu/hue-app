@@ -2,13 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
-  WidgetButtonAlignment,
-  WidgetDensity,
   WidgetControl,
+  WidgetSizeMode,
   WidgetState,
-  WidgetStylePreset,
   WidgetThemeMode,
-  WidgetTitleBarPosition,
 } from "./types";
 
 /** Emitted by the Rust side when a widget's controls change (here or from the
@@ -24,14 +21,8 @@ const SETTINGS_CHANGED_EVENT = "widget-settings-changed";
  */
 export const useWidgetControls = (widgetId: string) => {
   const [controls, setControls] = useState<WidgetControl[]>([]);
-  const [stylePreset, setStylePreset] =
-    useState<WidgetStylePreset>("windows11");
   const [themeMode, setThemeMode] = useState<WidgetThemeMode>("system");
-  const [density, setDensity] = useState<WidgetDensity>("compact");
-  const [titleBarPosition, setTitleBarPosition] =
-    useState<WidgetTitleBarPosition>("top");
-  const [buttonAlignment, setButtonAlignment] =
-    useState<WidgetButtonAlignment>("end");
+  const [sizeMode, setSizeMode] = useState<WidgetSizeMode>("default");
   const [loaded, setLoaded] = useState(false);
   // The last value we wrote, so the echoed change event doesn't clobber a newer
   // optimistic edit with a stale payload.
@@ -43,11 +34,8 @@ export const useWidgetControls = (widgetId: string) => {
       .then((state) => {
         if (!active) return;
         setControls(state.controls ?? []);
-        setStylePreset(state.stylePreset ?? "windows11");
         setThemeMode(state.themeMode ?? "system");
-        setDensity(state.density ?? "compact");
-        setTitleBarPosition(state.titleBarPosition ?? "top");
-        setButtonAlignment(state.buttonAlignment ?? "end");
+        setSizeMode(state.sizeMode ?? "default");
       })
       .catch(() => {
         // A brand-new or unconfigured widget has none yet; start empty.
@@ -69,11 +57,8 @@ export const useWidgetControls = (widgetId: string) => {
       (event) => {
         if (event.payload.widgetId !== widgetId) return;
         setControls(event.payload.controls ?? []);
-        setStylePreset(event.payload.stylePreset ?? "windows11");
         setThemeMode(event.payload.themeMode ?? "system");
-        setDensity(event.payload.density ?? "compact");
-        setTitleBarPosition(event.payload.titleBarPosition ?? "top");
-        setButtonAlignment(event.payload.buttonAlignment ?? "end");
+        setSizeMode(event.payload.sizeMode ?? "default");
       },
     );
 
@@ -102,11 +87,8 @@ export const useWidgetControls = (widgetId: string) => {
 
   return {
     controls,
-    stylePreset,
     themeMode,
-    density,
-    titleBarPosition,
-    buttonAlignment,
+    sizeMode,
     loaded,
     save,
   };

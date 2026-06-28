@@ -20,6 +20,10 @@ pub fn run() {
                     tauri_plugin_window_state::StateFlags::all()
                         & !tauri_plugin_window_state::StateFlags::VISIBLE,
                 )
+                // Widget windows persist their bounds in widget-settings.json.
+                // Letting this plugin track them as well restores a second,
+                // stale position after the widget-specific bounds are applied.
+                .with_filter(|label| label == "main")
                 .build(),
         )
         .manage(commands::events::EventStreamState::default())
@@ -35,6 +39,7 @@ pub fn run() {
             commands::discovery::reset_hue_session,
             commands::lights::get_hue_lights,
             commands::lights::set_light_state,
+            commands::lights::signal_light,
             commands::lights::set_light_color,
             commands::rooms::get_hue_rooms,
             commands::rooms::update_room_members,
@@ -83,11 +88,12 @@ pub fn run() {
             commands::widget::set_widget_controls,
             commands::widget::preview_widget_config,
             commands::widget::set_widget_config,
-            commands::widget::set_widget_style_preset,
-            commands::widget::set_widget_titlebar,
             commands::widget::open_widget_settings,
             commands::widget::remove_widget,
             commands::widget::set_widget_acrylic,
+            commands::widget::get_widget_placement,
+            commands::widget::set_widget_position,
+            commands::widget::reset_widget_position,
         ])
         .setup(|app| {
             #[cfg(desktop)]

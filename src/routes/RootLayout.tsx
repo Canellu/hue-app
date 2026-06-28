@@ -329,8 +329,15 @@ export const RootLayout: React.FC = () => {
   }, [pathname]);
 
   useEffect(() => {
-    const unlisten = listen("open-widget-settings", () => {
-      void navigate({ to: "/settings", search: { tab: "widget" } });
+    const unlisten = listen<{ widgetId: string }>("open-widget-settings", (event) => {
+      void navigate({
+        to: "/settings",
+        search: {
+          tab: "widget",
+          widgetId: event.payload.widgetId,
+          widgetRequest: Date.now(),
+        },
+      });
     });
     return () => {
       void unlisten.then((dispose) => dispose());

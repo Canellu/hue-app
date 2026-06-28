@@ -7,6 +7,8 @@ import { WidgetCard } from "../components/WidgetCard";
 
 interface WidgetTabProps {
   widgets: WidgetSummary[];
+  focusedWidgetId?: string;
+  focusRequest?: number;
   onReopen: (id: string) => void;
   onClose: (id: string) => void;
   onRemove: (id: string) => Promise<void>;
@@ -18,6 +20,8 @@ interface WidgetTabProps {
 
 export const WidgetTab = ({
   widgets,
+  focusedWidgetId,
+  focusRequest,
   onReopen,
   onClose,
   onRemove,
@@ -34,7 +38,7 @@ export const WidgetTab = ({
 
   if (widgets.length === 0) {
     return (
-      <Panel title="Widgets">
+      <Panel title="Widgets" contentClassName="min-h-[30vh]">
         <div className="flex min-h-48 flex-col items-center justify-center gap-1 text-center">
           <p className="text-sm font-medium">No widgets yet</p>
           <p className="text-sm text-muted-foreground">
@@ -51,12 +55,15 @@ export const WidgetTab = ({
   }
 
   return (
-    <Panel title="Widgets">
+    <Panel title="Widgets" contentClassName="min-h-[30vh]">
       <div className="space-y-3">
         {sorted.map((widget) => (
           <WidgetCard
             key={widget.widgetId}
             widget={widget}
+            openRequest={
+              widget.widgetId === focusedWidgetId ? focusRequest : undefined
+            }
             onReopen={onReopen}
             onClose={onClose}
             onRemove={onRemove}

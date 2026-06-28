@@ -1,14 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import type {
-  WidgetButtonAlignment,
-  WidgetDensity,
   WidgetControl,
+  WidgetSizeMode,
   WidgetState,
-  WidgetStylePreset,
   WidgetThemeMode,
-  WidgetTitleBarPosition,
 } from "./types";
 
 export type WidgetSummary = WidgetState;
@@ -20,21 +18,15 @@ const toSummary = (state: WidgetState): WidgetSummary => ({
   pinned: state.pinned,
   alwaysOnTop: state.alwaysOnTop ?? false,
   userSized: state.userSized ?? false,
-  stylePreset: state.stylePreset ?? "windows11",
   themeMode: state.themeMode ?? "system",
-  density: state.density ?? "compact",
-  titleBarPosition: state.titleBarPosition ?? "top",
-  buttonAlignment: state.buttonAlignment ?? "end",
+  sizeMode: state.sizeMode ?? "default",
   controls: state.controls ?? [],
 });
 
 export interface WidgetConfigDraft {
   controls: WidgetControl[];
-  stylePreset: WidgetStylePreset;
   themeMode: WidgetThemeMode;
-  density: WidgetDensity;
-  titleBarPosition: WidgetTitleBarPosition;
-  buttonAlignment: WidgetButtonAlignment;
+  sizeMode: WidgetSizeMode;
 }
 
 /**
@@ -60,7 +52,13 @@ export const useWidgets = () => {
     void refresh();
     const onFocus = () => void refresh();
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    // A widget can change its own pin/settings from its title bar; refresh so the
+    // Settings tab's pin button and list reflect it without waiting for a focus.
+    const unlisten = listen("widget-settings-changed", () => void refresh());
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      void unlisten.then((dispose) => dispose());
+    };
   }, [refresh]);
 
   // `widgetId` opens a brand-new widget when omitted, or reopens a known
@@ -71,9 +69,8 @@ export const useWidgets = () => {
       options?: {
         title?: string;
         controls?: WidgetSummary["controls"];
-        stylePreset?: WidgetStylePreset;
         themeMode?: WidgetThemeMode;
-        density?: WidgetDensity;
+        sizeMode?: WidgetSizeMode;
       },
     ) => {
       if (opening) return;
@@ -144,52 +141,6 @@ export const useWidgets = () => {
     [refresh],
   );
 
-  const setStylePreset = useCallback(
-    async (widgetId: string, stylePreset: WidgetStylePreset) => {
-      setWidgets((current) =>
-        current.map((widget) =>
-          widget.widgetId === widgetId ? { ...widget, stylePreset } : widget,
-        ),
-      );
-      try {
-        await invoke("set-widget-style-preset", { widgetId, stylePreset });
-        await refresh();
-      } catch (error) {
-        toast.error(String(error) || "Unable to update widget style");
-        await refresh();
-      }
-    },
-    [refresh],
-  );
-
-  const setTitleBar = useCallback(
-    async (
-      widgetId: string,
-      position: WidgetTitleBarPosition,
-      alignment: WidgetButtonAlignment,
-    ) => {
-      setWidgets((current) =>
-        current.map((widget) =>
-          widget.widgetId === widgetId
-            ? {
-                ...widget,
-                titleBarPosition: position,
-                buttonAlignment: alignment,
-              }
-            : widget,
-        ),
-      );
-      try {
-        await invoke("set-widget-titlebar", { widgetId, position, alignment });
-        await refresh();
-      } catch (error) {
-        toast.error(String(error) || "Unable to update widget title bar");
-        await refresh();
-      }
-    },
-    [refresh],
-  );
-
   const setControls = useCallback(
     async (widgetId: string, controls: WidgetSummary["controls"]) => {
       setWidgets((current) =>
@@ -245,8 +196,6 @@ export const useWidgets = () => {
     removeWidget,
     setPinned,
     setAlwaysOnTop,
-    setStylePreset,
-    setTitleBar,
     setControls,
     previewConfig,
     setConfig,

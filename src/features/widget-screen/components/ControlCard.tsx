@@ -9,27 +9,30 @@ import {
 } from "@/features/space-screen/utils/color-state";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import {
+  activeTileTheme,
   TILE_BRIGHTNESS_SLIDER_CLASS,
+  TILE_INTERACTION_TRANSITION_CLASS,
   TILE_POWER_SWITCH_CLASS,
 } from "@/lib/tile-theme";
+import { UI_EASE_MS } from "@/lib/transitions";
+import { isSceneActive } from "@/features/space-screen/utils/scene-status";
 import { cn } from "@/lib/utils";
 import type { HueLight, HueRoomZone, HueScene } from "@/types/hue";
 import { Lightbulb } from "lucide-react";
-import type { WidgetControl, WidgetStylePreset } from "../types";
+import type { CSSProperties } from "react";
+import {
+  SceneCardRail,
+  SceneRailItem,
+  WidgetSceneCard,
+} from "./SceneCardRail";
+import type { WidgetControl, WidgetSizeMode } from "../types";
 
-/** A scene counts as active unless the bridge reports it inactive/blank. */
-const isSceneActive = (scene: HueScene): boolean => {
-  const status = scene.status?.trim().toLowerCase().replace(/_/g, " ") ?? "";
-  return status !== "" && status !== "inactive";
-};
-
+/** A compact, pill-shaped scene button used in the rail when the control is compact. */
 const SceneButton = ({
   scene,
-  preset,
   onActivate,
 }: {
   scene: HueScene;
-  preset: WidgetStylePreset;
   onActivate: () => void;
 }) => {
   const bubble = sceneBubbleCss(scene);
@@ -40,9 +43,7 @@ const SceneButton = ({
       onClick={onActivate}
       aria-pressed={active}
       className={cn(
-        "flex min-w-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
-        preset === "borderless" && "rounded-sm px-2 py-0.5 text-[11px]",
-        preset === "macos" && "px-3 py-1.5",
+        "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
         active
           ? "border-foreground/40 bg-foreground/15"
           : "border-border/60 hover:bg-foreground/10",
@@ -53,12 +54,20 @@ const SceneButton = ({
         className="size-2.5 shrink-0 rounded-full ring-1 ring-foreground/20"
         style={{ background: bubble ?? "var(--muted-foreground)" }}
       />
-      <span className="truncate">{scene.name}</span>
+      <span className="whitespace-nowrap">{scene.name}</span>
     </button>
   );
 };
 
-/** Renders the resolved control once a room/zone or light target is found. */
+/**
+ * Renders the resolved control once a room/zone or light target is found. The
+ * card mirrors the real Home/Space tile: a control header that tints with the
+ * light's live color (and dims with its brightness) when on, sitting on the
+ * neutral card surface. A control's chosen scenes appear below the header in a
+ * horizontal, drag-scrollable rail — as miniature scene cards (full) or pill
+ * buttons (compact) — on that neutral surface so they stay legible against any
+ * header tint.
+ */
 export const ControlView = ({
   name,
   icon,
@@ -66,11 +75,12 @@ export const ControlView = ({
   brightness,
   tileBackground,
   tileTint,
-  preset,
   dimmable,
   showBrightness,
   scenes,
+  compact,
   hueEventRevision,
+  sizeMode = "default",
   onToggle,
   onBrightness,
   onActivateScene,
@@ -81,86 +91,110 @@ export const ControlView = ({
   brightness: number | null;
   tileBackground: string | null;
   tileTint: string | null;
-  preset: WidgetStylePreset;
   dimmable: boolean;
   showBrightness: boolean;
   scenes: HueScene[];
+  /**
+   * The control's compact (slider-hidden) mode. Compact controls render scenes
+   * as pill buttons in the rail; full controls render them as scene cards.
+   */
+  compact: boolean;
   hueEventRevision: number;
+  sizeMode?: WidgetSizeMode;
   onToggle: (next: boolean) => void;
   onBrightness: (pct: number, phase: "live" | "final") => void;
   onActivateScene: (scene: HueScene) => void;
 }) => {
   const pct = brightness ?? 0;
-  const accent = isOn && tileTint ? tileTint : "var(--muted-foreground)";
-  const compact = preset === "borderless";
-  const cardClassName = cn(
-    "gap-2 overflow-hidden border ring-0",
-    preset === "windows11" &&
-      "border-[var(--widget-card-border)] bg-[var(--widget-card-bg)] shadow-[var(--widget-card-shadow)] backdrop-blur-xl",
-    preset === "borderless" &&
-      "border-[var(--widget-card-border)] bg-[var(--widget-card-bg)] shadow-none",
-    preset === "macos" &&
-      "border-[var(--widget-card-border)] bg-[var(--widget-card-bg)] shadow-[var(--widget-card-shadow)] backdrop-blur-2xl",
-    "rounded-[var(--widget-card-radius)]",
-  );
-  const accentBarHeight = preset === "borderless" ? "h-px" : "h-0.5";
+  // The header reads as "lit" only when the control is on *and* has a color to
+  // paint with; otherwise it stays on the card's neutral surface.
+  const lit = isOn && tileBackground != null;
 
   return (
     <Card
       size="sm"
-      className={cardClassName}
-      style={
-        {
-          "--widget-accent": accent,
-        } as React.CSSProperties
-      }
+      // `h-full` + flex column lets the card fill its grid cell, which the grid
+      // stretches to the tallest card in the row — so cards on a row share one
+      // height. The scene area (the last child) grows to absorb any extra height,
+      // keeping its strip flush to the card's bottom rather than floating.
+      className="flex h-full flex-col gap-0 overflow-hidden border border-tile-border bg-card bg-clip-padding p-0 ring-0"
     >
+      {/* Lit control header — the real space/light tile treatment. */}
       <div
-        aria-hidden
-        className={cn("w-full", accentBarHeight)}
-        style={{
-          background:
-            tileBackground && isOn
-              ? `color-mix(in srgb, ${tileBackground} 72%, transparent)`
-              : "transparent",
-        }}
-      />
-      <div
+        // `text-foreground` re-declares `color` *inside* the scope where the lit
+        // theme overrides `--foreground`, so the unstyled name `<p>` below inherits
+        // the computed tile ink. Without it the `<p>` inherits the Card's already-
+        // resolved color (the widget window's theme), and the ink choice never
+        // reaches the text.
         className={cn(
-          "flex min-h-[var(--widget-control-height)] items-center px-3",
-          compact ? "gap-2" : "gap-2.5",
-          preset === "macos" && "px-3.5",
+          "flex flex-col text-foreground",
+          sizeMode === "small"
+            ? "gap-2 p-2.5"
+            : sizeMode === "large"
+              ? "gap-3 p-3.5"
+              : "gap-2.5 p-3",
+          TILE_INTERACTION_TRANSITION_CLASS,
         )}
+        style={
+          lit
+            ? ({
+                "--tile-ease": `${UI_EASE_MS.tileBackground}ms`,
+                // Only dim the header by brightness when the target actually
+                // reports one; a non-dimmable lit target keeps its full color.
+                ...activeTileTheme(
+                  tileBackground,
+                  tileTint ?? tileBackground,
+                  brightness ?? undefined,
+                ),
+              } as CSSProperties)
+            : undefined
+        }
       >
-        <span
+        <div
           className={cn(
-            "flex shrink-0 items-center justify-center rounded-lg",
-            compact ? "size-7" : "size-8",
-            preset === "macos" && "rounded-2xl bg-foreground/8",
-            isOn ? "text-[var(--widget-accent)]" : "text-muted-foreground",
+            "flex items-center",
+            sizeMode === "small"
+              ? "gap-2"
+              : sizeMode === "large"
+                ? "gap-3"
+                : "gap-2.5",
           )}
         >
-          {icon}
-        </span>
-        <p
-          className={cn(
-            "min-w-0 flex-1 truncate font-medium",
-            compact ? "text-sm" : "text-[15px]",
-          )}
-        >
-          {name}
-        </p>
-        <Switch
-          size={compact ? "default" : "xl"}
-          className={TILE_POWER_SWITCH_CLASS}
-          checked={isOn}
-          aria-label={`Toggle ${name}`}
-          onCheckedChange={onToggle}
-        />
-      </div>
+          <span
+            className={cn(
+              "flex shrink-0 items-center justify-center",
+              sizeMode === "small"
+                ? "size-8"
+                : sizeMode === "large"
+                  ? "size-10"
+                  : "size-9",
+              lit ? "text-foreground" : "text-muted-foreground",
+            )}
+          >
+            {icon}
+          </span>
+          <p
+            className={cn(
+              "min-w-0 flex-1 truncate font-medium",
+              sizeMode === "small"
+                ? "text-sm"
+                : sizeMode === "large"
+                  ? "text-base"
+                  : "text-[15px]",
+            )}
+          >
+            {name}
+          </p>
+          <Switch
+            size="xl"
+            className={TILE_POWER_SWITCH_CLASS}
+            checked={isOn}
+            aria-label={`Toggle ${name}`}
+            onCheckedChange={onToggle}
+          />
+        </div>
 
-      {showBrightness && dimmable ? (
-        <div className="px-3 pb-2">
+        {showBrightness && dimmable ? (
           <PacedSlider
             value={isOn ? Math.max(1, pct) : 1}
             min={1}
@@ -174,25 +208,36 @@ export const ControlView = ({
             animateKey={hueEventRevision}
             onCommit={onBrightness}
           />
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
+      {/* Neutral scene area: legible against the (possibly tinted) header. It
+          grows (`flex-1`) so its strip fills any extra height the row's tallest
+          sibling forces onto this card. */}
       {scenes.length > 0 ? (
         <div
           className={cn(
-            "flex flex-wrap gap-1.5 px-3 pb-3",
-            preset === "borderless" && "gap-1 px-2.5 pb-2.5",
-            preset === "macos" && "px-3.5 pb-3.5",
+            "flex-1 border-t border-tile-border/70 bg-background/40 px-2",
+            compact ? "py-2" : "pt-1.5 pb-1",
           )}
         >
-          {scenes.map((scene) => (
-            <SceneButton
-              key={scene.id}
-              scene={scene}
-              preset={preset}
-              onActivate={() => onActivateScene(scene)}
-            />
-          ))}
+          <SceneCardRail>
+            {scenes.map((scene) => (
+              <SceneRailItem key={scene.id}>
+                {compact ? (
+                  <SceneButton
+                    scene={scene}
+                    onActivate={() => onActivateScene(scene)}
+                  />
+                ) : (
+                  <WidgetSceneCard
+                    scene={scene}
+                    onActivate={() => onActivateScene(scene)}
+                  />
+                )}
+              </SceneRailItem>
+            ))}
+          </SceneCardRail>
         </div>
       ) : null}
     </Card>
@@ -217,11 +262,12 @@ const UnavailableCard = ({ label }: { label: string }) => (
  */
 export const ControlCard = ({
   control,
-  preset,
+  sizeMode = "default",
 }: {
   control: WidgetControl;
-  preset: WidgetStylePreset;
+  sizeMode?: WidgetSizeMode;
 }) => {
+  const iconSize = sizeMode === "small" ? 20 : sizeMode === "large" ? 24 : 22;
   const roomZones = useHueResourcesStore((state) => state.roomZones);
   const lights = useHueResourcesStore((state) => state.lights);
   const scenes = useHueResourcesStore((state) => state.scenes);
@@ -243,16 +289,17 @@ export const ControlCard = ({
     return (
       <ControlView
         name={control.label ?? light.name}
-        icon={<Lightbulb size={22} strokeWidth={2.5} />}
+        icon={<Lightbulb size={iconSize} strokeWidth={2.5} />}
         isOn={light.isOn}
         brightness={light.brightness}
         tileBackground={hex}
         tileTint={hex}
-        preset={preset}
         dimmable={light.brightness != null}
         showBrightness={!control.compact && control.showBrightness}
         scenes={[]}
+        compact={control.compact ?? false}
         hueEventRevision={hueEventRevision}
+        sizeMode={sizeMode}
         onToggle={(next) => setLightState(light, next, null)}
         onBrightness={(pct, phase) => setLightState(light, true, pct, phase)}
         onActivateScene={() => undefined}
@@ -280,16 +327,17 @@ export const ControlCard = ({
   return (
     <ControlView
       name={control.label ?? roomZone.name}
-      icon={<Icon size={22} strokeWidth={2.5} />}
+      icon={<Icon size={iconSize} strokeWidth={2.5} />}
       isOn={roomZone.anyOn}
       brightness={roomZone.brightness}
       tileBackground={tile.background}
       tileTint={tile.glow ?? tile.background}
-      preset={preset}
       dimmable={roomZone.groupedLightId != null}
       showBrightness={!control.compact && control.showBrightness}
-      scenes={control.compact ? [] : controlScenes}
+      scenes={controlScenes}
+      compact={control.compact ?? false}
       hueEventRevision={hueEventRevision}
+      sizeMode={sizeMode}
       onToggle={(next) => setRoomZoneState(roomZone, next, null)}
       onBrightness={(pct, phase) =>
         setRoomZoneState(roomZone, true, pct, phase)

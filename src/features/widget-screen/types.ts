@@ -40,17 +40,8 @@ export interface WidgetControl {
   hotkey?: ControlHotkey | null;
 }
 
-export type WidgetStylePreset = "windows11" | "macos" | "borderless";
 export type WidgetThemeMode = "light" | "dark" | "system";
-export type WidgetDensity = "compact" | "expanded";
-
-/** Which edge the hover title bar sits on. Top/bottom lay the window controls
- * out horizontally; left/right lay them out vertically. */
-export type WidgetTitleBarPosition = "top" | "bottom" | "left" | "right";
-
-/** Where the window-control buttons sit along the title bar's axis. Reads as
- * left/center/right on a top/bottom bar, or top/center/bottom on a side bar. */
-export type WidgetButtonAlignment = "start" | "center" | "end";
+export type WidgetSizeMode = "small" | "default" | "large";
 
 export interface WidgetState {
   widgetId: string;
@@ -60,17 +51,38 @@ export interface WidgetState {
   /** Keeps the widget window floating above others (pinning also forces this). */
   alwaysOnTop: boolean;
   userSized: boolean;
-  stylePreset: WidgetStylePreset;
   themeMode: WidgetThemeMode;
-  density: WidgetDensity;
-  titleBarPosition: WidgetTitleBarPosition;
-  buttonAlignment: WidgetButtonAlignment;
+  sizeMode: WidgetSizeMode;
   controls: WidgetControl[];
 }
-
-/** Mirrors `MAX_CONTROL_SCENES` in the Rust widget module. */
-export const MAX_CONTROL_SCENES = 6;
 
 /** A short, collision-resistant id for a freshly created control. */
 export const newControlId = (): string =>
   `s${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+/** One physical display, in the virtual-desktop coordinate space window
+ * positions are reported in. Mirrors the Rust `MonitorInfo`. */
+export interface MonitorInfo {
+  name: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  scaleFactor: number;
+  isPrimary: boolean;
+}
+
+/** A widget window's physical position and size. Mirrors `StoredWidgetBounds`. */
+export interface WidgetBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** The monitor layout plus the widget's current bounds, for the position
+ * picker. Mirrors the Rust `WidgetPlacement`. */
+export interface WidgetPlacement {
+  monitors: MonitorInfo[];
+  bounds: WidgetBounds | null;
+}

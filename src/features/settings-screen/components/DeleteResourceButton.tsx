@@ -23,11 +23,13 @@ export const DeleteResourceButton = ({
   label,
   description,
   tooltip,
+  triggerLabel,
   onDelete,
 }: {
   label: string;
   description: string;
   tooltip?: string;
+  triggerLabel?: string;
   onDelete: () => Promise<void>;
 }) => {
   const [isDeleting, setIsDeleting] = useState(false);
@@ -51,13 +53,14 @@ export const DeleteResourceButton = ({
         render={
           <Button
             type="button"
-            size="icon"
-            variant="ghost"
+            size={triggerLabel ? "default" : "icon"}
+            variant={triggerLabel ? "destructive" : "ghost"}
             aria-label={tooltip ?? `Delete ${label}`}
           />
         }
       >
         <Trash2 />
+        {triggerLabel}
       </AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogHeader>

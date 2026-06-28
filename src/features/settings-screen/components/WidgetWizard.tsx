@@ -1267,6 +1267,7 @@ const PreviewCard = ({
       onToggle={() => undefined}
       onBrightness={() => undefined}
       onActivateScene={() => undefined}
+      onToggleScenePlay={() => undefined}
     />
   );
 };

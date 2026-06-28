@@ -13,17 +13,19 @@ import {
   xyToPin,
 } from "@/features/space-screen/utils/wheel-color";
 import type { HueLight } from "@/types/hue";
+import { getLightIcon } from "@/features/space-screen/utils/light-icons";
+import { foregroundForBackground } from "@/lib/tile-theme";
 import { useEffect, useRef, useState } from "react";
 
 interface MultiColorWheelProps {
   /** Color-capable lights of the space; each gets its own draggable thumb. */
   lights: HueLight[];
-  /**
-   * Fired (throttled while dragging, once more on release) for one light.
-   * `vividHex` is the exact pre-gamut-clamp color the thumb shows, so the
-   * room/zone tile renders the same vivid color the wheel paints.
-   */
-  onPick: (light: HueLight, xy: [number, number], vividHex: string) => void;
+  selectedIds: ReadonlySet<string>;
+  focusedId: string | null;
+  onFocusedIdChange: (id: string | null) => void;
+  onPickMany: (
+    picks: { light: HueLight; xy: [number, number]; vividHex: string }[],
+  ) => void;
 }
 
 const THROTTLE_MS = 180;
@@ -31,6 +33,9 @@ const THROTTLE_MS = 180;
 // pixels of a thumb centre drags it from where it is; a press farther away
 // grabs the nearest thumb and snaps it to the cursor.
 const THUMB_HIT_RADIUS = 14;
+const SNAP_RADIUS = 0.065;
+const EXPANDED_RING_RADIUS = 0.27;
+const EXPANDED_PAGE_SIZE = 8;
 
 type Pin = { x: number; y: number };
 
@@ -45,12 +50,19 @@ const pinForLight = (light: HueLight): Pin =>
  */
 export const MultiColorWheel: React.FC<MultiColorWheelProps> = ({
   lights,
-  onPick,
+  selectedIds,
+  focusedId,
+  onFocusedIdChange,
+  onPickMany,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const dragging = useRef(false);
   const activeId = useRef<string | null>(null);
+  const dragSingleLight = useRef(false);
+  const backgroundTarget = useRef(false);
+  const pointerStart = useRef({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
   // Client-pixel offset from the cursor to the grabbed thumb centre, locked on
   // press so a grab inside a thumb drags it without snapping it to the cursor.
   const dragOffset = useRef({ x: 0, y: 0 });
@@ -66,6 +78,11 @@ export const MultiColorWheel: React.FC<MultiColorWheelProps> = ({
   const [pins, setPins] = useState<Record<string, Pin>>(() =>
     Object.fromEntries(lights.map((light) => [light.id, pinForLight(light)])),
   );
+  const [snapId, setSnapId] = useState<string | null>(null);
+  const [pointerPin, setPointerPin] = useState<Pin | null>(null);
+  const [armedIds, setArmedIds] = useState<string[] | null>(null);
+  const [expandedIds, setExpandedIds] = useState<string[] | null>(null);
+  const [expandedPage, setExpandedPage] = useState(0);
 
   useEffect(() => {
     const ctx = canvasRef.current?.getContext("2d");
@@ -102,13 +119,40 @@ export const MultiColorWheel: React.FC<MultiColorWheelProps> = ({
     [],
   );
 
-  const emit = (light: HueLight, px: number, py: number, force: boolean) => {
+  useEffect(() => {
+    const cancelActivePin = (event: PointerEvent | KeyboardEvent) => {
+      if (
+        event instanceof KeyboardEvent
+          ? event.key !== "Escape"
+          : containerRef.current?.contains(event.target as Node)
+      ) {
+        return;
+      }
+      setArmedIds(null);
+      setExpandedIds(null);
+    };
+    window.addEventListener("pointerdown", cancelActivePin);
+    window.addEventListener("keydown", cancelActivePin);
+    return () => {
+      window.removeEventListener("pointerdown", cancelActivePin);
+      window.removeEventListener("keydown", cancelActivePin);
+    };
+  }, []);
+
+  const emit = (
+    targets: HueLight[],
+    px: number,
+    py: number,
+    force: boolean,
+  ) => {
     const [hue, saturation] = pinToHueSaturation(px, py);
     const rgb = hsvToRgb(hue, saturation, 1);
-    const next = rgbToXy(rgb.r, rgb.g, rgb.b, light.gamut);
-    // The vivid color this thumb shows for the pin, before gamut clamping.
     const vividHex = rgbToHex(rgb);
-    lastEmitted.current[light.id] = next;
+    const picks = targets.map((light) => {
+      const xy = rgbToXy(rgb.r, rgb.g, rgb.b, light.gamut);
+      lastEmitted.current[light.id] = xy;
+      return { light, xy, vividHex };
+    });
     const now = Date.now();
     if (trailing.current) {
       clearTimeout(trailing.current);
@@ -116,11 +160,11 @@ export const MultiColorWheel: React.FC<MultiColorWheelProps> = ({
     }
     if (force || now - lastEmit.current >= THROTTLE_MS) {
       lastEmit.current = now;
-      onPick(light, next, vividHex);
+      onPickMany(picks);
     } else {
       trailing.current = setTimeout(() => {
         lastEmit.current = Date.now();
-        onPick(light, next, vividHex);
+        onPickMany(picks);
       }, THROTTLE_MS);
     }
   };
@@ -140,15 +184,66 @@ export const MultiColorWheel: React.FC<MultiColorWheelProps> = ({
     return { x: nx, y: ny };
   };
 
-  const handlePointer = (clientX: number, clientY: number, force: boolean) => {
+  const handlePointer = (clientX: number, clientY: number, commit: boolean) => {
     const id = activeId.current;
     if (!id) return;
     const light = lights.find((candidate) => candidate.id === id);
     if (!light) return;
+    const activePin = pins[id] ?? pinForLight(light);
+    const snappedCluster = lights.filter((candidate) => {
+      const candidatePin = pins[candidate.id] ?? pinForLight(candidate);
+      return (
+        Math.abs(candidatePin.x - activePin.x) < 0.002 &&
+        Math.abs(candidatePin.y - activePin.y) < 0.002
+      );
+    });
+    const clusterContainsLinkedLight = snappedCluster.some((candidate) =>
+      selectedIds.has(candidate.id),
+    );
+    const targets = dragSingleLight.current
+      ? [light]
+      : clusterContainsLinkedLight && selectedIds.size > 0
+        ? lights.filter((candidate) => selectedIds.has(candidate.id))
+        : snappedCluster;
     const pos = positionFromEvent(clientX, clientY);
     if (!pos) return;
-    setPins((prev) => ({ ...prev, [id]: pos }));
-    emit(light, pos.x, pos.y, force);
+    setPointerPin(pos);
+    const movingIds = new Set(targets.map((target) => target.id));
+    let nearest: string | null = null;
+    let nearestDistance = SNAP_RADIUS;
+    for (const candidate of lights) {
+      if (movingIds.has(candidate.id)) continue;
+      const candidatePin = pins[candidate.id] ?? pinForLight(candidate);
+      const distance = Math.hypot(candidatePin.x - pos.x, candidatePin.y - pos.y);
+      if (distance < nearestDistance) {
+        nearest = candidate.id;
+        nearestDistance = distance;
+      }
+    }
+    setSnapId(nearest);
+    const destination = commit && nearest ? (pins[nearest] ?? pos) : pos;
+    setPins((prev) => ({
+      ...prev,
+      ...Object.fromEntries(targets.map((target) => [target.id, destination])),
+    }));
+    const destinationCluster =
+      commit && nearest
+        ? lights.filter((candidate) => {
+            const candidatePin = pins[candidate.id] ?? pinForLight(candidate);
+            const targetPin = pins[nearest] ?? pos;
+            return (
+              Math.abs(candidatePin.x - targetPin.x) < 0.002 &&
+              Math.abs(candidatePin.y - targetPin.y) < 0.002
+            );
+          })
+        : [];
+    const emittedTargets = [
+      ...targets,
+      ...destinationCluster.filter(
+        (candidate) => !movingIds.has(candidate.id),
+      ),
+    ];
+    emit(emittedTargets, destination.x, destination.y, commit);
   };
 
   // Pick the thumb whose centre is closest to the press, and lock the grab
@@ -168,17 +263,61 @@ export const MultiColorWheel: React.FC<MultiColorWheelProps> = ({
         nearest = light.id;
       }
     }
-    activeId.current = nearest;
-    if (nearest && best <= THUMB_HIT_RADIUS) {
-      const pin = pins[nearest] ?? { x: 0.5, y: 0.5 };
-      dragOffset.current = {
-        x: rect.left + pin.x * rect.width - clientX,
-        y: rect.top + pin.y * rect.height - clientY,
-      };
-    } else {
-      dragOffset.current = { x: 0, y: 0 };
-    }
+    const grabbed = best <= THUMB_HIT_RADIUS ? nearest : null;
+    activeId.current = grabbed;
+    onFocusedIdChange(grabbed);
+    dragOffset.current = { x: 0, y: 0 };
   };
+
+  const clusterForId = (id: string): HueLight[] => {
+    const light = lights.find((candidate) => candidate.id === id);
+    if (!light) return [];
+    const pin = pins[id] ?? pinForLight(light);
+    return lights.filter((candidate) => {
+      const candidatePin = pins[candidate.id] ?? pinForLight(candidate);
+      return (
+        Math.abs(candidatePin.x - pin.x) < 0.002 &&
+        Math.abs(candidatePin.y - pin.y) < 0.002
+      );
+    });
+  };
+
+  const beginExpandedPinDrag = (
+    event: React.PointerEvent<HTMLSpanElement>,
+    id: string,
+  ) => {
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    activeId.current = id;
+    dragSingleLight.current = true;
+    dragging.current = false;
+    pointerStart.current = { x: event.clientX, y: event.clientY };
+    dragOffset.current = { x: 0, y: 0 };
+    setIsDragging(true);
+    setPointerPin(pins[id] ?? null);
+    onFocusedIdChange(id);
+  };
+
+  const expandedLights = expandedIds
+    ?.map((id) => lights.find((light) => light.id === id))
+    .filter((light): light is HueLight => light != null);
+  const expandedAnchor =
+    expandedLights && expandedLights.length > 0
+      ? pins[expandedLights[0].id] ?? pinForLight(expandedLights[0])
+      : null;
+  const expandedAngle = expandedAnchor
+    ? Math.atan2(expandedAnchor.y - 0.5, expandedAnchor.x - 0.5)
+    : 0;
+  const expandedPageCount = expandedLights
+    ? Math.ceil(expandedLights.length / EXPANDED_PAGE_SIZE)
+    : 0;
+  const visibleExpandedLights = expandedLights?.slice(
+    expandedPage * EXPANDED_PAGE_SIZE,
+    (expandedPage + 1) * EXPANDED_PAGE_SIZE,
+  );
+  const sameIds = (left: string[] | null, right: string[]): boolean =>
+    left?.length === right.length &&
+    right.every((id) => left.includes(id));
 
   return (
     <div className="flex w-full flex-col gap-3">
@@ -186,20 +325,86 @@ export const MultiColorWheel: React.FC<MultiColorWheelProps> = ({
         ref={containerRef}
         className="relative aspect-square w-full cursor-pointer touch-none rounded-full"
         onPointerDown={(e) => {
-          dragging.current = true;
-          (e.target as HTMLElement).setPointerCapture(e.pointerId);
+          e.currentTarget.setPointerCapture(e.pointerId);
           grabNearest(e.clientX, e.clientY);
-          handlePointer(e.clientX, e.clientY, false);
+          dragSingleLight.current = false;
+          backgroundTarget.current = activeId.current == null;
+          if (backgroundTarget.current) {
+            const targetId =
+              lights.find((light) => selectedIds.has(light.id))?.id ??
+              armedIds?.[0] ??
+              null;
+            activeId.current = targetId;
+            onFocusedIdChange(targetId);
+          }
+          if (!activeId.current) {
+            setArmedIds(null);
+            setExpandedIds(null);
+          }
+          pointerStart.current = { x: e.clientX, y: e.clientY };
+          setIsDragging(false);
+          setPointerPin(
+            activeId.current
+              ? positionFromEvent(e.clientX, e.clientY)
+              : null,
+          );
         }}
         onPointerMove={(e) => {
-          if (!dragging.current) return;
+          if (!activeId.current) return;
+          if (!dragging.current) {
+            if (
+              e.clientX === pointerStart.current.x &&
+              e.clientY === pointerStart.current.y
+            ) {
+              return;
+            }
+            dragging.current = true;
+            setIsDragging(true);
+            setArmedIds(null);
+            setExpandedIds(null);
+          }
           handlePointer(e.clientX, e.clientY, false);
         }}
         onPointerUp={(e) => {
-          if (!dragging.current) return;
+          if (backgroundTarget.current && activeId.current) {
+            handlePointer(e.clientX, e.clientY, true);
+            if (selectedIds.size === 0) setArmedIds(null);
+            setExpandedIds(null);
+          } else if (dragging.current) {
+            handlePointer(e.clientX, e.clientY, true);
+          } else if (activeId.current && !dragSingleLight.current) {
+            const cluster = clusterForId(activeId.current);
+            const clusterIds = cluster.map((light) => light.id);
+            if (cluster.length > 1 && sameIds(armedIds, clusterIds)) {
+              setExpandedIds(clusterIds);
+              setExpandedPage(0);
+              setArmedIds(null);
+            } else if (cluster.length === 1 && sameIds(armedIds, clusterIds)) {
+              setArmedIds(null);
+              setExpandedIds(null);
+            } else {
+              setArmedIds(clusterIds);
+              setExpandedIds(null);
+            }
+          }
           dragging.current = false;
-          handlePointer(e.clientX, e.clientY, true);
+          dragSingleLight.current = false;
+          backgroundTarget.current = false;
+          setIsDragging(false);
           activeId.current = null;
+          setSnapId(null);
+          setPointerPin(null);
+          onFocusedIdChange(null);
+        }}
+        onPointerCancel={() => {
+          dragging.current = false;
+          dragSingleLight.current = false;
+          backgroundTarget.current = false;
+          setIsDragging(false);
+          activeId.current = null;
+          setSnapId(null);
+          setPointerPin(null);
+          onFocusedIdChange(null);
         }}
       >
         <canvas
@@ -210,20 +415,180 @@ export const MultiColorWheel: React.FC<MultiColorWheelProps> = ({
         />
         {lights.map((light) => {
           const pin = pins[light.id] ?? pinForLight(light);
-          const [hue, saturation] = pinToHueSaturation(pin.x, pin.y);
+          const cluster = lights.filter((candidate) => {
+            const candidatePin = pins[candidate.id] ?? pinForLight(candidate);
+            return (
+              Math.abs(candidatePin.x - pin.x) < 0.002 &&
+              Math.abs(candidatePin.y - pin.y) < 0.002
+            );
+          });
+          const activeClusterMember = cluster.find(
+            (candidate) => candidate.id === activeId.current,
+          );
+          const representative = activeClusterMember ?? cluster[0];
+          if (expandedIds?.includes(light.id)) return null;
+          if (
+            cluster.length > 1 &&
+            representative?.id !== light.id
+          ) {
+            return null;
+          }
+          const selected = cluster.some((candidate) =>
+            selectedIds.has(candidate.id),
+          );
+          const selectedCount = cluster.filter((candidate) =>
+            selectedIds.has(candidate.id),
+          ).length;
+          const focused = cluster.some(
+            (candidate) => candidate.id === focusedId,
+          );
+          const draggingPin = isDragging && activeClusterMember != null;
+          const snapTarget = cluster.some(
+            (candidate) => candidate.id === snapId,
+          );
+          const armedPin =
+            cluster.every((candidate) => armedIds?.includes(candidate.id)) &&
+            armedIds?.length === cluster.length;
+          const displayPin = draggingPin && pointerPin ? pointerPin : pin;
+          const Icon = getLightIcon(light.typeName);
+          const [displayHue, displaySaturation] = pinToHueSaturation(
+            displayPin.x,
+            displayPin.y,
+          );
+          const fill = rgbToCss(
+            hsvToRgb(displayHue, displaySaturation, 1),
+          );
           return (
             <span
               key={light.id}
-              aria-hidden="true"
-              className="absolute z-10 size-7 -translate-x-1/2 -translate-y-1/2 cursor-pointer rounded-full border-2 border-white shadow-md ring-1 ring-black/20 transition-[width,height] hover:size-8.5 active:size-8"
+              className={`absolute flex size-7 -translate-x-1/2 -translate-y-1/2 cursor-pointer items-center justify-center border-2 border-white shadow-md ring-black/30 transition-[width,height,opacity,clip-path,box-shadow,transform] ${draggingPin || snapTarget || armedPin ? "size-10 rounded-[50%_50%_50%_0]" : "rounded-full"} ${draggingPin || snapTarget ? "opacity-75" : ""} ${selected ? "z-20 ring-2" : "z-10 ring-1"} ${focused ? "scale-110 ring-2 ring-ring" : "hover:size-8.5"}`}
               style={{
-                left: `${pin.x * 100}%`,
-                top: `${pin.y * 100}%`,
-                background: rgbToCss(hsvToRgb(hue, saturation, 1)),
+                left: `${displayPin.x * 100}%`,
+                top: `${displayPin.y * 100}%`,
+                background: fill,
+                color: foregroundForBackground(fill),
+                translate:
+                  draggingPin || snapTarget
+                    ? "-50% calc(-50% - 28px)"
+                    : "-50% -50%",
+                transform:
+                  draggingPin || snapTarget || armedPin
+                    ? "rotate(-45deg)"
+                    : undefined,
               }}
-            />
+              onPointerEnter={() => onFocusedIdChange(light.id)}
+              onPointerLeave={() => {
+                if (!dragging.current) onFocusedIdChange(null);
+              }}
+            >
+              {cluster.length > 1 ? (
+                <span
+                  className="text-xs font-semibold tabular-nums"
+                  style={{
+                    transform:
+                      draggingPin || snapTarget || armedPin
+                        ? "rotate(45deg)"
+                        : undefined,
+                  }}
+                >
+                  {selectedCount > 0 && selectedCount < cluster.length
+                    ? `${selectedCount}/${cluster.length}`
+                    : cluster.length}
+                </span>
+              ) : (
+                <Icon
+                  className="size-4"
+                  style={{
+                    transform:
+                      draggingPin || snapTarget || armedPin
+                        ? "rotate(45deg)"
+                        : undefined,
+                  }}
+                />
+              )}
+            </span>
           );
         })}
+        {expandedLights &&
+          visibleExpandedLights &&
+          expandedLights.length > 1 && (
+          <>
+            <div
+              className="absolute inset-[23%] z-30 rounded-full border-2 border-white/80 bg-background/55 shadow-xl backdrop-blur-md"
+              onPointerDown={(event) => event.stopPropagation()}
+              onWheel={(event) => {
+                if (expandedPageCount <= 1) return;
+                event.stopPropagation();
+                const direction = event.deltaY > 0 ? 1 : -1;
+                setExpandedPage((page) =>
+                  Math.max(
+                    0,
+                    Math.min(expandedPageCount - 1, page + direction),
+                  ),
+                );
+              }}
+            />
+            {visibleExpandedLights.map((light, index) => {
+              const angle =
+                expandedAngle +
+                (index * Math.PI * 2) / visibleExpandedLights.length;
+              const x = 0.5 + Math.cos(angle) * EXPANDED_RING_RADIUS;
+              const y = 0.5 + Math.sin(angle) * EXPANDED_RING_RADIUS;
+              const Icon = getLightIcon(light.typeName);
+              const [hue, saturation] = pinToHueSaturation(
+                expandedAnchor?.x ?? 0.5,
+                expandedAnchor?.y ?? 0.5,
+              );
+              const fill = rgbToCss(hsvToRgb(hue, saturation, 1));
+
+              return (
+                <span
+                  key={light.id}
+                  role="button"
+                  aria-label={`Drag ${light.name}`}
+                  className="absolute z-40 flex size-10 -translate-x-1/2 -translate-y-1/2 cursor-grab items-center justify-center rounded-full border-2 border-white shadow-lg ring-1 ring-black/30 transition-transform hover:scale-110 active:cursor-grabbing"
+                  style={{
+                    left: `${x * 100}%`,
+                    top: `${y * 100}%`,
+                    background: fill,
+                    color: foregroundForBackground(fill),
+                  }}
+                  onPointerDown={(event) =>
+                    beginExpandedPinDrag(event, light.id)
+                  }
+                  onPointerEnter={() => onFocusedIdChange(light.id)}
+                  onPointerLeave={() => onFocusedIdChange(null)}
+                >
+                  <Icon className="size-5" />
+                </span>
+              );
+            })}
+            {expandedPageCount > 1 && (
+              <div
+                className="absolute top-1/2 left-1/2 z-40 flex -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-full bg-background/35 px-2.5 py-2 shadow-sm backdrop-blur-sm"
+                role="tablist"
+                aria-label="Light pages"
+                onPointerDown={(event) => event.stopPropagation()}
+              >
+                {Array.from({ length: expandedPageCount }, (_, page) => (
+                  <button
+                    key={page}
+                    type="button"
+                    role="tab"
+                    aria-label={`Show light page ${page + 1}`}
+                    aria-selected={page === expandedPage}
+                    className={`h-1.5 rounded-full transition-[width,background-color] ${
+                      page === expandedPage
+                        ? "w-8 bg-foreground"
+                        : "w-5 bg-foreground/20 hover:bg-foreground/40"
+                    }`}
+                    onClick={() => setExpandedPage(page)}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

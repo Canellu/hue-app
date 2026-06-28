@@ -64,7 +64,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     removeWidget,
     setPinned: setWidgetPinned,
     setAlwaysOnTop: setWidgetAlwaysOnTop,
-    previewConfig: previewWidgetConfig,
     setConfig: setWidgetConfig,
   } = useWidgets();
 
@@ -370,9 +369,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   onSetPinned={(id, pinned) => void setWidgetPinned(id, pinned)}
                   onSetAlwaysOnTop={(id, alwaysOnTop) =>
                     void setWidgetAlwaysOnTop(id, alwaysOnTop)
-                  }
-                  onPreviewConfig={(id, config) =>
-                    void previewWidgetConfig(id, config)
                   }
                   onSetConfig={(id, config) => void setWidgetConfig(id, config)}
                 />

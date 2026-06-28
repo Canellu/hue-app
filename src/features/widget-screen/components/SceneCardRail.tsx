@@ -9,11 +9,14 @@ import {
   sceneBubbleCss,
   sceneHexes,
 } from "@/features/space-screen/utils/color-state";
-import { isSceneActive } from "@/features/space-screen/utils/scene-status";
+import {
+  isSceneActive,
+  isSceneDynamicActive,
+} from "@/features/space-screen/utils/scene-status";
 import { activeTileTheme } from "@/lib/tile-theme";
 import { cn } from "@/lib/utils";
 import type { HueScene } from "@/types/hue";
-import { Check, Palette } from "lucide-react";
+import { Check, Palette, Play, Square } from "lucide-react";
 
 /** The scene's color bubble, or a palette placeholder when it has no colors. */
 const SceneBubble = ({
@@ -77,13 +80,17 @@ export const SceneRailItem = ({ children }: { children: React.ReactNode }) => (
 export const WidgetSceneCard = ({
   scene,
   onActivate,
+  onTogglePlay,
 }: {
   scene: HueScene;
   onActivate: () => void;
+  onTogglePlay: () => void;
 }) => {
   const bubble = sceneBubbleCss(scene);
   const active = isSceneActive(scene);
+  const dynamicActive = isSceneDynamicActive(scene);
   const activeBackground = active && bubble != null;
+  const DynamicIcon = dynamicActive ? Square : Play;
   return (
     <SceneTile
       size="xs"
@@ -107,7 +114,36 @@ export const WidgetSceneCard = ({
           : undefined
       }
       onActivate={onActivate}
-      visual={<SceneBubble bubble={bubble} size="xs" />}
+      visual={
+        scene.dynamic ? (
+          <button
+            type="button"
+            aria-label={
+              dynamicActive ? `Stop ${scene.name}` : `Play ${scene.name}`
+            }
+            className={cn(
+              "flex size-7 shrink-0 items-center justify-center rounded-full shadow-sm ring-1 ring-foreground/15 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              bubble ? "text-white" : "bg-foreground/15 text-foreground",
+            )}
+            style={bubble ? { background: bubble } : undefined}
+            onClick={(event) => {
+              event.stopPropagation();
+              onTogglePlay();
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <DynamicIcon
+              className={cn(
+                "size-3.5 fill-current drop-shadow",
+                !dynamicActive && "ml-px",
+              )}
+              strokeWidth={2.5}
+            />
+          </button>
+        ) : (
+          <SceneBubble bubble={bubble} size="xs" />
+        )
+      }
     />
   );
 };

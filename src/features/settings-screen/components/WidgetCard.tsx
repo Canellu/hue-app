@@ -1,13 +1,3 @@
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -32,10 +22,9 @@ import {
   PinOff,
   Sun,
   Scaling,
-  X,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { FLAT_CARD } from "../constants";
 import { DeleteResourceButton } from "./DeleteResourceButton";
 import {
@@ -72,7 +61,6 @@ export const WidgetCard = ({
   onRemove,
   onSetPinned,
   onSetAlwaysOnTop,
-  onPreviewConfig,
   onSetConfig,
 }: {
   widget: WidgetSummary;
@@ -82,7 +70,6 @@ export const WidgetCard = ({
   onRemove: (id: string) => Promise<void>;
   onSetPinned: (id: string, pinned: boolean) => void;
   onSetAlwaysOnTop: (id: string, alwaysOnTop: boolean) => void;
-  onPreviewConfig: (id: string, config: WidgetConfigDraft) => void;
   onSetConfig: (id: string, config: WidgetConfigDraft) => void;
 }) => {
   const {
@@ -95,71 +82,18 @@ export const WidgetCard = ({
     controls,
   } = widget;
   const [configOpen, setConfigOpen] = useState(false);
-  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
-  const [draft, setDraft] = useState<WidgetConfigDraft | null>(null);
   const prefersReducedMotion = useReducedMotion();
   const count = controls.length;
-  const currentConfig = useMemo<WidgetConfigDraft>(
-    () => ({
-      controls,
-      themeMode,
-      sizeMode,
-    }),
-    [controls, sizeMode, themeMode],
-  );
-  const activeConfig = draft ?? currentConfig;
-
-  useEffect(() => {
-    if (!configOpen || !draft) return;
-    onPreviewConfig(widgetId, draft);
-  }, [configOpen, draft, onPreviewConfig, widgetId]);
 
   useEffect(() => {
     if (openRequest === undefined) return;
-    setDraft(currentConfig);
     setConfigOpen(true);
-  }, [currentConfig, openRequest]);
+  }, [openRequest]);
 
-  const updateDraft = (next: Partial<WidgetConfigDraft>) =>
-    setDraft((current) => ({ ...(current ?? currentConfig), ...next }));
+  const updateConfig = (next: Partial<WidgetConfigDraft>) =>
+    onSetConfig(widgetId, { controls, themeMode, sizeMode, ...next });
 
-  const openConfigure = () => {
-    setDraft(currentConfig);
-    setConfigOpen(true);
-  };
-
-  const hasChanges =
-    draft !== null && JSON.stringify(draft) !== JSON.stringify(currentConfig);
-
-  // Closes the panel (used by the header toggle); discards any unsaved edits
-  // and rolls the live preview back to the saved config.
-  const closeConfigure = () => {
-    onPreviewConfig(widgetId, currentConfig);
-    setDraft(null);
-    setConfigOpen(false);
-  };
-
-  // Reverts edits back to the saved config but keeps the panel open.
-  const resetConfigure = () => {
-    onPreviewConfig(widgetId, currentConfig);
-    setDraft(null);
-  };
-
-  // Persists the draft but keeps the panel open. Once the parent props reflect
-  // the saved values, `hasChanges` flips back to false and Save disables again.
-  const saveConfigure = () => {
-    if (draft) onSetConfig(widgetId, draft);
-  };
-
-  const toggleConfigure = () => {
-    if (!configOpen) {
-      openConfigure();
-    } else if (hasChanges) {
-      setConfirmCloseOpen(true);
-    } else {
-      closeConfigure();
-    }
-  };
+  const toggleConfigure = () => setConfigOpen((open) => !open);
 
   return (
     <Card
@@ -321,9 +255,9 @@ export const WidgetCard = ({
               </p>
             </div>
             <SegmentedControl
-              value={activeConfig.themeMode}
+              value={themeMode}
               onValueChange={(value) =>
-                updateDraft({ themeMode: value as WidgetThemeMode })
+                updateConfig({ themeMode: value as WidgetThemeMode })
               }
               ariaLabel="Widget theme"
               options={THEME_MODES}
@@ -339,9 +273,9 @@ export const WidgetCard = ({
               </p>
             </div>
             <SegmentedControl
-              value={activeConfig.sizeMode}
+              value={sizeMode}
               onValueChange={(value) =>
-                updateDraft({ sizeMode: value as WidgetSizeMode })
+                updateConfig({ sizeMode: value as WidgetSizeMode })
               }
               ariaLabel="Widget size"
               options={SIZE_MODES}
@@ -350,75 +284,26 @@ export const WidgetCard = ({
           </div>
 
           <ManageControls
-            controls={activeConfig.controls}
-            onChange={(controls) => updateDraft({ controls })}
+            controls={controls}
+            onChange={(controls) => updateConfig({ controls })}
           />
 
-          <div className="mt-5 flex justify-end gap-2 border-t border-border/60 pt-4">
+          <div className="mt-5 flex border-t border-border/60 pt-4">
             <span className="mr-auto">
               <DeleteResourceButton
                 label="widget"
                 description="This permanently removes the widget and its saved controls. This can't be undone."
                 tooltip="Delete widget"
+                triggerLabel="Delete"
                 onDelete={() => onRemove(widgetId)}
               />
             </span>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={resetConfigure}
-              disabled={!hasChanges}
-            >
-              Reset
-            </Button>
-            <Button type="button" onClick={saveConfigure} disabled={!hasChanges}>
-              Save
-            </Button>
           </div>
             </div>
           </motion.div>
         ) : null}
       </AnimatePresence>
 
-      <AlertDialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
-        <AlertDialogContent>
-          <AlertDialogCancel
-            variant="ghost"
-            size="icon"
-            aria-label="Keep editing"
-            className="absolute top-4 right-4 size-8 rounded-full text-muted-foreground"
-          >
-            <X size={16} />
-          </AlertDialogCancel>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You have unsaved changes to this widget. Closing now will discard
-              them and revert to the last saved configuration.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => {
-                setConfirmCloseOpen(false);
-                closeConfigure();
-              }}
-            >
-              Discard
-            </AlertDialogAction>
-            <AlertDialogAction
-              onClick={() => {
-                saveConfigure();
-                setConfirmCloseOpen(false);
-                setConfigOpen(false);
-              }}
-            >
-              Save changes
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </Card>
   );
 };

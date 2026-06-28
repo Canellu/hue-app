@@ -14,7 +14,6 @@ interface WidgetTabProps {
   onRemove: (id: string) => Promise<void>;
   onSetPinned: (id: string, pinned: boolean) => void;
   onSetAlwaysOnTop: (id: string, alwaysOnTop: boolean) => void;
-  onPreviewConfig: (id: string, config: WidgetConfigDraft) => void;
   onSetConfig: (id: string, config: WidgetConfigDraft) => void;
 }
 
@@ -27,7 +26,6 @@ export const WidgetTab = ({
   onRemove,
   onSetPinned,
   onSetAlwaysOnTop,
-  onPreviewConfig,
   onSetConfig,
 }: WidgetTabProps) => {
   // Active widgets float to the top so the ones currently on screen are easiest
@@ -69,7 +67,6 @@ export const WidgetTab = ({
             onRemove={onRemove}
             onSetPinned={onSetPinned}
             onSetAlwaysOnTop={onSetAlwaysOnTop}
-            onPreviewConfig={onPreviewConfig}
             onSetConfig={onSetConfig}
           />
         ))}

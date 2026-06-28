@@ -84,6 +84,7 @@ export const ControlView = ({
   onToggle,
   onBrightness,
   onActivateScene,
+  onToggleScenePlay,
 }: {
   name: string;
   icon: React.ReactNode;
@@ -104,6 +105,7 @@ export const ControlView = ({
   onToggle: (next: boolean) => void;
   onBrightness: (pct: number, phase: "live" | "final") => void;
   onActivateScene: (scene: HueScene) => void;
+  onToggleScenePlay: (scene: HueScene) => void;
 }) => {
   const pct = brightness ?? 0;
   // The header reads as "lit" only when the control is on *and* has a color to
@@ -217,7 +219,7 @@ export const ControlView = ({
       {scenes.length > 0 ? (
         <div
           className={cn(
-            "flex-1 border-t border-tile-border/70 bg-background/40 px-2",
+            "flex-1 border-t border-tile-border/70 bg-[oklch(0.95_0_0)] px-2 dark:bg-[oklch(0.22_0_0)]",
             compact ? "py-2" : "pt-1.5 pb-1",
           )}
         >
@@ -233,6 +235,7 @@ export const ControlView = ({
                   <WidgetSceneCard
                     scene={scene}
                     onActivate={() => onActivateScene(scene)}
+                    onTogglePlay={() => onToggleScenePlay(scene)}
                   />
                 )}
               </SceneRailItem>
@@ -303,6 +306,7 @@ export const ControlCard = ({
         onToggle={(next) => setLightState(light, next, null)}
         onBrightness={(pct, phase) => setLightState(light, true, pct, phase)}
         onActivateScene={() => undefined}
+        onToggleScenePlay={() => undefined}
       />
     );
   }
@@ -343,6 +347,7 @@ export const ControlCard = ({
         setRoomZoneState(roomZone, true, pct, phase)
       }
       onActivateScene={(scene) => void activateScene(scene)}
+      onToggleScenePlay={(scene) => void activateScene(scene, "dynamic")}
     />
   );
 };

@@ -211,6 +211,10 @@ const tileInk = (
   return darkWorst >= lightWorst ? INK_DARK : INK_LIGHT;
 };
 
+/** Pick readable foreground ink for an icon placed on a solid color. */
+export const foregroundForBackground = (background: string): string =>
+  tileInk(background, background, undefined);
+
 /**
  * Inline style for an *active* (lit) tile. Paints the card with the light's live
  * color and derives a legible ink color from the actual painted surface (see

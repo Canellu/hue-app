@@ -159,17 +159,6 @@ export const useWidgets = () => {
     [refresh],
   );
 
-  const previewConfig = useCallback(
-    async (widgetId: string, config: WidgetConfigDraft) => {
-      try {
-        await invoke("preview-widget-config", { widgetId, ...config });
-      } catch {
-        // Preview is best-effort; save/cancel still reconciles persisted state.
-      }
-    },
-    [],
-  );
-
   const setConfig = useCallback(
     async (widgetId: string, config: WidgetConfigDraft) => {
       setWidgets((current) =>
@@ -197,7 +186,6 @@ export const useWidgets = () => {
     setPinned,
     setAlwaysOnTop,
     setControls,
-    previewConfig,
     setConfig,
     refresh,
   };

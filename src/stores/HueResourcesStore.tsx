@@ -225,6 +225,64 @@ const SCENE_SETTLE_MS = SCENE_TRANSITION_MS + 3000;
 const SCENE_EVENT_REFRESH_DELAY_MS = 500;
 let sceneEventRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
+interface PendingLightColorWrite {
+  id: string;
+  xy: [number, number] | null;
+  ct: number | null;
+  effect: string | null;
+  transitionMs: number;
+  onSent: () => void;
+  onError: (error: unknown) => void;
+}
+
+// Hue recommends roughly 100ms between individual light writes. Keep a single
+// global lane so a multi-light drag cannot flood the bridge, and retain only
+// the newest unsent color for each light so stale drag positions are discarded.
+const LIGHT_COLOR_WRITE_GAP_MS = 100;
+const LIGHT_COLOR_CONFIRM_TIMEOUT_MS = 10000;
+const pendingLightColorWrites = new Map<string, PendingLightColorWrite>();
+const lightColorWriteVersions = new Map<string, number>();
+let drainingLightColorWrites = false;
+
+const wait = (durationMs: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, durationMs));
+
+const drainLightColorWrites = async (): Promise<void> => {
+  if (drainingLightColorWrites) return;
+  drainingLightColorWrites = true;
+
+  while (pendingLightColorWrites.size > 0) {
+    const next = pendingLightColorWrites.values().next().value;
+    if (!next) break;
+    pendingLightColorWrites.delete(next.id);
+    const dispatchedAt = Date.now();
+
+    try {
+      await invoke("set-light-color", {
+        id: next.id,
+        xy: next.xy,
+        ct: next.ct,
+        effect: next.effect,
+        transitionMs: next.transitionMs,
+      });
+      next.onSent();
+    } catch (error) {
+      next.onError(error);
+    }
+
+    const remainingGap =
+      LIGHT_COLOR_WRITE_GAP_MS - (Date.now() - dispatchedAt);
+    if (remainingGap > 0) await wait(remainingGap);
+  }
+
+  drainingLightColorWrites = false;
+};
+
+const enqueueLightColorWrite = (write: PendingLightColorWrite): void => {
+  pendingLightColorWrites.set(write.id, write);
+  void drainLightColorWrites();
+};
+
 const scheduleSceneEventRefresh = (loadScenes: () => Promise<void>): void => {
   if (sceneEventRefreshTimer != null) return;
   sceneEventRefreshTimer = setTimeout(() => {
@@ -1053,11 +1111,25 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
     }
     // Setting a color also turns the light on; lock so an in-flight off-echo
     // can't immediately flip it back.
-    lockResource(light.id, {
-      on: true,
-      ...(change.xy ? { colorMode: "xy" as const } : {}),
-      ...(change.ct ? { colorMode: "ct" as const } : {}),
-    });
+    lockResource(
+      light.id,
+      {
+        on: true,
+        ...(change.xy
+          ? { colorMode: "xy" as const, xy: change.xy }
+          : {}),
+        ...(change.ct
+          ? { colorMode: "ct" as const, mirek: change.ct }
+          : {}),
+        ...(change.effect
+          ? { effect: change.effect, effectV2: change.effect }
+          : {}),
+      },
+      {
+        durationMs: LIGHT_COLOR_CONFIRM_TIMEOUT_MS,
+        releaseOnConfirm: false,
+      },
+    );
     clearGroupLocksForLight(light.id, get().roomZones);
     set((state) => ({
       lights: state.lights.map((l) =>
@@ -1075,15 +1147,47 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
       ),
     }));
 
-    void invoke("set-light-color", {
+    const writeVersion = (lightColorWriteVersions.get(light.id) ?? 0) + 1;
+    lightColorWriteVersions.set(light.id, writeVersion);
+    enqueueLightColorWrite({
       id: light.id,
       xy: change.xy ?? null,
       ct: change.ct ?? null,
       effect: change.effect ?? null,
       transitionMs: COLOR_TRANSITION_MS,
-    }).catch((e) => {
-      set({ error: String(e) || "Unable to update color." });
-      void get().loadLights();
+      onSent: () => {
+        if (lightColorWriteVersions.get(light.id) !== writeVersion) return;
+        // Every older write for this light has now been accepted before this
+        // one. Stale SSE frames remain blocked until the bridge reports this
+        // exact final value; only that confirmation may release the lock.
+        lockResource(
+          light.id,
+          {
+            on: true,
+            ...(change.xy
+              ? { colorMode: "xy" as const, xy: change.xy }
+              : {}),
+            ...(change.ct
+              ? { colorMode: "ct" as const, mirek: change.ct }
+              : {}),
+            ...(change.effect
+              ? { effect: change.effect, effectV2: change.effect }
+              : {}),
+          },
+          {
+            durationMs: LIGHT_COLOR_CONFIRM_TIMEOUT_MS,
+            releaseOnConfirm: true,
+          },
+        );
+        lightColorWriteVersions.delete(light.id);
+      },
+      onError: (error) => {
+        if (lightColorWriteVersions.get(light.id) !== writeVersion) return;
+        lightColorWriteVersions.delete(light.id);
+        clearResourceLocks([light.id]);
+        set({ error: String(error) || "Unable to update color." });
+        void get().loadLights();
+      },
     });
   },
 

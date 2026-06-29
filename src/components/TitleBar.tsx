@@ -7,13 +7,9 @@ import logo from "../assets/rectangle.svg";
 interface TitleBarProps {
   /** Dev-only: when set, shows a "back to wizard" control in the title bar. */
   onDevBack?: () => void;
-  isMaximized?: boolean;
 }
 
-export const TitleBar: React.FC<TitleBarProps> = ({
-  onDevBack,
-  isMaximized = false,
-}) => {
+export const TitleBar: React.FC<TitleBarProps> = ({ onDevBack }) => {
   const handleMinimize = async () => {
     try {
       await invoke("minimize-main-window");
@@ -68,9 +64,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   return (
     <div
       onMouseDown={handleMouseDown}
-      className={`pointer-events-auto fixed top-0 right-0 left-0 z-9999 flex h-10 items-stretch justify-between overflow-hidden bg-background/80 pl-4 backdrop-blur supports-backdrop-filter:bg-background/60 ${
-        isMaximized ? "rounded-none" : "rounded-t-2xl"
-      }`}
+      className="pointer-events-auto fixed top-0 right-0 left-0 z-9999 flex h-10 items-stretch justify-between bg-background/80 pl-4 backdrop-blur supports-backdrop-filter:bg-background/60"
     >
       <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
         {onDevBack && (

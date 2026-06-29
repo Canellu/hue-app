@@ -16,6 +16,7 @@ import {
 } from "@/features/setup-wizard/hooks/useDevViews";
 import { WidgetWizard } from "@/features/settings-screen/components/WidgetWizard";
 import { RouterProvider } from "@tanstack/react-router";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { motion, useReducedMotion, type Variants } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { TitleBar } from "./components/TitleBar";
@@ -132,6 +133,29 @@ const DisconnectedBridgeView = ({
 );
 
 function App() {
+  const [isMaximized, setIsMaximized] = useState(false);
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+
+    const appWindow = getCurrentWindow();
+    let active = true;
+    const syncMaximized = async () => {
+      const maximized = await appWindow.isMaximized();
+      if (active) setIsMaximized(maximized);
+    };
+
+    void syncMaximized();
+    const unlisten = appWindow.onResized(() => {
+      void syncMaximized();
+    });
+
+    return () => {
+      active = false;
+      void unlisten.then((dispose) => dispose());
+    };
+  }, []);
+
   const {
     configured,
     connected,
@@ -292,8 +316,13 @@ function App() {
     : undefined;
 
   return (
-    <main className="h-screen overflow-hidden bg-background pt-10 text-foreground">
+    <main
+      className={`h-screen overflow-hidden bg-background pt-10 text-foreground ${
+        isMaximized ? "rounded-none" : "rounded-2xl"
+      }`}
+    >
       <TitleBar
+        isMaximized={isMaximized}
         onDevBack={
           dev.enabled && dev.viewId === "home-preview"
             ? () => dev.selectView("success")

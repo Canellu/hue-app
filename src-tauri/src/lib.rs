@@ -148,7 +148,7 @@ pub fn run() {
             #[cfg(target_os = "windows")]
             {
                 if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.set_shadow(true);
+                    let _ = window.set_shadow(false);
 
                     if let Ok(hwnd_struct) = window.hwnd() {
                         // 1. Convert the window handle to a plain raw pointer integer
@@ -166,7 +166,9 @@ pub fn run() {
                                 ) -> i32;
                             }
 
-                            let border_color: u32 = 0xFFFFFFFF; // Fully transparent/white fallback
+                            // Match widget windows: tell DWM not to paint its
+                            // thin frame around this undecorated window.
+                            let border_color: u32 = 0xFFFF_FFFE;
                             const DWMWA_BORDER_COLOR: u32 = 34; // Windows DWM system constant for border color
 
                             // 3. Make the API call using pure, basic data types

@@ -135,8 +135,6 @@ export const ScenesSection: React.FC<ScenesSectionProps> = ({
     };
   }, [api]);
 
-  // Saving keeps the gallery open — closing is explicit (the X or backdrop) so
-  // the user can keep auditioning presets and add several without reopening.
   const handleGallerySceneCreate = async (preset: HueGalleryScenePreset) => {
     if (pendingGallerySceneId != null) return;
     setPendingGallerySceneId(preset.id);
@@ -169,7 +167,10 @@ export const ScenesSection: React.FC<ScenesSectionProps> = ({
         className="min-w-0"
       >
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-medium text-muted-foreground">Scenes</p>
+          <p className="text-sm font-medium text-muted-foreground">
+            Scenes{" "}
+            <span className="text-muted-foreground/60">{scenes.length}</span>
+          </p>
           {canScroll && (
             <div className="flex items-center gap-2">
               <CarouselPrevious className="static translate-y-0" />

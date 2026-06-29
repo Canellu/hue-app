@@ -14,12 +14,19 @@ export const AccessorySection: React.FC<{
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-sm font-medium text-muted-foreground">{title}</p>
+      <p className="text-sm font-medium text-muted-foreground">
+        {title}{" "}
+        <span className="text-muted-foreground/60">{accessories.length}</span>
+      </p>
       <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
         {accessories.map((accessory) => {
           const readings = readingsByDevice.get(accessory.id) ?? [];
           return (
-            <Card key={accessory.id} className="gap-3 bg-tile px-4 py-3">
+            <Card
+              key={accessory.id}
+              data-edit-id={accessory.id}
+              className="gap-3 bg-tile px-4 py-3"
+            >
               <div className="flex items-center gap-3">
                 <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
                   <Icon size={18} />

@@ -404,3 +404,10 @@
     animation: none;
   }
 }
+/* Space edit mode selection is applied by id so existing interactive tiles do
+   not need a second, parallel selected-state API. */
+[data-edit-selected] {
+  box-shadow:
+    0 0 0 2px var(--background),
+    0 0 0 4px var(--primary);
+}

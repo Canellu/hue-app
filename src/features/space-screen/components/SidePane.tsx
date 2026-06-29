@@ -1,8 +1,29 @@
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  INSPECTOR_TRANSITION_EVENT,
+  type InspectorTransitionDetail,
+  requestInspectorTransition,
+} from "@/features/space-screen/utils/inspector-transition";
 import { ArrowLeft, Pencil, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useState } from "react";
+import { useBlocker } from "@tanstack/react-router";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+
+export interface SidePaneEditGuard {
+  dirty: boolean;
+  discard: () => void;
+  save: () => Promise<boolean>;
+}
 
 interface SidePaneProps {
   /** Small uppercase label above the body (e.g. the product or scene kind). */
@@ -24,6 +45,7 @@ interface SidePaneProps {
   renderEdit?: (ctx: {
     active: boolean;
     exitEdit: () => void;
+    guardRef: React.MutableRefObject<SidePaneEditGuard | null>;
   }) => React.ReactNode;
 }
 
@@ -44,13 +66,84 @@ export const SidePane: React.FC<SidePaneProps> = ({
   // Edit mode slides the editing pane in from the right and swaps the header's
   // action button for a back arrow, rather than opening a separate modal.
   const [editing, setEditing] = useState(false);
+  const [pendingTransition, setPendingTransition] = useState<
+    (() => void) | null
+  >(null);
+  const guardRef = useRef<SidePaneEditGuard | null>(null);
 
   // Reset back to the read-only view whenever a different resource is selected.
   useEffect(() => {
     setEditing(false);
   }, [resetKey]);
 
+  useLayoutEffect(() => {
+    const handleTransition = (rawEvent: Event) => {
+      const event = rawEvent as CustomEvent<InspectorTransitionDetail>;
+      if (!editing || !guardRef.current?.dirty) return;
+      event.preventDefault();
+      setPendingTransition(() => event.detail.proceed);
+    };
+    window.addEventListener(INSPECTOR_TRANSITION_EVENT, handleTransition);
+    return () =>
+      window.removeEventListener(INSPECTOR_TRANSITION_EVENT, handleTransition);
+  }, [editing]);
+
+  const routeBlocker = useBlocker({
+    shouldBlockFn: () => editing && Boolean(guardRef.current?.dirty),
+    enableBeforeUnload: editing && Boolean(guardRef.current?.dirty),
+    withResolver: true,
+  });
+
+  const finishTransition = (proceed: () => void) => {
+    setPendingTransition(null);
+    setEditing(false);
+    proceed();
+  };
+
+  const discardAndContinue = () => {
+    guardRef.current?.discard();
+    if (guardRef.current) guardRef.current.dirty = false;
+    if (pendingTransition) {
+      finishTransition(pendingTransition);
+    } else if (routeBlocker.status === "blocked") {
+      setEditing(false);
+      routeBlocker.proceed();
+    }
+  };
+
+  const saveAndContinue = async () => {
+    if (!guardRef.current) return;
+    if (!(await guardRef.current.save())) return;
+    guardRef.current.dirty = false;
+    if (pendingTransition) {
+      finishTransition(pendingTransition);
+    } else if (routeBlocker.status === "blocked") {
+      setEditing(false);
+      routeBlocker.proceed();
+    }
+  };
+
   const editable = renderEdit != null;
+
+  useEffect(() => {
+    if (!editing) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (
+        pendingTransition != null ||
+        routeBlocker.status === "blocked"
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      requestInspectorTransition(() => setEditing(false));
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [editing, pendingTransition, routeBlocker.status]);
 
   return (
     <div className="flex h-full flex-col">
@@ -68,7 +161,9 @@ export const SidePane: React.FC<SidePaneProps> = ({
                 transition={{ duration: 0.18, ease: "easeOut" }}
                 className="-ml-1 flex h-8 shrink-0 items-center justify-center overflow-hidden rounded-md text-muted-foreground hover:bg-muted"
                 aria-label="Back"
-                onClick={() => setEditing(false)}
+                onClick={() =>
+                  requestInspectorTransition(() => setEditing(false))
+                }
               >
                 <ArrowLeft size={18} />
               </motion.button>
@@ -123,10 +218,51 @@ export const SidePane: React.FC<SidePaneProps> = ({
             {renderEdit?.({
               active: editing,
               exitEdit: () => setEditing(false),
+              guardRef,
             })}
           </div>
         </div>
       </div>
+
+      <AlertDialog
+        open={pendingTransition != null || routeBlocker.status === "blocked"}
+        onOpenChange={(open) => {
+          if (open) return;
+          setPendingTransition(null);
+          if (routeBlocker.status === "blocked") routeBlocker.reset();
+        }}
+      >
+        <AlertDialogContent>
+          <button
+            type="button"
+            aria-label="Close"
+            onClick={() => {
+              setPendingTransition(null);
+              if (routeBlocker.status === "blocked") routeBlocker.reset();
+            }}
+            className="absolute top-4 right-4 flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          >
+            <X className="size-4" />
+          </button>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unsaved changes</AlertDialogTitle>
+            <AlertDialogDescription>
+              Save your changes before leaving this editor?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction
+              variant="outline"
+              onClick={discardAndContinue}
+            >
+              Discard
+            </AlertDialogAction>
+            <AlertDialogAction onClick={() => void saveAndContinue()}>
+              Save
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

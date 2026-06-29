@@ -110,13 +110,14 @@ export const ScenePane: React.FC<ScenePaneProps> = ({ scene, onClose }) => {
       resetKey={scene.id}
       onClose={onClose}
       view={view}
-      renderEdit={({ active, exitEdit }) => (
+      renderEdit={({ active, exitEdit, guardRef }) => (
         <SceneEditPane
           scene={scene}
           active={active}
           roomZoneName={roomZone?.name ?? null}
           onClosePane={onClose}
           onExitEdit={exitEdit}
+          guardRef={guardRef}
         />
       )}
     />
@@ -141,7 +142,15 @@ const SceneEditPane: React.FC<{
   roomZoneName: string | null;
   onClosePane: () => void;
   onExitEdit: () => void;
-}> = ({ scene, active, roomZoneName, onClosePane, onExitEdit }) => {
+  guardRef: React.MutableRefObject<import("./SidePane").SidePaneEditGuard | null>;
+}> = ({
+  scene,
+  active,
+  roomZoneName,
+  onClosePane,
+  onExitEdit,
+  guardRef,
+}) => {
   const {
     renameScene,
     setSceneBrightness,
@@ -190,15 +199,15 @@ const SceneEditPane: React.FC<{
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene.id, active]);
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     const trimmed = name.trim();
     if (!trimmed) {
       setError("Name cannot be empty.");
-      return;
+      return false;
     }
     if (trimmed.length > MAX_NAME_LENGTH) {
       setError(`Name cannot exceed ${MAX_NAME_LENGTH} characters.`);
-      return;
+      return false;
     }
 
     setIsSaving(true);
@@ -217,8 +226,10 @@ const SceneEditPane: React.FC<{
       }
       await loadScenes();
       onExitEdit();
+      return true;
     } catch (saveError) {
       setError(String(saveError) || "Unable to save scene changes.");
+      return false;
     } finally {
       setIsSaving(false);
     }
@@ -231,6 +242,24 @@ const SceneEditPane: React.FC<{
       setDynamicSpeedLive(scene, originalSpeed.current);
     }
     onExitEdit();
+  };
+
+  guardRef.current = {
+    dirty:
+      name !== scene.name ||
+      brightness !== Math.round(sceneBrightness(scene)) ||
+      speed !== originalSpeed.current ||
+      autoDynamic !== scene.autoDynamic,
+    discard: () => {
+      if (scene.dynamic && speed !== originalSpeed.current) {
+        setDynamicSpeedLive(scene, originalSpeed.current);
+      }
+      setName(scene.name);
+      setBrightness(Math.round(sceneBrightness(scene)));
+      setSpeed(originalSpeed.current);
+      setAutoDynamic(scene.autoDynamic);
+    },
+    save,
   };
 
   // A scene lives in exactly one space, so removing it deletes it. Gallery

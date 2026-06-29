@@ -114,27 +114,39 @@ function SelectLabel({
 function SelectItem({
   className,
   children,
+  indicator = "check",
   ...props
-}: SelectPrimitive.Item.Props) {
+}: SelectPrimitive.Item.Props & { indicator?: "check" | "checkbox" }) {
   return (
     <SelectPrimitive.Item
       data-slot="select-item"
       className={cn(
-        "relative flex w-full cursor-default items-center gap-2 rounded-xl py-2 pr-9 pl-2.5 text-sm text-popover-foreground outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-5 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        "relative flex w-full cursor-default items-center gap-2 rounded-xl py-2 pl-2.5 text-sm text-popover-foreground outline-hidden select-none focus:bg-accent focus:text-accent-foreground data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-5 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        indicator === "check" && "pr-9",
+        indicator === "checkbox" && "pr-2.5",
         className
       )}
       {...props}
     >
+      {indicator === "checkbox" && (
+        <span className="flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-input bg-background">
+          <SelectPrimitive.ItemIndicator>
+            <CheckIcon className="size-3.5" strokeWidth={3} />
+          </SelectPrimitive.ItemIndicator>
+        </span>
+      )}
       <SelectPrimitive.ItemText className="flex flex-1 shrink-0 gap-2 whitespace-nowrap">
         {children}
       </SelectPrimitive.ItemText>
-      <SelectPrimitive.ItemIndicator
-        render={
-          <span className="pointer-events-none absolute right-2.5 flex size-5 items-center justify-center">
-            <CheckIcon className="pointer-events-none" />
-          </span>
-        }
-      />
+      {indicator === "check" && (
+        <SelectPrimitive.ItemIndicator
+          render={
+            <span className="pointer-events-none absolute right-2.5 flex size-5 items-center justify-center">
+              <CheckIcon className="pointer-events-none" />
+            </span>
+          }
+        />
+      )}
     </SelectPrimitive.Item>
   )
 }

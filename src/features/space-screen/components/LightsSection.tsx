@@ -51,7 +51,10 @@ export const LightsSection: React.FC<LightsSectionProps> = ({
 
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-sm font-medium text-muted-foreground">Lights</p>
+      <p className="text-sm font-medium text-muted-foreground">
+        Lights{" "}
+        <span className="text-muted-foreground/60">{lights.length}</span>
+      </p>
       {lights.length === 0 ? (
         <p className="text-sm text-muted-foreground">
           This room or zone has no individual lights.

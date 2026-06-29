@@ -16,7 +16,7 @@ export const settingsTabs = [
     icon: Router,
   },
   {
-    value: "app",
+    value: "general",
     label: "General",
     description: "Set app appearance and desktop window behavior.",
     icon: Monitor,

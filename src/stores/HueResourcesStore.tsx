@@ -27,6 +27,7 @@ import type {
   HueScene,
   HueZone,
 } from "@/types/hue";
+import { requestInspectorTransition } from "@/features/space-screen/utils/inspector-transition";
 
 /** Color attributes that can be pushed to an individual light. */
 export interface LightColorChange {
@@ -624,45 +625,58 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   inspectorPaneOpen: false,
 
   setSelectedLightId: (id) =>
-    set({ selectedLightId: id, selectedSceneId: null, selectedGroupId: null }),
+    requestInspectorTransition(() =>
+      set({ selectedLightId: id, selectedSceneId: null, selectedGroupId: null }),
+    ),
   toggleLightInspector: (id) =>
-    set((state) =>
-      state.inspectorPaneOpen && state.selectedLightId === id
-        ? { inspectorPaneOpen: false }
-        : {
-            selectedLightId: id,
-            selectedSceneId: null,
-            selectedGroupId: null,
-            inspectorPaneOpen: true,
-          },
+    requestInspectorTransition(() =>
+      set((state) =>
+        state.inspectorPaneOpen && state.selectedLightId === id
+          ? { inspectorPaneOpen: false }
+          : {
+              selectedLightId: id,
+              selectedSceneId: null,
+              selectedGroupId: null,
+              inspectorPaneOpen: true,
+            },
+      ),
     ),
   setSelectedSceneId: (id) =>
-    set({ selectedSceneId: id, selectedLightId: null, selectedGroupId: null }),
+    requestInspectorTransition(() =>
+      set({ selectedSceneId: id, selectedLightId: null, selectedGroupId: null }),
+    ),
   toggleSceneInspector: (id) =>
-    set((state) =>
-      state.inspectorPaneOpen && state.selectedSceneId === id
-        ? { inspectorPaneOpen: false }
-        : {
-            selectedSceneId: id,
-            selectedLightId: null,
-            selectedGroupId: null,
-            inspectorPaneOpen: true,
-          },
+    requestInspectorTransition(() =>
+      set((state) =>
+        state.inspectorPaneOpen && state.selectedSceneId === id
+          ? { inspectorPaneOpen: false }
+          : {
+              selectedSceneId: id,
+              selectedLightId: null,
+              selectedGroupId: null,
+              inspectorPaneOpen: true,
+            },
+      ),
     ),
   setSelectedGroupId: (id) =>
-    set({ selectedGroupId: id, selectedLightId: null, selectedSceneId: null }),
-  toggleGroupInspector: (id) =>
-    set((state) =>
-      state.inspectorPaneOpen && state.selectedGroupId === id
-        ? { inspectorPaneOpen: false }
-        : {
-            selectedGroupId: id,
-            selectedLightId: null,
-            selectedSceneId: null,
-            inspectorPaneOpen: true,
-          },
+    requestInspectorTransition(() =>
+      set({ selectedGroupId: id, selectedLightId: null, selectedSceneId: null }),
     ),
-  setInspectorPaneOpen: (open) => set({ inspectorPaneOpen: open }),
+  toggleGroupInspector: (id) =>
+    requestInspectorTransition(() =>
+      set((state) =>
+        state.inspectorPaneOpen && state.selectedGroupId === id
+          ? { inspectorPaneOpen: false }
+          : {
+              selectedGroupId: id,
+              selectedLightId: null,
+              selectedSceneId: null,
+              inspectorPaneOpen: true,
+            },
+      ),
+    ),
+  setInspectorPaneOpen: (open) =>
+    requestInspectorTransition(() => set({ inspectorPaneOpen: open })),
 
   setDraftLayout: (next) => set({ draftLayout: next }),
 

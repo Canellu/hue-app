@@ -46,6 +46,7 @@ export const LightCard: React.FC<LightCardProps> = ({
 
   return (
     <Card
+      data-edit-id={light.id}
       size="sm"
       role="button"
       tabIndex={0}

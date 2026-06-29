@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -14,6 +13,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   gallerySceneBubbleCss,
+  HUE_SCENE_GALLERY_COUNT,
   HUE_SCENE_GALLERY_SECTIONS,
   type HueGalleryScenePreset,
 } from "@/features/space-screen/data/hueSceneGallery";
@@ -40,39 +40,15 @@ export const SceneGalleryDialog: React.FC<{
 }) => {
   const [previewedPreset, setPreviewedPreset] =
     useState<HueGalleryScenePreset | null>(null);
-  // Brief acknowledgement shown on a button after an action lands, since the
-  // gallery stays open (closing is explicit) and otherwise nothing would change.
-  const [confirmation, setConfirmation] = useState<null | "saved" | "set">(
-    null,
-  );
-  const confirmationTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const flashConfirmation = (kind: "saved" | "set") => {
-    setConfirmation(kind);
-    if (confirmationTimer.current) clearTimeout(confirmationTimer.current);
-    confirmationTimer.current = setTimeout(() => setConfirmation(null), 1400);
-  };
 
   // Forget the in-modal selection when the gallery closes; the parent's
   // onOpenChange is what reverts the lights themselves.
   useEffect(() => {
-    if (!open) {
-      setPreviewedPreset(null);
-      setConfirmation(null);
-      if (confirmationTimer.current) clearTimeout(confirmationTimer.current);
-    }
+    if (!open) setPreviewedPreset(null);
   }, [open]);
-
-  useEffect(
-    () => () => {
-      if (confirmationTimer.current) clearTimeout(confirmationTimer.current);
-    },
-    [],
-  );
 
   const adding = pendingSceneId != null;
   const handlePreview = (preset: HueGalleryScenePreset) => {
-    setConfirmation(null);
     setPreviewedPreset(preset);
     onScenePreview(preset);
   };
@@ -80,14 +56,14 @@ export const SceneGalleryDialog: React.FC<{
   const handleSetOnce = () => {
     if (!previewedPreset) return;
     onSceneApplyOnce(previewedPreset);
-    flashConfirmation("set");
+    onOpenChange(false);
   };
 
   const handleSave = async () => {
     if (!previewedPreset || adding) return;
     try {
       await onSceneCreate(previewedPreset);
-      flashConfirmation("saved");
+      onOpenChange(false);
     } catch {
       // The store surfaces the error in the space view; leave the modal open.
     }
@@ -97,7 +73,12 @@ export const SceneGalleryDialog: React.FC<{
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[calc(100vh-3rem)] gap-4 sm:max-w-4xl">
         <DialogHeader>
-          <DialogTitle>Hue scene gallery</DialogTitle>
+          <DialogTitle>
+            Hue scene gallery{" "}
+            <span className="text-muted-foreground">
+              {HUE_SCENE_GALLERY_COUNT}
+            </span>
+          </DialogTitle>
           <DialogDescription>
             Tap a preset to preview it live in {roomZoneName}. Set once applies
             it now; Save to {roomZoneName} keeps it as a scene.
@@ -111,19 +92,16 @@ export const SceneGalleryDialog: React.FC<{
           <div className="space-y-6">
             {HUE_SCENE_GALLERY_SECTIONS.map((section) => (
               <section key={section.id} className="space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <h3 className="truncate text-base font-semibold">
-                      {section.title}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      {section.description}
-                    </p>
-                  </div>
-                  <Badge variant="outline">
-                    {section.scenes.length}{" "}
-                    {section.scenes.length === 1 ? "preset" : "presets"}
-                  </Badge>
+                <div className="min-w-0">
+                  <h3 className="truncate text-base font-semibold">
+                    {section.title}{" "}
+                    <span className="text-muted-foreground">
+                      {section.scenes.length}
+                    </span>
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {section.description}
+                  </p>
                 </div>
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">
                   {[...section.scenes]
@@ -153,17 +131,13 @@ export const SceneGalleryDialog: React.FC<{
               disabled={!previewedPreset || adding}
               onClick={handleSetOnce}
             >
-              {confirmation === "set" ? "Set" : "Set once"}
+              Set once
             </Button>
             <Button
               disabled={!previewedPreset || adding}
               onClick={() => void handleSave()}
             >
-              {adding
-                ? "Saving…"
-                : confirmation === "saved"
-                  ? "Saved"
-                  : `Save to ${roomZoneName}`}
+              Save to {roomZoneName}
             </Button>
           </div>
         </DialogFooter>

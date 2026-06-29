@@ -3,6 +3,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { GroupPane } from "@/features/space-screen/components/GroupPane";
 import { LightPane } from "@/features/space-screen/components/LightPane";
 import { ScenePane } from "@/features/space-screen/components/ScenePane";
+import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
 import { cn } from "@/lib/utils";
 import {
   HueResourcesStoreEffects,
@@ -220,6 +221,7 @@ const LightInspector: React.FC = () => {
 
 /** Header wired to the Hue resources store; split out so it can read the data layer. */
 const ShellHeader: React.FC = () => {
+  const [isEditingSpace, setIsEditingSpace] = useState(false);
   const {
     roomZones,
     homeName,
@@ -246,6 +248,17 @@ const ShellHeader: React.FC = () => {
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
+  useEffect(() => {
+    const update = (event: Event) =>
+      setIsEditingSpace((event as CustomEvent<boolean>).detail);
+    window.addEventListener("hue-space-edit-state", update);
+    return () => window.removeEventListener("hue-space-edit-state", update);
+  }, []);
+
+  useEffect(() => {
+    setIsEditingSpace(false);
+  }, [pathname]);
+
   // Layout editing and Settings are Home-only; Space/Settings use Back instead.
   const onHome = pathname === "/";
   const activeSpaceId = pathname.startsWith("/space/")
@@ -253,6 +266,9 @@ const ShellHeader: React.FC = () => {
     : null;
   const activeSpace = activeSpaceId
     ? roomZones.find((roomZone) => roomZone.id === activeSpaceId)
+    : null;
+  const ActiveSpaceIcon = activeSpace
+    ? getRoomZoneIcon(activeSpace.class)
     : null;
   const onDeviceDiscovery = pathname === "/settings/device-discovery";
   const onWidgetWizard = pathname === "/settings/widget-wizard";
@@ -274,11 +290,7 @@ const ShellHeader: React.FC = () => {
         ? "Group your devices and lights"
         : pathname === "/settings"
           ? "Bridge & app preferences"
-          : activeSpace
-            ? `${activeSpace.lightCount} ${
-                activeSpace.lightCount === 1 ? "light" : "lights"
-              } · ${activeSpace.anyOn ? "On" : "Off"}`
-            : undefined;
+          : undefined;
   return (
     <AppHeader
       onBack={
@@ -295,6 +307,27 @@ const ShellHeader: React.FC = () => {
       }
       title={title}
       description={description}
+      titleIcon={
+        ActiveSpaceIcon ? <ActiveSpaceIcon size={24} strokeWidth={2.25} /> : undefined
+      }
+      onTitleClick={() =>
+        window.dispatchEvent(new CustomEvent("hue-space-edit-name"))
+      }
+      onTitleIconClick={() =>
+        window.dispatchEvent(new CustomEvent("hue-space-edit-icon"))
+      }
+      titleActionLabel={
+        activeSpace
+          ? `Edit ${activeSpace.resourceType === "room" ? "room" : "zone"}`
+          : undefined
+      }
+      onTitleAction={() =>
+        window.dispatchEvent(new CustomEvent("hue-space-edit-request"))
+      }
+      titleEditing={activeSpace != null && isEditingSpace}
+      onSaveTitleEdit={() =>
+        window.dispatchEvent(new CustomEvent("hue-space-edit-save"))
+      }
       homeName={homeName}
       showSettings={onHome}
       onOpenSettings={() =>

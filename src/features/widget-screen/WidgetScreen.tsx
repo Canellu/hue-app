@@ -13,7 +13,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Pin, PinOff, Settings, X } from "lucide-react";
+import { Loader2, Pin, PinOff, Settings, X } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -197,19 +197,8 @@ const ControlList = ({
   sizeMode: import("./types").WidgetSizeMode;
   onOpenSettings: () => void;
 }) => {
-  const hasLoaded = useHueResourcesStore((state) => state.hasLoaded);
   const roomZones = useHueResourcesStore((state) => state.roomZones);
   const lights = useHueResourcesStore((state) => state.lights);
-
-  if (!hasLoaded) {
-    return (
-      <Centered>
-        <p className="text-sm text-muted-foreground">
-          Connecting to your bridge…
-        </p>
-      </Centered>
-    );
-  }
 
   if (roomZones.length === 0 && lights.length === 0) {
     return (
@@ -262,6 +251,7 @@ const ControlList = ({
 export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
   const { controls, themeMode, sizeMode } = useWidgetControls(widgetId);
   const sizeMetrics = WIDGET_SIZE_METRICS[sizeMode];
+  const hasLoaded = useHueResourcesStore((state) => state.hasLoaded);
   const [shellRevealed, setShellRevealed] = useState(false);
   const [systemDark, setSystemDark] = useState(
     () => window.matchMedia("(prefers-color-scheme: dark)").matches,
@@ -418,15 +408,20 @@ export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
     [sizeMode, theme],
   );
 
+  // While we're still connecting to the bridge there's nothing to grab onto, so
+  // keep the shell opaque (the same chrome an unpinned widget shows) instead of
+  // leaving a transparent window floating with a lone line of text.
+  const showShell = shellRevealed || !hasLoaded;
+
   return (
     <main
       className={cn(
         "group/widget relative h-screen w-screen overflow-hidden border text-foreground transition-colors",
-        shellRevealed ? "border-border/20 shadow-2xl" : "border-transparent",
+        showShell ? "border-border/20 shadow-2xl" : "border-transparent",
         flashing && "bg-primary/35",
       )}
       style={
-        shellRevealed
+        showShell
           ? shellStyle
           : { ...shellStyle, backgroundColor: "transparent" }
       }
@@ -438,25 +433,36 @@ export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
         onRevealChange={setShellRevealed}
       />
 
-      {/* Fill the window and pad every edge by the title-bar height so the
-          controls never touch the window edges and the overlaid title bar never
-          covers them. The cards reflow to whatever width the user picks. The
-          inner wrapper carries `contentRef` and is *not* stretched to the
-          window, so its measured height is the controls' true content height —
-          that's what `syncWidgetLayout` reads to set a min height the window can
-          still shrink back down to. */}
-      <section
-        className="h-full w-full overflow-hidden"
-        style={{ padding: sizeMetrics.edgePadding }}
-      >
-        <div ref={contentRef}>
-          <ControlList
-            controls={controls}
-            sizeMode={sizeMode}
-            onOpenSettings={openSettings}
-          />
+      {!hasLoaded ? (
+        // Center the connecting state on the whole window (not the content
+        // wrapper) with a spinner and the shimmering title we use elsewhere.
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          <p className="text-shimmer font-heading text-sm font-semibold">
+            Connecting to your bridge…
+          </p>
         </div>
-      </section>
+      ) : (
+        /* Fill the window and pad every edge by the title-bar height so the
+           controls never touch the window edges and the overlaid title bar
+           never covers them. The cards reflow to whatever width the user picks.
+           The inner wrapper carries `contentRef` and is *not* stretched to the
+           window, so its measured height is the controls' true content height —
+           that's what `syncWidgetLayout` reads to set a min height the window
+           can still shrink back down to. */
+        <section
+          className="h-full w-full overflow-hidden"
+          style={{ padding: sizeMetrics.edgePadding }}
+        >
+          <div ref={contentRef}>
+            <ControlList
+              controls={controls}
+              sizeMode={sizeMode}
+              onOpenSettings={openSettings}
+            />
+          </div>
+        </section>
+      )}
     </main>
   );
 };

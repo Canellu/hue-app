@@ -34,6 +34,7 @@ export const SceneCard: React.FC<{
 
   return (
     <SceneTile
+      editId={scene.id}
       name={scene.name}
       ariaPressed={active}
       activeBackground={activeBackground}

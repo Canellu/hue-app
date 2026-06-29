@@ -267,13 +267,14 @@ export const LightPane: React.FC<LightPaneProps> = ({
       resetKey={light.id}
       onClose={onClose}
       view={view}
-      renderEdit={({ active, exitEdit }) => (
+      renderEdit={({ active, exitEdit, guardRef }) => (
         <EditPane
           light={light}
           space={space}
           active={active}
           onClosePane={onClose}
           onExitEdit={exitEdit}
+          guardRef={guardRef}
         />
       )}
     />
@@ -304,7 +305,8 @@ const EditPane: React.FC<{
   active: boolean;
   onClosePane: () => void;
   onExitEdit: () => void;
-}> = ({ light, space, active, onClosePane, onExitEdit }) => {
+  guardRef: React.MutableRefObject<import("./SidePane").SidePaneEditGuard | null>;
+}> = ({ light, space, active, onClosePane, onExitEdit, guardRef }) => {
   const navigate = useNavigate();
   const roomZones = useHueResourcesStore((state) => state.roomZones);
   const loadAll = useHueResourcesStore((state) => state.loadAll);
@@ -391,19 +393,19 @@ const EditPane: React.FC<{
     [zones],
   );
 
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     const trimmed = name.trim();
     if (!trimmed) {
       setError("Name cannot be empty.");
-      return;
+      return false;
     }
     if (trimmed.length > MAX_NAME_LENGTH) {
       setError(`Name cannot exceed ${MAX_NAME_LENGTH} characters.`);
-      return;
+      return false;
     }
     if (!light.deviceId) {
       setError("This light is missing its owning device id.");
-      return;
+      return false;
     }
 
     setIsSaving(true);
@@ -434,8 +436,10 @@ const EditPane: React.FC<{
 
       await loadAll();
       onExitEdit();
+      return true;
     } catch (saveError) {
       setError(String(saveError) || "Unable to save device changes.");
+      return false;
     } finally {
       setIsSaving(false);
     }
@@ -447,6 +451,25 @@ const EditPane: React.FC<{
     color != null
       ? activeTileTheme(color, color, Math.round(light.brightness ?? 0))
       : undefined;
+
+  const originalRoom = roomForLight(light, roomZones);
+  const originalZones = zonesForLight(light, roomZones);
+  guardRef.current = {
+    dirty:
+      name !== light.name ||
+      icon !== (light.typeName ?? "") ||
+      func !== (light.function ?? "") ||
+      room !== originalRoom ||
+      !sameIds(zoneIds, originalZones),
+    discard: () => {
+      setName(light.name);
+      setIcon(light.typeName ?? "");
+      setFunc(light.function ?? "");
+      setRoom(originalRoom);
+      setZoneIds(originalZones);
+    },
+    save,
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -593,7 +616,11 @@ const EditPane: React.FC<{
                 </SelectTrigger>
                 <SelectContent>
                   {zones.map((space) => (
-                    <SelectItem key={space.id} value={space.id}>
+                    <SelectItem
+                      key={space.id}
+                      value={space.id}
+                      indicator="checkbox"
+                    >
                       {space.name}
                     </SelectItem>
                   ))}
@@ -801,3 +828,7 @@ const updateZonesPlacement = async (
 
 const labelFromHueId = (id: string): string =>
   id.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+
+const sameIds = (left: string[], right: string[]): boolean =>
+  left.length === right.length &&
+  left.every((id) => right.includes(id));

@@ -37,6 +37,7 @@ export const SceneTile: React.FC<{
   size?: "default" | "sm" | "xs";
   className?: string;
   style?: React.CSSProperties;
+  editId?: string;
 }> = ({
   name,
   visual,
@@ -51,11 +52,13 @@ export const SceneTile: React.FC<{
   size = "default",
   className,
   style,
+  editId,
 }) => {
   const tiny = size === "xs";
   const small = size === "sm";
   return (
   <Card
+    data-edit-id={editId}
     size="sm"
     role="button"
     tabIndex={disabled ? -1 : 0}

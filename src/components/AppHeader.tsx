@@ -11,7 +11,12 @@ import {
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import type { HomeGroupingMode } from "@/types/app-layout";
-import { ArrowLeft, Pencil, Plus, Settings } from "lucide-react";
+import {
+  ArrowLeft,
+  Pencil,
+  Plus,
+  Settings,
+} from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 /** Short labels for the current grouping mode, shown on the layout control. */
@@ -26,6 +31,14 @@ interface AppHeaderProps {
   onBack?: () => void;
   title?: string;
   description?: string;
+  titleIcon?: React.ReactNode;
+  onTitleClick?: () => void;
+  onTitleIconClick?: () => void;
+  /** Optional placeholder action shown inline with the current page title. */
+  titleActionLabel?: string;
+  onTitleAction?: () => void;
+  titleEditing?: boolean;
+  onSaveTitleEdit?: () => void;
   /**
    * The home/house name (the bridge's user-given name) shown on the Home screen
    * in place of a back button. `null` while it's still loading or when the
@@ -57,6 +70,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   onBack,
   title,
   description,
+  titleIcon,
+  onTitleClick,
+  onTitleIconClick,
+  titleActionLabel,
+  onTitleAction,
+  titleEditing = false,
+  onSaveTitleEdit,
   homeName,
   showSettings,
   onOpenSettings,
@@ -90,11 +110,38 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           >
             <ArrowLeft size={26} />
           </Button>
+          {titleIcon &&
+            (titleEditing ? (
+              <Button
+                variant="secondary"
+                size="icon-xl"
+                aria-label="Change icon"
+                onClick={onTitleIconClick}
+                className="shrink-0"
+              >
+                {titleIcon}
+              </Button>
+            ) : (
+              <span className="flex size-11 shrink-0 items-center justify-center text-muted-foreground">
+                {titleIcon}
+              </span>
+            ))}
           {title && (
             <div className="min-w-0">
-              <h1 className="truncate font-heading text-2xl font-semibold">
-                {title}
-              </h1>
+              {titleEditing ? (
+                <Button
+                  variant="secondary"
+                  size="xl"
+                  onClick={onTitleClick}
+                  className="max-w-full justify-start truncate font-heading text-2xl font-semibold"
+                >
+                  {title}
+                </Button>
+              ) : (
+                <h1 className="truncate font-heading text-2xl font-semibold">
+                  {title}
+                </h1>
+              )}
               {description && (
                 <p className="truncate text-sm text-muted-foreground">
                   {description}
@@ -153,6 +200,17 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               exit={{ opacity: 0 }}
               transition={crossfade}
             >
+              {titleEditing ? (
+                <Button size="xl" onClick={onSaveTitleEdit}>
+                  Done
+                </Button>
+              ) : titleActionLabel ? (
+                <Button variant="ghost" size="xl" onClick={onTitleAction}>
+                  <Pencil size={18} />
+                  {titleActionLabel}
+                </Button>
+              ) : null}
+
               {showEditLayout && (
                 <>
                   {/* In Custom layout, a standalone Edit button arranges the

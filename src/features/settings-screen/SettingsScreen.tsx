@@ -92,7 +92,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 
   const activeTab = settingsTabs.some((tab) => tab.value === search.tab)
     ? search.tab!
-    : "app";
+    : "bridge";
   const activeTabDetails =
     settingsTabs.find((tab) => tab.value === activeTab) ?? settingsTabs[0];
   const openWidgetCount = widgets.filter((widget) => widget.enabled).length;
@@ -344,7 +344,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                 />
               </TabsContent>
 
-              <TabsContent value="app">
+              <TabsContent value="general">
                 <GeneralTab
                   themeMode={themeMode}
                   onThemeModeChange={onThemeModeChange}

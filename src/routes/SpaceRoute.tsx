@@ -35,6 +35,7 @@ export const SpaceRoute: React.FC = () => {
     endGalleryPreview,
     activateScene,
     setDynamicSpeedLive,
+    loadAll,
   } = useHueResourcesStore(
     useShallow((state) => ({
       roomZones: state.roomZones,
@@ -57,6 +58,7 @@ export const SpaceRoute: React.FC = () => {
       endGalleryPreview: state.endGalleryPreview,
       activateScene: state.activateScene,
       setDynamicSpeedLive: state.setDynamicSpeedLive,
+      loadAll: state.loadAll,
     })),
   );
 
@@ -139,6 +141,9 @@ export const SpaceRoute: React.FC = () => {
   return (
     <SpaceScreen
       roomZone={roomZone}
+      roomZones={roomZones}
+      allLights={lights}
+      allScenes={scenes}
       lights={spaceLights}
       scenes={spaceScenes}
       readingsByDevice={readingsByDevice}
@@ -169,6 +174,7 @@ export const SpaceRoute: React.FC = () => {
       }
       onGalleryScenePreview={(preset) => previewGalleryScene(roomZone, preset)}
       onGalleryScenePreviewEnd={() => endGalleryPreview()}
+      onRefresh={loadAll}
     />
   );
 };

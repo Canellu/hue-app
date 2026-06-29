@@ -221,7 +221,9 @@ const LightInspector: React.FC = () => {
 
 /** Header wired to the Hue resources store; split out so it can read the data layer. */
 const ShellHeader: React.FC = () => {
-  const [isEditingSpace, setIsEditingSpace] = useState(false);
+  const [spaceEditMode, setSpaceEditMode] = useState<
+    "customize" | "manage" | null
+  >(null);
   const {
     roomZones,
     homeName,
@@ -250,13 +252,15 @@ const ShellHeader: React.FC = () => {
 
   useEffect(() => {
     const update = (event: Event) =>
-      setIsEditingSpace((event as CustomEvent<boolean>).detail);
+      setSpaceEditMode(
+        (event as CustomEvent<"customize" | "manage" | null>).detail,
+      );
     window.addEventListener("hue-space-edit-state", update);
     return () => window.removeEventListener("hue-space-edit-state", update);
   }, []);
 
   useEffect(() => {
-    setIsEditingSpace(false);
+    setSpaceEditMode(null);
   }, [pathname]);
 
   // Layout editing and Settings are Home-only; Space/Settings use Back instead.
@@ -310,8 +314,10 @@ const ShellHeader: React.FC = () => {
       titleIcon={
         ActiveSpaceIcon ? <ActiveSpaceIcon size={24} strokeWidth={2.25} /> : undefined
       }
-      onTitleClick={() =>
-        window.dispatchEvent(new CustomEvent("hue-space-edit-name"))
+      onTitleRename={(name) =>
+        window.dispatchEvent(
+          new CustomEvent("hue-space-rename", { detail: name }),
+        )
       }
       onTitleIconClick={() =>
         window.dispatchEvent(new CustomEvent("hue-space-edit-icon"))
@@ -324,7 +330,14 @@ const ShellHeader: React.FC = () => {
       onTitleAction={() =>
         window.dispatchEvent(new CustomEvent("hue-space-edit-request"))
       }
-      titleEditing={activeSpace != null && isEditingSpace}
+      onTitleManage={() =>
+        window.dispatchEvent(new CustomEvent("hue-space-manage-request"))
+      }
+      titleEditing={activeSpace != null && spaceEditMode === "customize"}
+      titleManaging={activeSpace != null && spaceEditMode === "manage"}
+      onCancelTitleEdit={() =>
+        window.dispatchEvent(new CustomEvent("hue-space-edit-cancel"))
+      }
       onSaveTitleEdit={() =>
         window.dispatchEvent(new CustomEvent("hue-space-edit-save"))
       }

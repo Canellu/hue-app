@@ -3,7 +3,6 @@ import { Sparkles } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import {
   gallerySceneBubbleCss,
-  HUE_SCENE_GALLERY_COUNT,
   HUE_SCENE_GALLERY_PREVIEWS,
 } from "@/features/space-screen/data/hueSceneGallery";
 import { TILE_INTERACTION_TRANSITION_CLASS } from "@/lib/tile-theme";
@@ -11,21 +10,25 @@ import { UI_EASE_MS } from "@/lib/transitions";
 import { cn } from "@/lib/utils";
 
 export const SceneGalleryCard: React.FC<{
-  onOpen: () => void;
-}> = ({ onOpen }) => (
+  onOpen?: () => void;
+  editing?: boolean;
+}> = ({ onOpen, editing = false }) => (
   <Card
     size="sm"
     role="button"
-    tabIndex={0}
-    onClick={onOpen}
+    tabIndex={editing ? -1 : 0}
+    aria-disabled={editing}
+    onClick={editing ? undefined : onOpen}
     onKeyDown={(event) => {
+      if (editing) return;
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        onOpen();
+        onOpen?.();
       }
     }}
     className={cn(
-      "h-40 w-36 shrink-0 cursor-pointer items-center justify-center gap-4 rounded-[1.75rem] border-2 border-border bg-background px-4 text-center shadow-none outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      "h-36 w-32 shrink-0 items-center justify-center gap-3 rounded-[1.75rem] border-2 border-border bg-background px-3 text-center shadow-none outline-none focus-visible:ring-2 focus-visible:ring-ring",
+      editing ? "cursor-grab" : "cursor-pointer",
       TILE_INTERACTION_TRANSITION_CLASS,
     )}
     style={
@@ -40,7 +43,7 @@ export const SceneGalleryCard: React.FC<{
         return (
           <span
             key={preset.id}
-            className="flex size-10 items-center justify-center rounded-full bg-secondary text-muted-foreground shadow-sm ring-2 ring-card"
+            className="flex size-10 items-center justify-center rounded-full bg-secondary text-muted-foreground shadow-sm ring-2 ring-background"
             style={
               bubble
                 ? {
@@ -55,13 +58,6 @@ export const SceneGalleryCard: React.FC<{
         );
       })}
     </span>
-    <span className="flex max-w-28 flex-col gap-1">
-      <span className="text-base leading-tight font-semibold">
-        Hue scene gallery
-      </span>
-      <span className="text-xs text-muted-foreground">
-        {HUE_SCENE_GALLERY_COUNT} presets
-      </span>
-    </span>
+    <span className="text-base leading-tight font-semibold">Scene gallery</span>
   </Card>
 );

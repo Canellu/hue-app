@@ -12,10 +12,8 @@ import {
   useSortable,
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
-import { CSS as DndCSS } from "@dnd-kit/utilities";
 import {
   Copy,
-  GripVertical,
   LoaderCircle,
   MoveRight,
   Pencil,
@@ -24,11 +22,12 @@ import {
   ToggleLeft,
   X,
 } from "lucide-react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Dialog,
@@ -55,12 +54,15 @@ import type {
   HueRoomZone,
   HueScene,
 } from "@/types/hue";
-import { isSceneDynamicActive } from "@/features/space-screen/utils/scene-status";
 import type { HueGalleryScenePreset } from "./data/hueSceneGallery";
 import { AccessorySection } from "./components/AccessorySection";
 import { GroupControls } from "./components/GroupControls";
 import { LightsSection } from "./components/LightsSection";
 import { ScenesSection } from "./components/ScenesSection";
+import {
+  SectionGrip,
+  SectionGripProvider,
+} from "./components/SectionDragHandle";
 import {
   executeSpaceEditOperations,
   type LightFunction,
@@ -68,10 +70,12 @@ import {
 } from "./spaceEditActions";
 
 type ControlCommitPhase = "live" | "final";
+// Selectable (multiselect) sections. "group" is reorderable but not selectable.
 type EditCategory = "scenes" | "lights" | "switches" | "sensors";
-type SectionId = EditCategory;
+type SectionId = "group" | EditCategory;
 
 const DEFAULT_SECTION_ORDER: SectionId[] = [
+  "group",
   "scenes",
   "lights",
   "switches",
@@ -90,12 +94,60 @@ const readSectionOrder = (key: string): SectionId[] => {
   }
 };
 
+// Only the item sections carry a per-item order; "group" has no sub-items.
+type ItemOrder = Record<EditCategory, string[]>;
+
+const itemOrderKey = (roomId: string, section: EditCategory) =>
+  `hue-space-item-order:${roomId}:${section}`;
+
+const readItemOrder = (key: string): string[] => {
+  try {
+    const stored = JSON.parse(localStorage.getItem(key) ?? "[]");
+    return Array.isArray(stored)
+      ? stored.filter((id): id is string => typeof id === "string")
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+const readAllItemOrders = (roomId: string): ItemOrder => ({
+  scenes: readItemOrder(itemOrderKey(roomId, "scenes")),
+  lights: readItemOrder(itemOrderKey(roomId, "lights")),
+  switches: readItemOrder(itemOrderKey(roomId, "switches")),
+  sensors: readItemOrder(itemOrderKey(roomId, "sensors")),
+});
+
+/**
+ * Sorts `items` by the saved id order. Ids missing from `order` (newly added
+ * since the last reorder) keep their original relative position at the end, so
+ * a saved order never hides a new light/scene. A stable sort preserves that.
+ */
+function applyItemOrder<T extends { id: string }>(
+  items: T[],
+  order: string[],
+): T[] {
+  if (order.length === 0) return items;
+  const rank = new Map(order.map((id, index) => [id, index] as const));
+  return items
+    .map((item, index) => ({
+      item,
+      index,
+      rank: rank.get(item.id) ?? Number.POSITIVE_INFINITY,
+    }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.item);
+}
+
 const EmptyEditSection: React.FC<{ title: string }> = ({ title }) => (
   <div className="flex flex-col gap-3">
-    <p className="text-sm font-medium text-muted-foreground">
-      {title} <span className="text-muted-foreground/60">0</span>
-    </p>
-    <div className="flex min-h-32 items-center justify-center rounded-2xl border-2 border-dashed border-border text-sm text-muted-foreground/70">
+    <div className="flex h-7 items-center">
+      <SectionGrip />
+      <p className="text-sm font-medium text-muted-foreground">
+        {title} <span className="text-muted-foreground/60">0</span>
+      </p>
+    </div>
+    <div className="edit-dash-border flex min-h-32 items-center justify-center rounded-2xl bg-muted/20 text-sm text-muted-foreground/70">
       No {title.toLowerCase()} in this space
     </div>
   </div>
@@ -109,7 +161,7 @@ const SortableSection: React.FC<{
   onPointerDownCapture: React.PointerEventHandler<HTMLDivElement>;
   onPointerMoveCapture: React.PointerEventHandler<HTMLDivElement>;
   onPointerUpCapture: React.PointerEventHandler<HTMLDivElement>;
-  onClickCapture: React.MouseEventHandler<HTMLDivElement>;
+  onClickCapture?: React.MouseEventHandler<HTMLDivElement>;
 }> = ({
   id,
   editing,
@@ -133,7 +185,13 @@ const SortableSection: React.FC<{
     <div
       ref={setNodeRef}
       style={{
-        transform: DndCSS.Transform.toString(transform),
+        // Translate only. `CSS.Transform.toString` also emits scaleX/scaleY,
+        // which dnd-kit sets to fit the slot the active node is over — with no
+        // DragOverlay here that visibly stretches/squishes a tall section (e.g.
+        // Group controls) as it's dragged among differently-sized siblings.
+        transform: transform
+          ? `translate3d(${transform.x}px, ${transform.y}px, 0)`
+          : undefined,
         transition,
         opacity: isDragging ? 0.45 : undefined,
       }}
@@ -142,22 +200,20 @@ const SortableSection: React.FC<{
       onPointerUpCapture={onPointerUpCapture}
       onClickCapture={onClickCapture}
       className={cn(
-        "relative transition-opacity",
+        // Padding + a transparent border are always reserved so toggling edit
+        // mode only changes the surface (color + border + shadow) — never the
+        // layout (no shift). In edit mode each section reads as a raised,
+        // reorderable panel, matching the Home custom-layout sections.
+        "flex flex-col rounded-2xl border border-transparent p-4 transition-[background-color,border-color,box-shadow]",
+        editing && "edit-section-surface shadow-sm",
         disabled && "opacity-40",
       )}
     >
-      {editing && (
-        <button
-          type="button"
-          aria-label={`Reorder ${id}`}
-          className="absolute -left-9 top-2 z-10 flex size-8 cursor-grab touch-none items-center justify-center rounded-lg text-muted-foreground hover:bg-muted active:cursor-grabbing"
-          {...attributes}
-          {...listeners}
-        >
-          <GripVertical size={18} />
-        </button>
-      )}
-      {children}
+      <SectionGripProvider
+        value={{ editing, label: `Reorder ${id}`, attributes, listeners }}
+      >
+        {children}
+      </SectionGripProvider>
     </div>
   );
 };
@@ -196,8 +252,6 @@ interface SpaceScreenProps {
   onSceneInspect: (scene: HueScene) => void;
   /** The card's play/stop button: start or stop the dynamic palette. */
   onSceneTogglePlay: (scene: HueScene) => void;
-  /** Transient speed change for the scene that is currently playing. */
-  onDynamicSpeedLive: (scene: HueScene, step: number) => void;
   onGallerySceneCreate: (preset: HueGalleryScenePreset) => Promise<void>;
   /** Apply a gallery preset to the room's lights once, without saving a scene. */
   onGallerySceneApplyOnce: (preset: HueGalleryScenePreset) => void;
@@ -229,14 +283,15 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
   onSceneApply,
   onSceneInspect,
   onSceneTogglePlay,
-  onDynamicSpeedLive,
   onGallerySceneCreate,
   onGallerySceneApplyOnce,
   onGalleryScenePreview,
   onGalleryScenePreviewEnd,
   onRefresh,
 }) => {
+  const reduceMotion = useReducedMotion();
   const [editing, setEditing] = useState(false);
+  const [managing, setManaging] = useState(false);
   const [selection, setSelection] = useState<{
     category: EditCategory;
     ids: Set<string>;
@@ -250,7 +305,6 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
     | "delete-scenes"
     | "remove-lights"
     | "unassign-accessories"
-    | "space-name"
     | "space-icon"
     | null
   >(null);
@@ -270,29 +324,53 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
   const [sectionOrder, setSectionOrder] = useState<SectionId[]>(() =>
     readSectionOrder(storageKey),
   );
+  const [itemOrder, setItemOrder] = useState<ItemOrder>(() =>
+    readAllItemOrders(roomZone.id),
+  );
+
+  // Item order is per-space; reload it when the user navigates to another space
+  // (this screen instance is reused across rooms/zones).
+  useEffect(() => {
+    setItemOrder(readAllItemOrders(roomZone.id));
+  }, [roomZone.id]);
+
+  const persistItemOrder =
+    (section: EditCategory) => (orderedIds: string[]) => {
+      localStorage.setItem(
+        itemOrderKey(roomZone.id, section),
+        JSON.stringify(orderedIds),
+      );
+      setItemOrder((current) => ({ ...current, [section]: orderedIds }));
+    };
 
   useEffect(() => {
     const startEditing = () => {
       setSectionOrder(readSectionOrder(storageKey));
       setEditing(true);
+      setManaging(false);
       setSaving(false);
       setSelection(null);
       window.dispatchEvent(
-        new CustomEvent("hue-space-edit-state", { detail: true }),
+        new CustomEvent("hue-space-edit-state", { detail: "customize" }),
+      );
+    };
+    const startManaging = () => {
+      setEditing(false);
+      setManaging(true);
+      setSaving(false);
+      setSelection(null);
+      window.dispatchEvent(
+        new CustomEvent("hue-space-edit-state", { detail: "manage" }),
       );
     };
     const finishEditing = () => {
       setEditing(false);
+      setManaging(false);
       setSaving(false);
       setSelection(null);
       window.dispatchEvent(
-        new CustomEvent("hue-space-edit-state", { detail: false }),
+        new CustomEvent("hue-space-edit-state", { detail: null }),
       );
-    };
-    const editName = () => {
-      setDetailsName(roomZone.name);
-      setDetailsArchetype(roomZone.class);
-      setActionDialog("space-name");
     };
     const editIcon = () => {
       setDetailsName(roomZone.name);
@@ -300,19 +378,21 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
       setActionDialog("space-icon");
     };
     window.addEventListener("hue-space-edit-request", startEditing);
+    window.addEventListener("hue-space-manage-request", startManaging);
     window.addEventListener("hue-space-edit-save", finishEditing);
-    window.addEventListener("hue-space-edit-name", editName);
+    window.addEventListener("hue-space-edit-cancel", finishEditing);
     window.addEventListener("hue-space-edit-icon", editIcon);
     return () => {
       window.removeEventListener("hue-space-edit-request", startEditing);
+      window.removeEventListener("hue-space-manage-request", startManaging);
       window.removeEventListener("hue-space-edit-save", finishEditing);
-      window.removeEventListener("hue-space-edit-name", editName);
+      window.removeEventListener("hue-space-edit-cancel", finishEditing);
       window.removeEventListener("hue-space-edit-icon", editIcon);
     };
   }, [roomZone.class, roomZone.name, storageKey]);
 
   useEffect(() => {
-    if (!editing || actionDialog != null) return;
+    if ((!editing && !managing) || actionDialog != null) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
@@ -322,7 +402,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [actionDialog, editing]);
+  }, [actionDialog, editing, managing]);
 
   useEffect(() => {
     document
@@ -330,9 +410,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
       .forEach((element) => element.removeAttribute("data-edit-selected"));
     for (const id of selection?.ids ?? []) {
       document
-        .querySelectorAll<HTMLElement>(
-          `[data-edit-id="${CSS.escape(id)}"]`,
-        )
+        .querySelectorAll<HTMLElement>(`[data-edit-id="${CSS.escape(id)}"]`)
         .forEach((element) => element.setAttribute("data-edit-selected", ""));
     }
   }, [selection]);
@@ -340,15 +418,22 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
   const switches = roomZone.accessories.filter((a) => a.kind === "switch");
   const sensors = roomZone.accessories.filter((a) => a.kind === "sensor");
 
-  // The dynamic scene currently animating in this space, if any. Its live speed
-  // slider lives inside the group controls' expandable panel.
-  const playingScene = scenes.find(isSceneDynamicActive) ?? null;
+  // Apply the user's saved per-section order before rendering. The order
+  // persists in view mode too — editing is only when it can be changed.
+  const orderedScenes = applyItemOrder(scenes, itemOrder.scenes);
+  const orderedLights = applyItemOrder(lights, itemOrder.lights);
+  const orderedSwitches = applyItemOrder(switches, itemOrder.switches);
+  const orderedSensors = applyItemOrder(sensors, itemOrder.sensors);
 
   const showScenes = scenes.length > 0 || lights.length > 0;
 
   const selectFrom =
     (category: EditCategory) => (event: React.MouseEvent<HTMLDivElement>) => {
-      if (!editing) return;
+      if (!managing) return;
+      if (
+        (event.target as HTMLElement).closest("[data-edit-interactive]") != null
+      )
+        return;
       event.preventDefault();
       event.stopPropagation();
       if (pointerGesture.current.moved) {
@@ -404,12 +489,44 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
     }
   };
 
+  useEffect(() => {
+    const rename = (event: Event) => {
+      const name = (event as CustomEvent<string>).detail.trim();
+      if (!name || name === roomZone.name) return;
+      void runOperation({
+        type: "update-space-metadata",
+        name,
+        archetype: roomZone.class,
+      });
+    };
+    window.addEventListener("hue-space-rename", rename);
+    return () => window.removeEventListener("hue-space-rename", rename);
+  });
+
   const sectionContent: Record<SectionId, React.ReactNode> = {
+    // Keyed on the space so the expanded/collapsed state resets when entering or
+    // leaving a room/zone (this screen instance is reused across spaces).
+    group: managing ? null : (
+      <GroupControls
+        key={roomZone.id}
+        roomZone={roomZone}
+        lights={lights}
+        hueEventRevision={hueEventRevision}
+        editing={editing || managing}
+        onToggle={onRoomZoneToggle}
+        onBrightness={onRoomZoneBrightness}
+        onOpen={onOpenGroup}
+      />
+    ),
     scenes: showScenes ? (
       <ScenesSection
         roomZoneName={roomZone.name}
-        scenes={scenes}
+        scenes={orderedScenes}
         activeSceneId={activeSceneId}
+        editing={editing || managing}
+        reordering={editing}
+        orderedIds={itemOrder.scenes}
+        onReorder={persistItemOrder("scenes")}
         onSceneApply={onSceneApply}
         onSceneInspect={onSceneInspect}
         onSceneTogglePlay={onSceneTogglePlay}
@@ -421,38 +538,48 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
     ) : editing ? (
       <EmptyEditSection title="Scenes" />
     ) : null,
-    lights: lights.length > 0 || !editing ? (
-      <LightsSection
-        lights={lights}
-        selectedLightId={selectedLightId}
-        hueEventRevision={hueEventRevision}
-        onSelectLight={onSelectLight}
-        onLightToggle={onLightToggle}
-        onLightBrightness={onLightBrightness}
-      />
-    ) : (
-      <EmptyEditSection title="Lights" />
-    ),
-    switches: switches.length > 0 ? (
-      <AccessorySection
-        title="Switches"
-        icon={ToggleLeft}
-        accessories={switches}
-        readingsByDevice={readingsByDevice}
-      />
-    ) : editing ? (
-      <EmptyEditSection title="Switches" />
-    ) : null,
-    sensors: sensors.length > 0 ? (
-      <AccessorySection
-        title="Sensors"
-        icon={Radar}
-        accessories={sensors}
-        readingsByDevice={readingsByDevice}
-      />
-    ) : editing ? (
-      <EmptyEditSection title="Sensors" />
-    ) : null,
+    lights:
+      lights.length > 0 || !editing ? (
+        <LightsSection
+          lights={orderedLights}
+          selectedLightId={selectedLightId}
+          hueEventRevision={hueEventRevision}
+          editing={editing || managing}
+          reordering={editing}
+          onReorder={persistItemOrder("lights")}
+          onSelectLight={onSelectLight}
+          onLightToggle={onLightToggle}
+          onLightBrightness={onLightBrightness}
+        />
+      ) : (
+        <EmptyEditSection title="Lights" />
+      ),
+    switches:
+      switches.length > 0 ? (
+        <AccessorySection
+          title="Switches"
+          icon={ToggleLeft}
+          accessories={orderedSwitches}
+          readingsByDevice={readingsByDevice}
+          reordering={editing}
+          onReorder={persistItemOrder("switches")}
+        />
+      ) : editing ? (
+        <EmptyEditSection title="Switches" />
+      ) : null,
+    sensors:
+      sensors.length > 0 ? (
+        <AccessorySection
+          title="Sensors"
+          icon={Radar}
+          accessories={orderedSensors}
+          readingsByDevice={readingsByDevice}
+          reordering={editing}
+          onReorder={persistItemOrder("sensors")}
+        />
+      ) : editing ? (
+        <EmptyEditSection title="Sensors" />
+      ) : null,
   };
   const destructiveDialog =
     actionDialog === "delete-scenes" ||
@@ -469,19 +596,6 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
       )}
     >
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {/* Keyed on the space so the expanded/collapsed state resets when the
-          user enters or leaves a room/zone. */}
-      <GroupControls
-        key={roomZone.id}
-        roomZone={roomZone}
-        lights={lights}
-        playingScene={playingScene}
-        hueEventRevision={hueEventRevision}
-        onToggle={onRoomZoneToggle}
-        onBrightness={onRoomZoneBrightness}
-        onOpen={onOpenGroup}
-        onDynamicSpeedLive={onDynamicSpeedLive}
-      />
       <DndContext
         sensors={sensorsForSections}
         collisionDetection={closestCenter}
@@ -492,138 +606,177 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
           strategy={verticalListSortingStrategy}
           disabled={!editing}
         >
-          {sectionOrder.map((sectionId) => {
-            const content = sectionContent[sectionId];
-            if (!content) return null;
-            return (
-              <SortableSection
-                key={sectionId}
-                id={sectionId}
-                editing={editing}
-                disabled={
-                  editing &&
-                  selection != null &&
-                  selection.category !== sectionId
-                }
-                onPointerDownCapture={(event) => {
-                  if (!editing) return;
-                  pointerGesture.current = {
-                    x: event.clientX,
-                    y: event.clientY,
-                    trackingTile:
-                      (event.target as HTMLElement).closest("[data-edit-id]") !=
-                      null,
-                    moved: false,
-                  };
-                }}
-                onPointerMoveCapture={(event) => {
-                  const gesture = pointerGesture.current;
-                  if (!editing || !gesture.trackingTile || gesture.moved) return;
-                  if (
-                    Math.hypot(
-                      event.clientX - gesture.x,
-                      event.clientY - gesture.y,
-                    ) >= 5
-                  )
-                    gesture.moved = true;
-                }}
-                onPointerUpCapture={() => {
-                  window.setTimeout(() => {
-                    pointerGesture.current.moved = false;
-                    pointerGesture.current.trackingTile = false;
-                  }, 0);
-                }}
-                onClickCapture={selectFrom(sectionId)}
-              >
-                {content}
-              </SortableSection>
-            );
-          })}
-        </SortableContext>
-      </DndContext>
-      {editing && selection && (
-        <div className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-xl">
-          <span className="px-2 text-sm font-medium">
-            {selection.ids.size} selected
-          </span>
-          {selection.category === "scenes" ? (
-            <>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setActionValue("");
-                  setActionDialog("copy-scenes");
-                }}
-              >
-                <Copy /> Copy to…
-              </Button>
-              <Button
-                variant="ghost"
-                className="text-destructive"
-                onClick={() => setActionDialog("delete-scenes")}
-              >
-                <Trash2 /> Remove
-              </Button>
-            </>
-          ) : selection.category === "lights" ? (
-            <>
-              {roomZone.resourceType === "room" && (
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setActionValue("");
-                    setActionDialog("move-lights");
+          <AnimatePresence initial={false}>
+            {sectionOrder.map((sectionId) => {
+              const content = sectionContent[sectionId];
+              if (!content) return null;
+              return (
+                <motion.div
+                  key={sectionId}
+                  layout={!reduceMotion}
+                  initial={{ opacity: 0, y: -12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -12 }}
+                  transition={{
+                    duration: reduceMotion ? 0 : 0.2,
+                    ease: "easeOut",
                   }}
                 >
-                  <MoveRight /> Move to…
-                </Button>
+                  <SortableSection
+                    id={sectionId}
+                    editing={editing}
+                    disabled={
+                      managing &&
+                      selection != null &&
+                      selection.category !== sectionId
+                    }
+                    onPointerDownCapture={(event) => {
+                      if (!managing) return;
+                      pointerGesture.current = {
+                        x: event.clientX,
+                        y: event.clientY,
+                        trackingTile:
+                          (event.target as HTMLElement).closest(
+                            "[data-edit-id]",
+                          ) != null,
+                        moved: false,
+                      };
+                    }}
+                    onPointerMoveCapture={(event) => {
+                      const gesture = pointerGesture.current;
+                      if (!managing || !gesture.trackingTile || gesture.moved)
+                        return;
+                      if (
+                        Math.hypot(
+                          event.clientX - gesture.x,
+                          event.clientY - gesture.y,
+                        ) >= 5
+                      )
+                        gesture.moved = true;
+                    }}
+                    onPointerUpCapture={() => {
+                      window.setTimeout(() => {
+                        pointerGesture.current.moved = false;
+                        pointerGesture.current.trackingTile = false;
+                      }, 0);
+                    }}
+                    onClickCapture={
+                      sectionId === "group" ? undefined : selectFrom(sectionId)
+                    }
+                  >
+                    {content}
+                  </SortableSection>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
+        </SortableContext>
+      </DndContext>
+      {createPortal(
+        <AnimatePresence>
+          {managing && selection && (
+            <motion.div
+              initial={
+                reduceMotion
+                  ? { opacity: 0, x: "-50%" }
+                  : { opacity: 0, x: "-50%", y: -16, scale: 0.98 }
+              }
+              animate={{ opacity: 1, x: "-50%", y: 0, scale: 1 }}
+              exit={
+                reduceMotion
+                  ? { opacity: 0, x: "-50%" }
+                  : { opacity: 0, x: "-50%", y: -16, scale: 0.98 }
+              }
+              transition={{
+                duration: reduceMotion ? 0 : 0.18,
+                ease: "easeOut",
+              }}
+              className="fixed top-24 left-1/2 z-50 flex items-center gap-2 rounded-2xl border border-border bg-popover p-2 text-popover-foreground shadow-xl"
+            >
+              <span className="px-2 text-sm font-medium">
+                {selection.ids.size} selected
+              </span>
+              {selection.category === "scenes" ? (
+                <>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setActionValue("");
+                      setActionDialog("copy-scenes");
+                    }}
+                  >
+                    <Copy /> Copy to…
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="text-destructive"
+                    onClick={() => setActionDialog("delete-scenes")}
+                  >
+                    <Trash2 /> Remove
+                  </Button>
+                </>
+              ) : selection.category === "lights" ? (
+                <>
+                  {roomZone.resourceType === "room" && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => {
+                        setActionValue("");
+                        setActionDialog("move-lights");
+                      }}
+                    >
+                      <MoveRight /> Move to…
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setActionValue("");
+                      setActionDialog("light-function");
+                    }}
+                  >
+                    <Pencil /> Edit function
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="text-destructive"
+                    onClick={() => setActionDialog("remove-lights")}
+                  >
+                    <Trash2 /> Remove
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setActionValue("");
+                      setActionDialog("move-accessories");
+                    }}
+                  >
+                    <MoveRight /> Move to room…
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="text-destructive"
+                    onClick={() => setActionDialog("unassign-accessories")}
+                  >
+                    <Trash2 /> Unassign
+                  </Button>
+                </>
               )}
               <Button
                 variant="ghost"
-                onClick={() => {
-                  setActionValue("");
-                  setActionDialog("light-function");
-                }}
+                size="icon"
+                aria-label="Clear selection"
+                onClick={() => setSelection(null)}
               >
-                <Pencil /> Edit function
+                <X />
               </Button>
-              <Button
-                variant="ghost"
-                className="text-destructive"
-                onClick={() => setActionDialog("remove-lights")}
-              >
-                <Trash2 /> Remove
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setActionValue("");
-                  setActionDialog("move-accessories");
-                }}
-              >
-                <MoveRight /> Move to room…
-              </Button>
-              <Button
-                variant="ghost"
-                className="text-destructive"
-                onClick={() => setActionDialog("unassign-accessories")}
-              >
-                <Trash2 /> Unassign
-              </Button>
-            </>
+            </motion.div>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label="Clear selection"
-            onClick={() => setSelection(null)}
-          >
-            <X />
-          </Button>
-        </div>
+        </AnimatePresence>,
+        document.body,
       )}
       <Dialog
         open={actionDialog != null}
@@ -653,29 +806,19 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
                         ? `Remove selected lights from ${roomZone.name}?`
                         : actionDialog === "unassign-accessories"
                           ? "Unassign selected accessories?"
-                          : actionDialog === "space-name"
-                            ? `Rename ${roomZone.resourceType}`
-                            : actionDialog === "space-icon"
-                              ? `Change ${roomZone.resourceType} icon`
-                          : "Edit light function"}
+                          : actionDialog === "space-icon"
+                            ? `Change ${roomZone.resourceType} icon`
+                            : "Edit light function"}
             </DialogTitle>
             <DialogDescription>
-              {actionDialog === "space-name" || actionDialog === "space-icon"
+              {actionDialog === "space-icon"
                 ? "This change is saved immediately to the Hue Bridge."
                 : destructiveDialog
-                ? "This change is applied immediately and cannot be undone from this screen."
-                : "This change will be applied immediately to the Hue Bridge."}
+                  ? "This change is applied immediately and cannot be undone from this screen."
+                  : "This change will be applied immediately to the Hue Bridge."}
             </DialogDescription>
           </DialogHeader>
-          {actionDialog === "space-name" ? (
-            <Input
-              value={detailsName}
-              maxLength={32}
-              autoFocus
-              aria-label={`${roomZone.resourceType} name`}
-              onChange={(event) => setDetailsName(event.target.value)}
-            />
-          ) : actionDialog === "space-icon" ? (
+          {actionDialog === "space-icon" ? (
             <ScrollArea
               fade
               hideScrollbar
@@ -703,45 +846,47 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
                 })}
               </div>
             </ScrollArea>
-          ) : !destructiveDialog && (
-            <Select
-              value={actionValue}
-              onValueChange={(value) => setActionValue(value ?? "")}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue
-                  placeholder={
-                    actionDialog === "light-function"
-                      ? "Choose function"
-                      : "Choose destination"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {actionDialog === "light-function" ? (
-                  <>
-                    <SelectItem value="functional">Task</SelectItem>
-                    <SelectItem value="decorative">Decoration</SelectItem>
-                    <SelectItem value="mixed">Mixed</SelectItem>
-                  </>
-                ) : (
-                  roomZones
-                    .filter((space) => {
-                      if (space.id === roomZone.id) return false;
-                      if (actionDialog === "move-accessories")
-                        return space.resourceType === "room";
-                      if (actionDialog === "move-lights")
-                        return space.resourceType === roomZone.resourceType;
-                      return true;
-                    })
-                    .map((space) => (
-                      <SelectItem key={space.id} value={space.id}>
-                        {space.name}
-                      </SelectItem>
-                    ))
-                )}
-              </SelectContent>
-            </Select>
+          ) : (
+            !destructiveDialog && (
+              <Select
+                value={actionValue}
+                onValueChange={(value) => setActionValue(value ?? "")}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue
+                    placeholder={
+                      actionDialog === "light-function"
+                        ? "Choose function"
+                        : "Choose destination"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {actionDialog === "light-function" ? (
+                    <>
+                      <SelectItem value="functional">Task</SelectItem>
+                      <SelectItem value="decorative">Decoration</SelectItem>
+                      <SelectItem value="mixed">Mixed</SelectItem>
+                    </>
+                  ) : (
+                    roomZones
+                      .filter((space) => {
+                        if (space.id === roomZone.id) return false;
+                        if (actionDialog === "move-accessories")
+                          return space.resourceType === "room";
+                        if (actionDialog === "move-lights")
+                          return space.resourceType === roomZone.resourceType;
+                        return true;
+                      })
+                      .map((space) => (
+                        <SelectItem key={space.id} value={space.id}>
+                          {space.name}
+                        </SelectItem>
+                      ))
+                  )}
+                </SelectContent>
+              </Select>
+            )
           )}
           <DialogFooter className="flex-row justify-end">
             <DialogClose render={<Button variant="outline" />}>
@@ -751,26 +896,18 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
               variant={destructiveDialog ? "destructive" : "default"}
               disabled={
                 saving ||
-                (actionDialog === "space-name"
-                  ? !detailsName.trim()
-                  : actionDialog === "space-icon"
-                    ? !detailsArchetype
-                    : (!destructiveDialog && !actionValue) || !selection)
+                (actionDialog === "space-icon"
+                  ? !detailsArchetype
+                  : (!destructiveDialog && !actionValue) || !selection)
               }
               onClick={async () => {
-                if (
-                  actionDialog === "space-name" ||
-                  actionDialog === "space-icon"
-                ) {
+                if (actionDialog === "space-icon") {
                   await runOperation({
                     type: "update-space-metadata",
                     name: detailsName,
                     archetype: detailsArchetype,
                   });
-                } else if (
-                  !selection ||
-                  (!destructiveDialog && !actionValue)
-                ) {
+                } else if (!selection || (!destructiveDialog && !actionValue)) {
                   return;
                 } else if (actionDialog === "copy-scenes") {
                   await runOperation({
@@ -817,11 +954,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
               }}
             >
               {saving && <LoaderCircle className="animate-spin" />}
-              {saving
-                ? "Applying…"
-                : destructiveDialog
-                  ? "Confirm"
-                  : "Apply"}
+              {saving ? "Applying…" : destructiveDialog ? "Confirm" : "Apply"}
             </Button>
           </DialogFooter>
         </DialogContent>

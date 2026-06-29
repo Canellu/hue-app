@@ -45,6 +45,7 @@
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
   --color-tile: var(--tile);
+  --color-scene-tile: var(--scene-tile);
   --color-tile-off: var(--tile-off);
   --color-tile-border: var(--tile-border);
   --color-foreground: var(--foreground);
@@ -69,6 +70,9 @@
   --card-foreground: oklch(0.145 0 0);
   /* Content tiles (lights/scenes/spaces). */
   --tile: oklch(0.99 0 0);
+  /* Scene tiles sit a hair below the bright `--tile` so the scene rail reads as
+     its own surface against the lights/spaces around it. */
+  --scene-tile: oklch(0.98 0 0);
   /* An *off* light/space tile. Unlike the bright `--tile` (which leans on shadow
      at the white ceiling), this sits just below the background so a powered-off
      tile reads as a dim, recessed surface instead of a lit white card. */
@@ -142,6 +146,9 @@
   --card-foreground: oklch(0.985 0 0);
   /* Content tiles (lights/scenes/spaces). */
   --tile: oklch(0.26 0 0);
+  /* Scene tiles sit a step above the base tile so the scene rail reads as its
+     own surface against the lights/spaces around it. */
+  --scene-tile: oklch(0.27 0 0);
   /* Dark mode already reads an off tile correctly (it sits above the darker
      background), so the off surface matches the base tile here. */
   --tile-off: oklch(0.26 0 0);
@@ -238,6 +245,44 @@
 .tile-surface-scene {
   border-radius: 64px;
   corner-shape: squircle;
+}
+
+/* Dashed outline for edit-mode section/placeholder cards. A border-style:dashed
+   can't tune its dash length, so we paint a rounded-rect SVG stroke (mask) with
+   `--foreground` — which adapts per theme: near-black in light mode (darker) and
+   near-white in dark mode (lighter). Short dashes / roomy gaps so it reads as a
+   dotted outline. Light mode is bumped a bit darker than dark mode (which steps
+   back down below) so the near-black stroke doesn't read too heavy/light per
+   theme. `border-radius: inherit` keeps it aligned to the host card's rounding. */
+.edit-dash-border {
+  position: relative;
+}
+.edit-dash-border::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-color: var(--foreground);
+  opacity: 0.18;
+  -webkit-mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25' fill='none'><rect x='0' y='0' width='100%25' height='100%25' rx='18' ry='18' stroke='black' stroke-width='4' stroke-dasharray='6 3'/></svg>")
+    center / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25' fill='none'><rect x='0' y='0' width='100%25' height='100%25' rx='18' ry='18' stroke='black' stroke-width='4' stroke-dasharray='6 3'/></svg>")
+    center / 100% 100% no-repeat;
+}
+.dark .edit-dash-border::before {
+  opacity: 0.14;
+}
+
+/* Edit-mode surface for draggable layout sections. */
+.edit-section-surface {
+  background-color: oklch(0.98 0 0);
+  /* Border matches the surface so the panel reads as borderless in light mode. */
+  border-color: oklch(0.98 0 0);
+}
+.dark .edit-section-surface {
+  background-color: oklch(0.18 0 0);
+  border-color: oklch(0.29 0 0);
 }
 
 /* Fixed folder-tab notch for the active settings tab. */

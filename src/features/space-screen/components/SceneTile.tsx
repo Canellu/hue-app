@@ -78,7 +78,7 @@ export const SceneTile: React.FC<{
       "group relative shrink-0 cursor-pointer items-center justify-between bg-tile text-center outline-none ring-transparent focus-visible:ring-2 focus-visible:ring-ring",
       SCENE_TILE_SURFACE_CLASS,
       TILE_INTERACTION_TRANSITION_CLASS,
-      tiny ? "gap-1 px-1.5 py-2" : small ? "gap-1.5 px-2 py-3" : "gap-2 px-4 py-5",
+      tiny ? "gap-1 px-1.5 py-2" : small ? "gap-1.5 px-2 py-3" : "gap-2 px-3 py-3.5",
       tiny
         ? fullWidth
           ? "h-20 w-full"
@@ -88,8 +88,8 @@ export const SceneTile: React.FC<{
             ? "h-28 w-full"
             : "h-28 w-24"
           : fullWidth
-            ? "h-40 w-full"
-            : "h-40 w-36",
+            ? "h-36 w-full"
+            : "h-36 w-32",
       className,
     )}
     style={

@@ -98,7 +98,7 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-medium">{roomZone.name}</p>
         </div>
-        <div onClick={(e) => e.stopPropagation()}>
+        <div onClick={(e) => !editing && e.stopPropagation()}>
           <Switch
             size="xl"
             className={TILE_POWER_SWITCH_CLASS}
@@ -110,7 +110,10 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
         </div>
       </div>
 
-      <div className="px-(--card-spacing)" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="px-(--card-spacing)"
+        onClick={(e) => !editing && e.stopPropagation()}
+      >
         <PacedSlider
           value={roomZone.anyOn ? Math.max(1, pct) : 1}
           min={1}

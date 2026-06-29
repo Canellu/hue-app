@@ -1,3 +1,4 @@
+import { GripVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -333,22 +334,27 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </SortableContext>
           <DragOverlay>
             {editing && activeSpace ? (
-              <SpaceTile
-                roomZone={activeSpace}
-                members={membersOf(activeSpace)}
-                editing
-                onOpenSpace={onOpenSpace}
-                onRoomZoneToggle={onRoomZoneToggle}
-                onRoomZoneBrightness={onRoomZoneBrightness}
-                hueEventRevision={hueEventRevision}
-              />
+              <div>
+                <SpaceTile
+                  roomZone={activeSpace}
+                  members={membersOf(activeSpace)}
+                  editing
+                  onOpenSpace={onOpenSpace}
+                  onRoomZoneToggle={onRoomZoneToggle}
+                  onRoomZoneBrightness={onRoomZoneBrightness}
+                  hueEventRevision={hueEventRevision}
+                />
+              </div>
             ) : editing && activeSection ? (
               // A lightweight, non-sortable clone so dropping a section doesn't
               // flash: the overlay carries the visual while the real section
               // stays put and reorders without a drop-animation jump.
-              <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-border bg-background/95 p-4 shadow-xl">
+              <div className="edit-section-surface flex flex-col gap-3 rounded-2xl border p-4 shadow-xl">
                 <header className="flex items-center gap-2">
-                  <h2 className="font-heading text-lg font-medium">
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground">
+                    <GripVertical size={18} />
+                  </span>
+                  <h2 className="font-heading px-2 text-lg font-medium">
                     {activeSection.section.name}
                   </h2>
                   <span className="text-sm text-muted-foreground">
@@ -359,7 +365,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   {activeSection.roomZones.length === 0 ? (
                     // Mirror LayoutSection's empty placeholder so a dragged empty
                     // section looks identical to its resting state.
-                    <div className="col-span-full flex min-h-36 items-center justify-center rounded-2xl border border-dashed border-border/70 bg-muted/20 text-sm text-muted-foreground">
+                    <div className="edit-dash-border col-span-full flex min-h-36 items-center justify-center rounded-2xl bg-muted/20 text-sm text-muted-foreground">
                       Drag spaces here
                     </div>
                   ) : (

@@ -10,16 +10,16 @@ import {
 
 export const settingsTabs = [
   {
-    value: "bridge",
-    label: "Bridge",
-    description: "Manage bridge connection and saved credentials.",
-    icon: Router,
-  },
-  {
     value: "general",
     label: "General",
     description: "Set app appearance and desktop window behavior.",
     icon: Monitor,
+  },
+  {
+    value: "bridge",
+    label: "Bridge",
+    description: "Manage bridge connection and saved credentials.",
+    icon: Router,
   },
   {
     value: "devices",

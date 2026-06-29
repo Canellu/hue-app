@@ -16,6 +16,8 @@ export const SceneCard: React.FC<{
   scene: HueScene;
   active?: boolean;
   compact?: boolean;
+  /** In edit mode the play/stop control is muted and the overflow menu hidden. */
+  editing?: boolean;
   onApply: (scene: HueScene) => void;
   /** Open the scene in the side pane without applying it. */
   onInspect: (scene: HueScene) => void;
@@ -24,6 +26,7 @@ export const SceneCard: React.FC<{
   scene,
   active = false,
   compact = false,
+  editing = false,
   onApply,
   onInspect,
   onTogglePlay,
@@ -40,7 +43,11 @@ export const SceneCard: React.FC<{
       activeBackground={activeBackground}
       fullWidth={compact}
       className={
-        activeBackground ? "text-foreground" : active ? "bg-accent" : undefined
+        activeBackground
+          ? "text-foreground"
+          : active
+            ? "bg-accent"
+            : "bg-scene-tile"
       }
       style={
         activeBackground && bubble
@@ -54,8 +61,10 @@ export const SceneCard: React.FC<{
       // Tapping a scene always applies its colors to the room's lights.
       onActivate={() => onApply(scene)}
       // The overflow button opens the inspector side pane (details + edit)
-      // without applying the scene.
+      // without applying the scene. Hidden while editing — there the tap is a
+      // multiselect toggle and the card body is a reorder handle.
       topRightAction={
+        editing ? undefined : (
         <Button
           variant="ghost"
           size="icon-sm"
@@ -72,12 +81,14 @@ export const SceneCard: React.FC<{
         >
           <MoreHorizontal />
         </Button>
+        )
       }
       visual={
         <SceneCardVisual
           active={active}
           bubble={bubble}
           compact={compact}
+          editing={editing}
           dynamic={scene.dynamic}
           dynamicActive={dynamicActive}
           sceneName={scene.name}
@@ -92,6 +103,7 @@ const SceneCardVisual: React.FC<{
   active: boolean;
   bubble: string | null;
   compact: boolean;
+  editing?: boolean;
   dynamic: boolean;
   dynamicActive: boolean;
   sceneName: string;
@@ -100,6 +112,7 @@ const SceneCardVisual: React.FC<{
   active,
   bubble,
   compact,
+  editing = false,
   dynamic,
   dynamicActive,
   sceneName,
@@ -120,7 +133,10 @@ const SceneCardVisual: React.FC<{
       <button
         type="button"
         aria-label={dynamicActive ? `Stop ${sceneName}` : `Play ${sceneName}`}
+        aria-disabled={editing || undefined}
+        tabIndex={editing ? -1 : undefined}
         onClick={(event) => {
+          if (editing) return;
           event.stopPropagation();
           onTogglePlay();
         }}
@@ -132,6 +148,8 @@ const SceneCardVisual: React.FC<{
             : active || bubble
               ? "bg-white/30 text-white"
               : "bg-foreground/15 text-foreground",
+          // Let pointer gestures pass through to the sortable tile in edit mode.
+          editing && "pointer-events-none",
           size,
         )}
         style={

@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -71,7 +70,7 @@ export const SceneGalleryDialog: React.FC<{
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100vh-3rem)] gap-4 sm:max-w-4xl">
+      <DialogContent className="max-h-[calc(100vh-2rem)] gap-4 sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>
             Hue scene gallery{" "}
@@ -79,20 +78,16 @@ export const SceneGalleryDialog: React.FC<{
               {HUE_SCENE_GALLERY_COUNT}
             </span>
           </DialogTitle>
-          <DialogDescription>
-            Tap a preset to preview it live in {roomZoneName}. Set once applies
-            it now; Save to {roomZoneName} keeps it as a scene.
-          </DialogDescription>
         </DialogHeader>
         <ScrollArea
           fade
-          className="h-[min(34rem,calc(100vh-15rem))]"
+          className="h-[min(44rem,calc(100vh-11rem))]"
           viewportClassName="pr-3"
         >
-          <div className="space-y-6">
+          <div className="space-y-12">
             {HUE_SCENE_GALLERY_SECTIONS.map((section) => (
-              <section key={section.id} className="space-y-3">
-                <div className="min-w-0">
+              <section key={section.id} className="space-y-4">
+                <div className="min-w-0 space-y-0.5">
                   <h3 className="truncate text-base font-semibold">
                     {section.title}{" "}
                     <span className="text-muted-foreground">
@@ -103,7 +98,7 @@ export const SceneGalleryDialog: React.FC<{
                     {section.description}
                   </p>
                 </div>
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">
+                <div className="flex flex-wrap gap-3">
                   {[...section.scenes]
                     .sort((a, b) => a.brightness - b.brightness)
                     .map((preset) => (
@@ -157,7 +152,6 @@ const GalleryPresetCard: React.FC<{
   return (
     <SceneTile
       name={preset.name}
-      fullWidth
       ariaPressed={previewed}
       activeBackground={activeBackground}
       cornerLabel={`${Math.round(preset.brightness)}%`}
@@ -167,7 +161,10 @@ const GalleryPresetCard: React.FC<{
       className={
         activeBackground
           ? "text-foreground"
-          : "border border-border bg-transparent shadow-none"
+          : // A hairline edge 0.04 lighter/darker than the `--tile` surface
+            // (light 0.99 → 0.95, dark 0.26 → 0.30) so the card reads as a
+            // distinct chip without a hard border.
+            "border border-[oklch(0.95_0_0)] dark:border-[oklch(0.30_0_0)]"
       }
       style={
         activeBackground && bubble

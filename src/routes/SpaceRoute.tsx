@@ -34,7 +34,6 @@ export const SpaceRoute: React.FC = () => {
     previewGalleryScene,
     endGalleryPreview,
     activateScene,
-    setDynamicSpeedLive,
     loadAll,
   } = useHueResourcesStore(
     useShallow((state) => ({
@@ -57,7 +56,6 @@ export const SpaceRoute: React.FC = () => {
       previewGalleryScene: state.previewGalleryScene,
       endGalleryPreview: state.endGalleryPreview,
       activateScene: state.activateScene,
-      setDynamicSpeedLive: state.setDynamicSpeedLive,
       loadAll: state.loadAll,
     })),
   );
@@ -167,7 +165,6 @@ export const SpaceRoute: React.FC = () => {
       }}
       onSceneInspect={(scene) => toggleSceneInspector(scene.id)}
       onSceneTogglePlay={(scene) => void activateScene(scene, "dynamic")}
-      onDynamicSpeedLive={(scene, step) => setDynamicSpeedLive(scene, step)}
       onGallerySceneCreate={(preset) => createGalleryScene(roomZone, preset)}
       onGallerySceneApplyOnce={(preset) =>
         setGallerySceneOnce(roomZone, preset)

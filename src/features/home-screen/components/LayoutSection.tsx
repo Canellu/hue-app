@@ -101,12 +101,16 @@ export const LayoutSection: React.FC<LayoutSectionProps> = ({
       style={style}
       className={cn(
         // Padding + a transparent border are always reserved so toggling edit
-        // mode only changes color/background — never the layout (no shift).
-        "flex flex-col gap-3 rounded-2xl border border-transparent p-4 transition-colors",
-        editing && "border-dashed border-border bg-muted/10",
+        // mode only changes the surface (color + border + shadow) — never the
+        // layout (no shift). In edit mode each section reads as a raised,
+        // draggable panel.
+        "flex flex-col gap-3 rounded-2xl border border-transparent p-4 transition-[background-color,border-color,box-shadow]",
+        editing && "edit-section-surface shadow-sm",
       )}
     >
-      <header className="flex items-center">
+      {/* Fixed height matches the edit-mode rename control (h-8) so toggling
+          edit mode never resizes the header — no 4px layout shift. */}
+      <header className="flex h-8 items-center">
         {/* Drag handle animates in/out so it never reserves layout space. */}
         <AnimatePresence initial={false}>
           {editing && (
@@ -139,18 +143,19 @@ export const LayoutSection: React.FC<LayoutSectionProps> = ({
               if (e.key === "Escape") setRenaming(false);
             }}
             aria-label={`Rename ${section.name}`}
-            size="lg"
-            className="font-heading w-auto min-w-0 max-w-xs text-lg font-medium"
+            className="font-heading h-8 w-auto min-w-0 max-w-xs rounded-md bg-[color-mix(in_oklch,var(--background),var(--foreground)_4%)] px-3 py-0 text-lg font-medium [field-sizing:content] md:text-lg dark:border-foreground/25 dark:bg-input/30"
           />
         ) : editing ? (
-          <button
+          <Button
             type="button"
+            variant="outline"
+            size="sm"
             onClick={startRename}
-            className="font-heading rounded-md px-2 py-0.5 text-lg font-medium hover:bg-muted"
+            className="font-heading h-8 rounded-md px-3 text-lg font-medium dark:border-foreground/25"
             title="Rename section"
           >
             {section.name}
-          </button>
+          </Button>
         ) : (
           <h2 className="font-heading text-lg font-medium">{section.name}</h2>
         )}
@@ -182,7 +187,7 @@ export const LayoutSection: React.FC<LayoutSectionProps> = ({
                 // min-h matches one SpaceTile so the grid doesn't shift when a
                 // space is dropped in and replaces this placeholder.
                 "col-span-full flex min-h-36 items-center justify-center rounded-2xl border border-transparent text-sm text-muted-foreground",
-                editing && "border-dashed border-border/70 bg-muted/20",
+                editing && "edit-dash-border bg-muted/20",
               )}
             >
               {editing ? "Drag spaces here" : "No spaces in this group"}

@@ -19,6 +19,8 @@ interface LightCardProps {
   light: HueLight;
   selected: boolean;
   hueEventRevision: number;
+  /** In edit mode the live controls are muted so the card reads as reorderable. */
+  editing?: boolean;
   onSelect: (id: string) => void;
   onToggle: (light: HueLight, nextOn: boolean) => void;
   onBrightness: (
@@ -32,6 +34,7 @@ export const LightCard: React.FC<LightCardProps> = ({
   light,
   selected,
   hueEventRevision,
+  editing = false,
   onSelect,
   onToggle,
   onBrightness,
@@ -91,23 +94,26 @@ export const LightCard: React.FC<LightCardProps> = ({
             {light.name}
           </p>
         </div>
-        <div onClick={(e) => e.stopPropagation()}>
+        <div onClick={(e) => !editing && e.stopPropagation()}>
           <Switch
             size="xl"
             className={TILE_POWER_SWITCH_CLASS}
             checked={light.isOn}
-            disabled={unreachable}
+            disabled={unreachable || editing}
             aria-label={`Toggle ${light.name}`}
             onCheckedChange={(checked) => onToggle(light, checked)}
           />
         </div>
       </div>
 
-      <div className="px-(--card-spacing)" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="px-(--card-spacing)"
+        onClick={(e) => !editing && e.stopPropagation()}
+      >
         <PacedSlider
           value={light.isOn ? Math.max(1, pct) : 1}
           min={1}
-          disabled={unreachable}
+          disabled={unreachable || editing}
           ariaLabel={`${light.name} brightness`}
           className={cn(
             TILE_BRIGHTNESS_SLIDER_CLASS,

@@ -1,5 +1,12 @@
 import { Button } from "@/components/ui/button";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
+import {
   Select,
   SelectContent,
   SelectGroup,
@@ -10,14 +17,18 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import type { HomeGroupingMode } from "@/types/app-layout";
 import {
   ArrowLeft,
+  ListChecks,
+  Palette,
   Pencil,
   Plus,
   Settings,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useEffect, useRef, useState } from "react";
 
 /** Short labels for the current grouping mode, shown on the layout control. */
 const GROUPING_MODE_LABELS: Record<HomeGroupingMode, string> = {
@@ -32,12 +43,15 @@ interface AppHeaderProps {
   title?: string;
   description?: string;
   titleIcon?: React.ReactNode;
-  onTitleClick?: () => void;
+  onTitleRename?: (name: string) => void;
   onTitleIconClick?: () => void;
   /** Optional placeholder action shown inline with the current page title. */
   titleActionLabel?: string;
   onTitleAction?: () => void;
+  onTitleManage?: () => void;
   titleEditing?: boolean;
+  titleManaging?: boolean;
+  onCancelTitleEdit?: () => void;
   onSaveTitleEdit?: () => void;
   /**
    * The home/house name (the bridge's user-given name) shown on the Home screen
@@ -71,11 +85,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   title,
   description,
   titleIcon,
-  onTitleClick,
+  onTitleRename,
   onTitleIconClick,
   titleActionLabel,
   onTitleAction,
+  onTitleManage,
   titleEditing = false,
+  titleManaging = false,
+  onCancelTitleEdit,
   onSaveTitleEdit,
   homeName,
   showSettings,
@@ -91,10 +108,28 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 }) => {
   const isCustomLayout = groupingMode === "custom";
   const reduceMotion = useReducedMotion();
+  const [renamingTitle, setRenamingTitle] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(title ?? "");
+  const cancelTitleRename = useRef(false);
+
+  useEffect(() => {
+    setDraftTitle(title ?? "");
+    setRenamingTitle(false);
+  }, [title, titleEditing]);
+
+  const commitTitleRename = () => {
+    if (cancelTitleRename.current) {
+      cancelTitleRename.current = false;
+      return;
+    }
+    const next = draftTitle.trim();
+    if (next && next !== title) onTitleRename?.(next);
+    setRenamingTitle(false);
+  };
   // Crossfade between the layout controls and the edit-mode controls so
   // entering/leaving edit mode swaps the cluster without a hard cut.
   const crossfade = {
-    duration: reduceMotion ? 0 : 0.2,
+    duration: reduceMotion ? 0 : 0.18,
     ease: "easeOut",
   } as const;
 
@@ -110,45 +145,82 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           >
             <ArrowLeft size={26} />
           </Button>
-          {titleIcon &&
-            (titleEditing ? (
-              <Button
-                variant="secondary"
-                size="icon-xl"
-                aria-label="Change icon"
-                onClick={onTitleIconClick}
-                className="shrink-0"
+          <motion.div
+            layout="position"
+            transition={crossfade}
+            className={`flex min-w-0 items-center ${titleEditing ? "gap-3" : "gap-0"}`}
+          >
+            {titleIcon && (
+              <motion.div layout="position" transition={crossfade}>
+                {titleEditing ? (
+                  <Button
+                    variant="outline"
+                    size="icon-xl"
+                    aria-label="Change icon"
+                    onClick={onTitleIconClick}
+                    className="size-12 shrink-0 rounded-full text-foreground transition-colors dark:border-foreground/25 [&_svg]:size-7!"
+                  >
+                    {titleIcon}
+                  </Button>
+                ) : (
+                  <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl text-foreground transition-colors [&_svg]:size-7!">
+                    {titleIcon}
+                  </span>
+                )}
+              </motion.div>
+            )}
+            {title && (
+              <motion.div
+                layout="position"
+                transition={crossfade}
+                className="min-w-0"
               >
-                {titleIcon}
-              </Button>
-            ) : (
-              <span className="flex size-11 shrink-0 items-center justify-center text-muted-foreground">
-                {titleIcon}
-              </span>
-            ))}
-          {title && (
-            <div className="min-w-0">
-              {titleEditing ? (
-                <Button
-                  variant="secondary"
-                  size="xl"
-                  onClick={onTitleClick}
-                  className="max-w-full justify-start truncate font-heading text-2xl font-semibold"
-                >
-                  {title}
-                </Button>
-              ) : (
-                <h1 className="truncate font-heading text-2xl font-semibold">
-                  {title}
-                </h1>
-              )}
-              {description && (
-                <p className="truncate text-sm text-muted-foreground">
-                  {description}
-                </p>
-              )}
-            </div>
-          )}
+                <div className="flex h-8 items-center">
+                  {titleEditing && renamingTitle ? (
+                    <Input
+                      autoFocus
+                      value={draftTitle}
+                      maxLength={32}
+                      onChange={(event) => setDraftTitle(event.target.value)}
+                      onFocus={(event) => event.target.select()}
+                      onBlur={commitTitleRename}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                        if (event.key === "Escape") {
+                          cancelTitleRename.current = true;
+                          setDraftTitle(title);
+                          event.currentTarget.blur();
+                        }
+                      }}
+                      aria-label={`Rename ${title}`}
+                      className="h-8 w-auto min-w-0 max-w-full rounded-md bg-[color-mix(in_oklch,var(--background),var(--foreground)_4%)] px-3 py-5 font-heading text-2xl font-semibold field-sizing-content md:text-2xl dark:border-foreground/25 dark:bg-input/30"
+                    />
+                  ) : titleEditing ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setDraftTitle(title);
+                        setRenamingTitle(true);
+                      }}
+                      className="h-8 max-w-full justify-start rounded-md px-3 py-5 font-heading text-2xl font-semibold dark:border-foreground/25"
+                    >
+                      <span className="truncate">{title}</span>
+                    </Button>
+                  ) : (
+                    <h1 className="flex h-8 items-center truncate rounded-md border border-transparent px-1 font-heading text-2xl font-semibold">
+                      {title}
+                    </h1>
+                  )}
+                </div>
+                {description && (
+                  <p className="truncate text-sm text-muted-foreground">
+                    {description}
+                  </p>
+                )}
+              </motion.div>
+            )}
+          </motion.div>
         </div>
       ) : (
         <span className="font-heading text-3xl font-semibold">
@@ -178,7 +250,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 <Plus size={20} />
                 Add New Section
               </Button>
-              <Separator orientation="vertical" className="mx-4" />
+              <Separator
+                orientation="vertical"
+                className="mx-4 self-center data-vertical:h-9 data-vertical:self-center bg-[oklch(0.86_0_0)] dark:bg-border"
+              />
 
               <Button
                 variant="secondary"
@@ -193,7 +268,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             </motion.div>
           ) : (
             <motion.div
-              key="view-controls"
+              key={titleEditing ? "title-edit-controls" : "view-controls"}
               className="flex items-center gap-2"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -201,25 +276,67 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               transition={crossfade}
             >
               {titleEditing ? (
+                <>
+                  <Button
+                    variant="secondary"
+                    size="xl"
+                    onClick={onCancelTitleEdit}
+                  >
+                    Cancel
+                  </Button>
+                  <Button size="xl" onClick={onSaveTitleEdit}>
+                    Save
+                  </Button>
+                </>
+              ) : titleManaging ? (
                 <Button size="xl" onClick={onSaveTitleEdit}>
                   Done
                 </Button>
               ) : titleActionLabel ? (
-                <Button variant="ghost" size="xl" onClick={onTitleAction}>
-                  <Pencil size={18} />
-                  {titleActionLabel}
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger
+                    render={
+                      <Button
+                        variant="outline"
+                        size="icon-xl"
+                        className="rounded-2xl border-[oklch(0.91_0_0)] bg-popover hover:bg-muted dark:border-[oklch(0.32_0_0)] dark:bg-[oklch(0.25_0_0)] dark:hover:bg-[oklch(0.28_0_0)]"
+                        aria-label={titleActionLabel}
+                      />
+                    }
+                  >
+                    <Pencil size={22} />
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-44">
+                    <DropdownMenuItem
+                      onClick={onTitleAction}
+                      className="text-base [&_svg:not([class*='size-'])]:size-5"
+                    >
+                      <Palette />
+                      Customize
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={onTitleManage}
+                      className="text-base [&_svg:not([class*='size-'])]:size-5"
+                    >
+                      <ListChecks />
+                      Manage items
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               ) : null}
 
               {showEditLayout && (
-                <>
-                  {/* In Custom layout, a standalone Edit button arranges the
-                    hand-built layout; the select switches modes either way. */}
+                <div className="flex items-center">
+                  {/* In Custom layout, the Edit button arranges the hand-built
+                    layout. It's fused to the left of the mode select as a button
+                    group: shared surface + border, left-only rounding, and no
+                    right border so the select's left border is the divider. */}
                   {isCustomLayout && (
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="icon-xl"
-                      className="rounded-2xl"
+                      className="rounded-2xl rounded-r-none border-r-0 border-[oklch(0.91_0_0)] bg-popover hover:bg-muted dark:border-[oklch(0.32_0_0)] dark:bg-[oklch(0.25_0_0)] dark:hover:bg-[oklch(0.28_0_0)]"
+                      aria-label="Edit custom layout"
                       onClick={onEditLayout}
                     >
                       <Pencil size={18} />
@@ -231,7 +348,14 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                       onGroupingModeChange(value as HomeGroupingMode)
                     }
                   >
-                    <SelectTrigger size="xl" aria-label="Change layout">
+                    <SelectTrigger
+                      size="xl"
+                      aria-label="Change layout"
+                      className={cn(
+                        isCustomLayout &&
+                          "data-[size=xl]:rounded-l-none border-[oklch(0.91_0_0)] dark:border-[oklch(0.32_0_0)]",
+                      )}
+                    >
                       <SelectValue>
                         {(value: HomeGroupingMode) =>
                           GROUPING_MODE_LABELS[value]
@@ -253,7 +377,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                       </SelectGroup>
                     </SelectContent>
                   </Select>
-                </>
+                </div>
               )}
 
               {showSettings && (

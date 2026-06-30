@@ -9,8 +9,18 @@ import { StatusScreen } from "@/components/StatusScreen";
 import { Button } from "@/components/ui/button";
 import { ErrorScreen } from "@/components/ErrorScreen";
 import { ComponentGallery } from "@/features/dev-gallery/ComponentGallery";
+import { DeviceGallery } from "@/features/dev-gallery/DeviceGallery";
+import {
+  sampleSyncBoxSession,
+  SYNC_BOX_CONNECTED_DEV_VIEW_ID,
+  syncBoxDevNextSteps,
+  syncBoxWizardDevStates,
+} from "@/features/sync-box/constants";
+import { SyncBoxOnboardingWizard } from "@/features/sync-box/SyncBoxOnboardingWizard";
+import { SyncBoxConnectedView } from "@/features/sync-box/SyncBoxScreen";
 import {
   COMPONENT_GALLERY_VIEW_ID,
+  DEVICE_GALLERY_VIEW_ID,
   ERROR_BOUNDARY_VIEW_ID,
   widgetWizardStepForViewId,
 } from "@/features/setup-wizard/hooks/useDevViews";
@@ -172,6 +182,10 @@ function App() {
       return { viewKey: "component-gallery", content: <ComponentGallery /> };
     }
 
+    if (dev.viewId === DEVICE_GALLERY_VIEW_ID) {
+      return { viewKey: "device-gallery", content: <DeviceGallery /> };
+    }
+
     if (dev.viewId === ERROR_BOUNDARY_VIEW_ID) {
       return {
         viewKey: "error-boundary",
@@ -187,6 +201,33 @@ function App() {
 
     if (dev.viewId === "home-preview") {
       return { viewKey: "home-preview", content: <HomeApp /> };
+    }
+
+    const syncBoxWizardState = syncBoxWizardDevStates.find(
+      (entry) => entry.id === dev.viewId,
+    );
+    if (syncBoxWizardState) {
+      return {
+        viewKey: "wizard-dev",
+        content: (
+          <SyncBoxOnboardingWizard
+            devState={syncBoxWizardState.state}
+            onDevStateChange={dev.selectView}
+          />
+        ),
+      };
+    }
+
+    if (dev.viewId === SYNC_BOX_CONNECTED_DEV_VIEW_ID) {
+      return {
+        viewKey: "home-preview",
+        content: (
+          <SyncBoxConnectedView
+            session={sampleSyncBoxSession}
+            onReset={() => dev.selectView("sync-box-welcome")}
+          />
+        ),
+      };
     }
 
     const widgetWizardStep = widgetWizardStepForViewId(dev.viewId);
@@ -289,7 +330,10 @@ function App() {
   );
   const currentDevNextSteps = selectedWizardDevState
     ? devNextSteps[selectedWizardDevState.state.type]
-    : undefined;
+    : syncBoxDevNextSteps[
+        syncBoxWizardDevStates.find((entry) => entry.id === dev.viewId)?.state
+          .type ?? "welcome"
+      ];
 
   return (
     <main className="h-screen overflow-hidden bg-background pt-10 text-foreground">

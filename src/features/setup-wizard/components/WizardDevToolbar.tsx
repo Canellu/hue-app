@@ -50,7 +50,10 @@ export const WizardDevToolbar = ({
         <SelectTrigger aria-label="Dev view">
           <SelectValue>{currentOption?.label ?? value}</SelectValue>
         </SelectTrigger>
-        <SelectContent align="end">
+        <SelectContent
+          align="end"
+          className="w-64 max-h-[calc(var(--available-height)*0.8)]"
+        >
           {groups.map((group, groupIndex) => (
             <div
               key={group.label}

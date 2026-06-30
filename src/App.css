@@ -61,30 +61,31 @@
 
 :root {
   /* Surface elevation ladder: each step up the stack (background → card → tile
-     → popover) is lighter in both themes, so elevation reads consistently. In
-     light mode card sits just under the white ceiling so it reads as its own
-     surface against the background; tile/popover hit white and lean on shadow. */
-  --background: oklch(0.96 0 0);
+     → popover) is equal or lighter in both themes, so elevation reads
+     consistently. In light mode card and tiles sit at or just under the white
+     ceiling so they read as their own surface against the background, leaning on
+     shadow once they reach white. */
+  --background: oklch(0.98 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(0.99 0 0);
   --card-foreground: oklch(0.145 0 0);
   /* Content tiles (lights/scenes/spaces). */
   --tile: oklch(0.99 0 0);
-  /* Scene tiles sit a hair below the bright `--tile` so the scene rail reads as
+  /* Scene tiles sit a hair above the bright `--tile` so the scene rail reads as
      its own surface against the lights/spaces around it. */
-  --scene-tile: oklch(0.98 0 0);
+  --scene-tile: oklch(1 0 0);
   /* An *off* light/space tile. Unlike the bright `--tile` (which leans on shadow
      at the white ceiling), this sits just below the background so a powered-off
      tile reads as a dim, recessed surface instead of a lit white card. */
-  --tile-off: oklch(0.925 0 0);
-  /* Edge for light/space tiles. A solid step below the `--tile-off` surface
-     (0.925 − 0.05), matching the lightness delta dark mode uses between its
-     tile and border so the edge reads with the same strength in both themes. */
+  --tile-off: oklch(0.92 0 0);
+  /* Edge for light/space tiles. A solid step below the `--tile-off` surface,
+     giving the edge the same strength dark mode gets from its tile→border step
+     so the outline reads consistently in both themes. */
   --tile-border: oklch(0.875 0 0);
   /* Edge for a *lit* (color-tinted) tile. A solid neutral can't be translucent
      here — alpha would let the saturated fill bleed through and read as the
      fill's complement. In light mode it matches the off-tile edge above. */
-  --tile-border-lit: oklch(0.875 0 0);
+  --tile-border-lit: oklch(0.9 0 0);
   /* Lit-tile overlay tuning. Light mode stays softer overall, but low
      brightness still climbs high enough to read on wide desktop cards. */
   --tile-shade-strength: 0.92;

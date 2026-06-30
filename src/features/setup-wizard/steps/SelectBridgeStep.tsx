@@ -74,8 +74,11 @@ export const SelectBridgeStep = ({
               key={bridge.bridgeId}
               size="sm"
               className={cn(
-                "w-48 cursor-pointer bg-transparent transition-colors hover:bg-foreground/5",
-                isSelected && "bg-foreground/10 hover:bg-foreground/10",
+                "w-48 cursor-pointer border border-foreground/10 transition-[box-shadow,background-color]",
+                "bg-[oklch(0.99_0_0)] hover:bg-[oklch(0.96_0_0)]",
+                "dark:bg-[oklch(0.24_0_0)] dark:hover:bg-[oklch(0.25_0_0)]",
+                isSelected &&
+                  "ring-4 ring-foreground/10 hover:bg-[oklch(0.99_0_0)] dark:hover:bg-[oklch(0.24_0_0)]",
               )}
               onClick={() => onSelectBridge(bridge.bridgeIp)}
             >

@@ -277,24 +277,29 @@ const ShellHeader: React.FC = () => {
   const onDeviceDiscovery = pathname === "/settings/device-discovery";
   const onWidgetWizard = pathname === "/settings/widget-wizard";
   const onSpacesWizard = pathname === "/settings/spaces-wizard";
+  const onSync = pathname === "/sync";
   const title = onDeviceDiscovery
     ? "Add devices"
     : onWidgetWizard
       ? "Create widget"
       : onSpacesWizard
         ? "Create room or zone"
-        : pathname === "/settings"
-          ? "Settings"
-          : activeSpace?.name;
+        : onSync
+          ? "Sync"
+          : pathname === "/settings"
+            ? "Settings"
+            : activeSpace?.name;
   const description = onDeviceDiscovery
     ? "Discover and place Hue devices"
     : onWidgetWizard
       ? "Build a pinned desktop widget"
       : onSpacesWizard
         ? "Group your devices and lights"
-        : pathname === "/settings"
-          ? "Bridge & app preferences"
-          : undefined;
+        : onSync
+          ? "Philips Hue HDMI Sync Box"
+          : pathname === "/settings"
+            ? "Bridge & app preferences"
+            : undefined;
   return (
     <AppHeader
       onBack={
@@ -346,6 +351,8 @@ const ShellHeader: React.FC = () => {
       onOpenSettings={() =>
         void navigate({ to: "/settings", search: { tab: undefined } })
       }
+      showSync={onHome}
+      onOpenSync={() => void navigate({ to: "/sync" })}
       showEditLayout={onHome}
       groupingMode={groupingMode}
       onGroupingModeChange={setGroupingMode}

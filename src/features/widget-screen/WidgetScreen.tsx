@@ -41,6 +41,10 @@ interface WidgetWindowState {
 const TITLE_BAR_HEIGHT = 36;
 const WIDGET_MIN_HEIGHT = 136;
 const RESIZE_SAVE_DELAY_MS = 300;
+/** Side/bottom inset (px) around the control grid — Tailwind `p-4`. Kept tight
+ * so the cards sit close to the edges; the top still uses the larger
+ * `edgePadding` to clear the overlaid title bar. */
+const WIDGET_SIDE_PADDING = 16;
 
 const TitleBarButton = ({
   label,
@@ -329,14 +333,17 @@ export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
 
     // `contentRef` wraps the cards (it is *not* stretched to the window), so its
     // height is the controls' true intrinsic height at the current width. Adding
-    // the symmetric edge padding gives the height the window needs to show the
-    // content without clipping. Measuring the content itself — rather than the
-    // full-height shell — is what lets the window shrink again: the min height
-    // now tracks the content instead of ratcheting up to the tallest the window
-    // has ever been.
+    // the top (title-bar) padding and the smaller bottom inset gives the height
+    // the window needs to show the content without clipping. Measuring the
+    // content itself — rather than the full-height shell — is what lets the
+    // window shrink again: the min height now tracks the content instead of
+    // ratcheting up to the tallest the window has ever been.
     const contentHeight = content.getBoundingClientRect().height;
     const height = Math.ceil(
-      Math.max(contentHeight + sizeMetrics.edgePadding * 2, WIDGET_MIN_HEIGHT),
+      Math.max(
+        contentHeight + sizeMetrics.edgePadding + WIDGET_SIDE_PADDING,
+        WIDGET_MIN_HEIGHT,
+      ),
     );
     if (height <= 0) return;
 
@@ -349,7 +356,7 @@ export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
     hasAutoFitRef.current = true;
     void invoke("sync-widget-layout", {
       widgetId,
-      minWidth: sizeMetrics.cardBasis + sizeMetrics.edgePadding * 2,
+      minWidth: sizeMetrics.cardBasis + WIDGET_SIDE_PADDING * 2,
       minHeight: height,
       autoFit,
     }).catch(() => undefined);
@@ -443,16 +450,22 @@ export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
           </p>
         </div>
       ) : (
-        /* Fill the window and pad every edge by the title-bar height so the
-           controls never touch the window edges and the overlaid title bar
-           never covers them. The cards reflow to whatever width the user picks.
-           The inner wrapper carries `contentRef` and is *not* stretched to the
-           window, so its measured height is the controls' true content height —
-           that's what `syncWidgetLayout` reads to set a min height the window
-           can still shrink back down to. */
+        /* Fill the window and pad the top by the title-bar height (so the
+           overlaid title bar never covers the controls) and the other edges by
+           the tighter side inset, so the cards sit close to the window edges.
+           The cards reflow to whatever width the user picks. The inner wrapper
+           carries `contentRef` and is *not* stretched to the window, so its
+           measured height is the controls' true content height — that's what
+           `syncWidgetLayout` reads to set a min height the window can still
+           shrink back down to. */
         <section
           className="h-full w-full overflow-hidden"
-          style={{ padding: sizeMetrics.edgePadding }}
+          style={{
+            paddingTop: sizeMetrics.edgePadding,
+            paddingLeft: WIDGET_SIDE_PADDING,
+            paddingRight: WIDGET_SIDE_PADDING,
+            paddingBottom: WIDGET_SIDE_PADDING,
+          }}
         >
           <div ref={contentRef}>
             <ControlList

@@ -5,6 +5,10 @@ import {
   DEV_DEFAULT_PAIRING_KIND,
   wizardDevStates,
 } from "../constants";
+import {
+  SYNC_BOX_CONNECTED_DEV_VIEW_ID,
+  syncBoxWizardDevStates,
+} from "@/features/sync-box/constants";
 
 type AppDevViewId =
   | "splash"
@@ -21,6 +25,9 @@ const appDevViewOptions: { id: AppDevViewId; label: string }[] = [
 
 /** Dev-only id for the component gallery / living style guide. */
 export const COMPONENT_GALLERY_VIEW_ID = "component-gallery";
+
+/** Dev-only id for the hardware-illustration showcase (bridges + sync box). */
+export const DEVICE_GALLERY_VIEW_ID = "device-gallery";
 
 /** Dev-only id for the app-level error boundary fallback preview. */
 export const ERROR_BOUNDARY_VIEW_ID = "error-boundary";
@@ -46,7 +53,10 @@ export const widgetWizardStepForViewId = (viewId: string): number | null =>
 export const devViewGroups = [
   {
     label: "Design",
-    options: [{ id: COMPONENT_GALLERY_VIEW_ID, label: "Components" }],
+    options: [
+      { id: COMPONENT_GALLERY_VIEW_ID, label: "Components" },
+      { id: DEVICE_GALLERY_VIEW_ID, label: "Devices" },
+    ],
   },
   { label: "App", options: appDevViewOptions },
   {
@@ -56,6 +66,13 @@ export const devViewGroups = [
   {
     label: "Pairing Wizard",
     options: wizardDevStates.map(({ id, label }) => ({ id, label })),
+  },
+  {
+    label: "Sync Box Wizard",
+    options: [
+      ...syncBoxWizardDevStates.map(({ id, label }) => ({ id, label })),
+      { id: SYNC_BOX_CONNECTED_DEV_VIEW_ID, label: "Connected" },
+    ],
   },
 ];
 

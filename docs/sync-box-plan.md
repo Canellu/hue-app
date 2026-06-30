@@ -1,7 +1,8 @@
 # Plan: HDMI Sync Box Control ("Sync" tab)
 
-Status: **proposed / not started**. Design doc for a future feature, not a
-description of existing behavior.
+Status: **in progress**. Discovery, API-level gating, pushlink registration,
+session persistence, and the onboarding wizard are implemented. Sync controls,
+state polling, and production TLS hardening remain.
 
 ## Goal
 

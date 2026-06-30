@@ -6,5 +6,6 @@ pub mod lights;
 pub mod rooms;
 pub mod scenes;
 pub mod settings;
+pub mod sync_box;
 pub mod widget;
 pub mod zones;

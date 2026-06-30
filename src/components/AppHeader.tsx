@@ -26,6 +26,7 @@ import {
   Pencil,
   Plus,
   Settings,
+  Tv,
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
@@ -62,6 +63,8 @@ interface AppHeaderProps {
   /** Whether the Settings gear is shown (hidden on the Settings route itself). */
   showSettings: boolean;
   onOpenSettings: () => void;
+  showSync: boolean;
+  onOpenSync: () => void;
   /** Whether the Edit Layout control is available (Home screen only). */
   showEditLayout: boolean;
   groupingMode: HomeGroupingMode;
@@ -97,6 +100,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   homeName,
   showSettings,
   onOpenSettings,
+  showSync,
+  onOpenSync,
   showEditLayout,
   groupingMode,
   onGroupingModeChange,
@@ -388,6 +393,18 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                   onClick={onOpenSettings}
                 >
                   <Settings size={26} />
+                </Button>
+              )}
+
+              {showSync && (
+                <Button
+                  variant="ghost"
+                  size="xl"
+                  className="gap-2"
+                  onClick={onOpenSync}
+                >
+                  <Tv size={20} />
+                  Sync
                 </Button>
               )}
             </motion.div>

@@ -3,7 +3,7 @@ use mdns_sd::{ServiceDaemon, ServiceEvent};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_store::StoreExt;
@@ -61,6 +61,94 @@ pub struct SyncBoxSession {
     pub connected: bool,
     pub sync_box: Option<StoredSyncBoxInfo>,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncBoxState {
+    pub device: SyncBoxStateDevice,
+    pub hue: SyncBoxHue,
+    pub execution: SyncBoxExecution,
+    pub hdmi: SyncBoxHdmi,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncBoxStateDevice {
+    pub name: String,
+    #[serde(default)]
+    pub overheating: bool,
+    #[serde(default)]
+    pub undervolt: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncBoxHue {
+    pub connection_state: String,
+    #[serde(default)]
+    pub groups: HashMap<String, SyncBoxHueGroup>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncBoxHueGroup {
+    pub name: String,
+    pub num_lights: u32,
+    #[serde(default)]
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncBoxExecution {
+    pub mode: String,
+    pub sync_active: bool,
+    pub hdmi_active: bool,
+    pub hdmi_source: String,
+    #[serde(default)]
+    pub hue_target: Option<String>,
+    pub brightness: u16,
+    #[serde(default)]
+    pub last_sync_mode: Option<String>,
+    #[serde(default)]
+    pub video: Option<SyncBoxModeSettings>,
+    #[serde(default)]
+    pub game: Option<SyncBoxModeSettings>,
+    #[serde(default)]
+    pub music: Option<SyncBoxModeSettings>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncBoxModeSettings {
+    #[serde(default)]
+    pub intensity: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncBoxHdmi {
+    pub input1: SyncBoxHdmiInput,
+    pub input2: SyncBoxHdmiInput,
+    pub input3: SyncBoxHdmiInput,
+    pub input4: SyncBoxHdmiInput,
+    #[serde(default)]
+    pub content_specs: Option<String>,
+    #[serde(default)]
+    pub video_sync_supported: bool,
+    #[serde(default)]
+    pub audio_sync_supported: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncBoxHdmiInput {
+    pub name: String,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(rename = "type", default)]
+    pub input_type: Option<String>,
 }
 
 struct MdnsSyncBox {
@@ -247,7 +335,7 @@ impl SyncBoxClient {
             .get_state(&sync_box.ip_address, sync_box.port, &access_token)
             .await
         {
-            Ok(()) => Ok(SyncBoxSession {
+            Ok(_) => Ok(SyncBoxSession {
                 configured: true,
                 connected: true,
                 sync_box: Some(sync_box),
@@ -287,12 +375,55 @@ impl SyncBoxClient {
             .map_err(|error| format!("Invalid Sync Box device response: {error}"))
     }
 
+    pub async fn get_saved_state<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+    ) -> Result<SyncBoxState, String> {
+        let sync_box = load_sync_box_info(app)?
+            .ok_or_else(|| "No Sync Box is configured.".to_string())?;
+        let access_token = load_access_token()?
+            .ok_or_else(|| "The saved Sync Box access token is missing. Pair it again.".to_string())?;
+        self.get_state(&sync_box.ip_address, sync_box.port, &access_token)
+            .await
+    }
+
+    pub async fn update_saved_execution<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        update: Value,
+    ) -> Result<SyncBoxState, String> {
+        let sync_box = load_sync_box_info(app)?
+            .ok_or_else(|| "No Sync Box is configured.".to_string())?;
+        let access_token = load_access_token()?
+            .ok_or_else(|| "The saved Sync Box access token is missing. Pair it again.".to_string())?;
+        let object = update
+            .as_object()
+            .filter(|object| !object.is_empty())
+            .ok_or_else(|| "Execution update must be a non-empty JSON object.".to_string())?;
+        let url = endpoint(&sync_box.ip_address, sync_box.port, "/api/v1/execution");
+        let response = self
+            .client
+            .put(url)
+            .bearer_auth(&access_token)
+            .json(object)
+            .send()
+            .await
+            .map_err(|error| format!("Unable to update the Sync Box: {error}"))?;
+
+        if !response.status().is_success() {
+            return Err(sync_box_response_error(response, "Sync Box execution update").await);
+        }
+
+        self.get_state(&sync_box.ip_address, sync_box.port, &access_token)
+            .await
+    }
+
     async fn get_state(
         &self,
         ip_address: &str,
         port: u16,
         access_token: &str,
-    ) -> Result<(), String> {
+    ) -> Result<SyncBoxState, String> {
         let url = endpoint(ip_address, port, "/api/v1");
         let response = self
             .client
@@ -302,17 +433,33 @@ impl SyncBoxClient {
             .await
             .map_err(|error| format!("Unable to reach the saved Sync Box: {error}"))?;
 
-        if response.status().is_success() {
-            Ok(())
-        } else if response.status().as_u16() == 401 {
-            Err("The Sync Box rejected the saved access token. Pair it again.".to_string())
-        } else {
-            Err(format!(
-                "Sync Box connection failed with HTTP status {}.",
-                response.status()
-            ))
+        if !response.status().is_success() {
+            return Err(sync_box_response_error(response, "Sync Box state request").await);
+        }
+        response
+            .json::<SyncBoxState>()
+            .await
+            .map_err(|error| format!("Invalid Sync Box state response: {error}"))
+    }
+}
+
+async fn sync_box_response_error(response: reqwest::Response, context: &str) -> String {
+    let status = response.status();
+    if status.as_u16() == 401 {
+        return "The Sync Box rejected the saved access token. Pair it again.".to_string();
+    }
+    let body = response.text().await.unwrap_or_default();
+    if let Ok(value) = serde_json::from_str::<Value>(&body) {
+        let code = value.get("code").and_then(Value::as_u64);
+        let message = value.get("message").and_then(Value::as_str);
+        if code == Some(16) {
+            return "The Sync Box cannot apply that setting in its current state. Check its Hue Bridge connection and active HDMI source.".to_string();
+        }
+        if let Some(message) = message {
+            return format!("{context} failed: {message}");
         }
     }
+    format!("{context} failed with HTTP status {status}.")
 }
 
 fn ensure_supported(device: &SyncBoxDevice) -> Result<(), String> {

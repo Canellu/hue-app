@@ -14,7 +14,7 @@ const WizardLayout = ({
   stateKey: string;
   children: React.ReactNode;
 }) => (
-  <div className="relative flex h-full w-full flex-col items-center justify-center px-6 py-10">
+  <div className="relative flex h-full w-full -translate-y-10 flex-col items-center justify-center px-6 py-10">
     <div
       key={stateKey}
       className="flex w-full max-w-xl flex-col items-center gap-10 text-center animate-in fade-in"

@@ -26,6 +26,57 @@ export interface SyncBoxSession {
   error: string | null;
 }
 
+export type SyncBoxMode = "video" | "game" | "music" | "ambient";
+export type SyncBoxIntensity = "subtle" | "moderate" | "high" | "intense";
+export type SyncBoxHdmiSource = "input1" | "input2" | "input3" | "input4";
+
+export interface SyncBoxState {
+  device: {
+    name: string;
+    overheating: boolean;
+    undervolt: boolean;
+  };
+  hue: {
+    connectionState: string;
+    groups: Record<
+      string,
+      { name: string; numLights: number; active: boolean }
+    >;
+  };
+  execution: {
+    mode: string;
+    syncActive: boolean;
+    hdmiActive: boolean;
+    hdmiSource: string;
+    hueTarget: string | null;
+    brightness: number;
+    lastSyncMode: string | null;
+    video: { intensity: string | null } | null;
+    game: { intensity: string | null } | null;
+    music: { intensity: string | null } | null;
+  };
+  hdmi: Record<SyncBoxHdmiSource, SyncBoxHdmiInput> & {
+    contentSpecs: string | null;
+    videoSyncSupported: boolean;
+    audioSyncSupported: boolean;
+  };
+}
+
+export interface SyncBoxHdmiInput {
+  name: string;
+  status: string | null;
+  type: string | null;
+}
+
+export type SyncBoxExecutionUpdate =
+  | { syncActive: boolean }
+  | { hdmiActive: boolean }
+  | { mode: SyncBoxMode }
+  | { hdmiSource: SyncBoxHdmiSource }
+  | { hueTarget: string }
+  | { brightness: number }
+  | { intensity: SyncBoxIntensity };
+
 export type SyncBoxOnboardingState =
   | { type: "welcome" }
   | { type: "discovering" }

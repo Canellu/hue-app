@@ -32,10 +32,12 @@ export const SettingsSection = ({
 export const SettingsRow = ({
   title,
   description,
+  alignControlWithDescription = false,
   children,
 }: {
   title: string;
   description?: React.ReactNode;
+  alignControlWithDescription?: boolean;
   children: React.ReactNode;
 }) => (
   <div className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-2">
@@ -47,6 +49,10 @@ export const SettingsRow = ({
         </div>
       )}
     </div>
-    <div className="flex shrink-0 items-center justify-end">{children}</div>
+    <div
+      className={`flex shrink-0 items-center justify-end ${alignControlWithDescription ? "self-end" : ""}`}
+    >
+      {children}
+    </div>
   </div>
 );

@@ -67,7 +67,7 @@ export const SyncBoxOnboardingWizard = ({
   };
 
   return (
-    <div className="flex min-h-[calc(100vh-12rem)] items-center justify-center px-6 py-10">
+    <div className="flex min-h-[calc(100vh-12rem)] -translate-y-10 items-center justify-center px-6 py-10">
       <div className="flex w-full max-w-2xl flex-col items-center gap-10 text-center">
         {state.type === "welcome" && (
           <>

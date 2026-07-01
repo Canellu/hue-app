@@ -1,8 +1,9 @@
 # Plan: HDMI Sync Box Control ("Sync" tab)
 
 Status: **in progress**. Discovery, API-level gating, pushlink registration,
-session persistence, and the onboarding wizard are implemented. Sync controls,
-state polling, and production TLS hardening remain.
+session persistence, onboarding, Sync controls, and visibility-scoped state
+polling are implemented. Hardware validation and production TLS hardening
+remain.
 
 ## Goal
 
@@ -240,10 +241,10 @@ approach.
 ## Suggested build order
 
 1. Run the Postman/curl spikes above; capture real JSON.
-2. `sync_box_client.rs` Phase 1 (insecure TLS): device GET + apiLevel gate,
+2. [x] `sync_box_client.rs` Phase 1 (insecure TLS): device GET + apiLevel gate,
    registration, full-state GET, execution PUT.
-3. Tauri commands + minimal store; verify control from a dev button.
-4. `features/sync-screen` UI; polling while visible.
+3. [x] Tauri commands + minimal store.
+4. [x] `features/sync-screen` UI; polling while visible.
 5. Phase 2 TLS hardening (pin CA, resolve CN); no caller changes.
 6. Error/edge handling: overheating/undervolt, connectionState, apiLevel < 7,
    token loss / re-pair.

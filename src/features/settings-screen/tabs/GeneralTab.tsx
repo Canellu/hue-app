@@ -173,6 +173,7 @@ export const GeneralTab = ({
           <SettingsRow
             title="Start on login"
             description="Launch Hue Desktop when you sign in to Windows."
+            alignControlWithDescription
           >
             <Switch
               aria-label="Start Hue Desktop on login"

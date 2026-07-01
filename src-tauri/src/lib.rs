@@ -27,6 +27,10 @@ pub fn run() {
                 .build(),
         )
         .manage(commands::events::EventStreamState::default())
+        .manage(
+            services::sync_box_client::SyncBoxClient::new()
+                .expect("failed to create Sync Box HTTP client"),
+        )
         .invoke_handler(tauri::generate_handler![
             commands::app_settings::get_app_settings,
             commands::app_settings::set_close_button_behavior,
@@ -77,6 +81,8 @@ pub fn run() {
             commands::sync_box::pair_sync_box,
             commands::sync_box::get_sync_box_session,
             commands::sync_box::reset_sync_box_session,
+            commands::sync_box::get_sync_box_state,
+            commands::sync_box::set_sync_box_execution,
             commands::events::start_hue_events,
             commands::events::stop_hue_events,
             commands::widget::open_widget_window,

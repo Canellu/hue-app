@@ -83,7 +83,6 @@ const DEFAULT_SECTION_ORDER: SectionId[] = [
   "switches",
   "sensors",
 ];
-const EMPTY_SYNCED_LIGHT_IDS: string[] = [];
 
 const readSectionOrder = (key: string): SectionId[] => {
   try {
@@ -293,13 +292,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
   onRefresh,
 }) => {
   const reduceMotion = useReducedMotion();
-  const syncedLightIds = useSyncBoxStore((store) => {
-    const target = store.state?.execution.hueTarget;
-    if (!store.state?.execution.syncActive || !target) {
-      return EMPTY_SYNCED_LIGHT_IDS;
-    }
-    return store.areaLightIds[target] ?? EMPTY_SYNCED_LIGHT_IDS;
-  });
+  const syncedLightIds = useSyncBoxStore((store) => store.syncedLightIds);
   const syncedIds = new Set(syncedLightIds);
   const syncedLightCount = lights.filter((light) =>
     syncedIds.has(light.id),

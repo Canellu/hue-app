@@ -79,10 +79,13 @@ export const SceneRailItem = ({ children }: { children: React.ReactNode }) => (
 /** A scene card that applies the scene on tap (the live widget display). */
 export const WidgetSceneCard = ({
   scene,
+  disabled = false,
   onActivate,
   onTogglePlay,
 }: {
   scene: HueScene;
+  /** Locked while light sync owns the room's lights — the tap would do nothing. */
+  disabled?: boolean;
   onActivate: () => void;
   onTogglePlay: () => void;
 }) => {
@@ -96,14 +99,16 @@ export const WidgetSceneCard = ({
       size="xs"
       name={scene.name}
       ariaPressed={active}
+      disabled={disabled}
       activeBackground={activeBackground}
-      className={
+      className={cn(
         activeBackground
           ? "text-foreground"
           : active
             ? "bg-foreground/10"
-            : undefined
-      }
+            : undefined,
+        disabled && "opacity-40",
+      )}
       style={
         activeBackground && bubble
           ? activeTileTheme(
@@ -118,6 +123,7 @@ export const WidgetSceneCard = ({
         scene.dynamic ? (
           <button
             type="button"
+            disabled={disabled}
             aria-label={
               dynamicActive ? `Stop ${scene.name}` : `Play ${scene.name}`
             }

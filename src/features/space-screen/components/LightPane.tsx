@@ -110,14 +110,9 @@ export const LightPane: React.FC<LightPaneProps> = ({
   onLightBrightness,
   onLightColor,
 }) => {
-  const syncLocked = useSyncBoxStore((store) => {
-    const target = store.state?.execution.hueTarget;
-    return Boolean(
-      store.state?.execution.syncActive &&
-      target &&
-      store.areaLightIds[target]?.includes(light.id),
-    );
-  });
+  const syncLocked = useSyncBoxStore((store) =>
+    store.syncedLightIds.includes(light.id),
+  );
   const hasEffects = useMemo(
     () =>
       [...(light.effectsV2 ?? []), ...(light.effects ?? [])].some(

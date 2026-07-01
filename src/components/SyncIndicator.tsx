@@ -13,12 +13,14 @@ export const SyncIndicator: React.FC<{
   showCount?: boolean;
   className?: string;
 }> = ({ syncedCount, totalCount, showCount = false, className }) => {
+  // "light sync", not "the Sync Box": the stream may be owned by another app
+  // (e.g. the official Hue Sync app) and the lock applies either way.
   const label =
     syncedCount === 1 && totalCount === 1
-      ? "Controlled by the Sync Box"
+      ? "Controlled by light sync"
       : syncedCount === totalCount
-        ? `All ${totalCount} ${totalCount === 1 ? "light is" : "lights are"} controlled by the Sync Box`
-        : `${syncedCount} of ${totalCount} lights are controlled by the Sync Box`;
+        ? `All ${totalCount} ${totalCount === 1 ? "light is" : "lights are"} controlled by light sync`
+        : `${syncedCount} of ${totalCount} lights are controlled by light sync`;
 
   return (
     <TooltipProvider>

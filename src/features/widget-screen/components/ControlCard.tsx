@@ -1,4 +1,5 @@
 import { PacedSlider } from "@/components/PacedSlider";
+import { SyncIndicator } from "@/components/SyncIndicator";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
@@ -8,6 +9,7 @@ import {
   sceneBubbleCss,
 } from "@/features/space-screen/utils/color-state";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
+import { useSyncBoxStore } from "@/stores/SyncBoxStore";
 import {
   activeTileTheme,
   TILE_BRIGHTNESS_SLIDER_CLASS,
@@ -30,9 +32,11 @@ import type { WidgetControl, WidgetSizeMode } from "../types";
 /** A compact, pill-shaped scene button used in the rail when the control is compact. */
 const SceneButton = ({
   scene,
+  disabled = false,
   onActivate,
 }: {
   scene: HueScene;
+  disabled?: boolean;
   onActivate: () => void;
 }) => {
   const bubble = sceneBubbleCss(scene);
@@ -40,6 +44,7 @@ const SceneButton = ({
   return (
     <button
       type="button"
+      disabled={disabled}
       onClick={onActivate}
       aria-pressed={active}
       className={cn(
@@ -47,6 +52,7 @@ const SceneButton = ({
         active
           ? "border-foreground/40 bg-foreground/15"
           : "border-border/60 hover:bg-foreground/10",
+        disabled && "opacity-40",
       )}
     >
       <span
@@ -81,6 +87,8 @@ export const ControlView = ({
   compact,
   hueEventRevision,
   sizeMode = "default",
+  syncedCount = 0,
+  totalCount = 0,
   onToggle,
   onBrightness,
   onActivateScene,
@@ -102,6 +110,9 @@ export const ControlView = ({
   compact: boolean;
   hueEventRevision: number;
   sizeMode?: WidgetSizeMode;
+  /** How many of the target's lights are locked by an active light sync. */
+  syncedCount?: number;
+  totalCount?: number;
   onToggle: (next: boolean) => void;
   onBrightness: (pct: number, phase: "live" | "final") => void;
   onActivateScene: (scene: HueScene) => void;
@@ -111,6 +122,10 @@ export const ControlView = ({
   // The header reads as "lit" only when the control is on *and* has a color to
   // paint with; otherwise it stays on the card's neutral surface.
   const lit = isOn && tileBackground != null;
+  const fullSync = totalCount > 0 && syncedCount >= totalCount;
+  const partialSync = syncedCount > 0 && !fullSync;
+  // Any active sync makes scene changes pointless — the stream owns the colors.
+  const scenesLocked = syncedCount > 0;
 
   return (
     <Card
@@ -187,29 +202,49 @@ export const ControlView = ({
           >
             {name}
           </p>
-          <Switch
-            size="xl"
-            className={TILE_POWER_SWITCH_CLASS}
-            checked={isOn}
-            aria-label={`Toggle ${name}`}
-            onCheckedChange={onToggle}
-          />
+          {partialSync && (
+            <SyncIndicator
+              syncedCount={syncedCount}
+              totalCount={totalCount}
+              showCount
+            />
+          )}
+          {fullSync ? (
+            <SyncIndicator syncedCount={syncedCount} totalCount={totalCount} />
+          ) : (
+            <Switch
+              size="xl"
+              className={TILE_POWER_SWITCH_CLASS}
+              checked={isOn}
+              aria-label={`Toggle ${name}`}
+              onCheckedChange={onToggle}
+            />
+          )}
         </div>
 
         {showBrightness && dimmable ? (
-          <PacedSlider
-            value={isOn ? Math.max(1, pct) : 1}
-            min={1}
-            ariaLabel={`${name} brightness`}
-            className={cn(
-              TILE_BRIGHTNESS_SLIDER_CLASS,
-              !isOn && "tile-brightness-slider-off",
-            )}
-            size="default"
-            isGroup
-            animateKey={hueEventRevision}
-            onCommit={onBrightness}
-          />
+          fullSync ? (
+            <span
+              aria-hidden="true"
+              className="block h-1 overflow-hidden rounded-full bg-primary/15"
+            >
+              <span className="block h-full w-full animate-pulse bg-primary/40" />
+            </span>
+          ) : (
+            <PacedSlider
+              value={isOn ? Math.max(1, pct) : 1}
+              min={1}
+              ariaLabel={`${name} brightness`}
+              className={cn(
+                TILE_BRIGHTNESS_SLIDER_CLASS,
+                !isOn && "tile-brightness-slider-off",
+              )}
+              size="default"
+              isGroup
+              animateKey={hueEventRevision}
+              onCommit={onBrightness}
+            />
+          )
         ) : null}
       </div>
 
@@ -229,11 +264,13 @@ export const ControlView = ({
                 {compact ? (
                   <SceneButton
                     scene={scene}
+                    disabled={scenesLocked}
                     onActivate={() => onActivateScene(scene)}
                   />
                 ) : (
                   <WidgetSceneCard
                     scene={scene}
+                    disabled={scenesLocked}
                     onActivate={() => onActivateScene(scene)}
                     onTogglePlay={() => onToggleScenePlay(scene)}
                   />
@@ -282,13 +319,15 @@ export const ControlCard = ({
   );
   const setLightState = useHueResourcesStore((state) => state.setLightState);
   const activateScene = useHueResourcesStore((state) => state.activateScene);
+  const syncedLightIds = useSyncBoxStore((state) => state.syncedLightIds);
 
   if (control.target.kind === "light") {
     const light = lights.find(
       (candidate) => candidate.id === control.target.id,
     );
     if (!light) return <UnavailableCard label={control.label ?? "Light"} />;
-    const hex = light.isOn ? lightColorHex(light) : null;
+    const syncLocked = syncedLightIds.includes(light.id);
+    const hex = light.isOn && !syncLocked ? lightColorHex(light) : null;
     return (
       <ControlView
         name={control.label ?? light.name}
@@ -303,6 +342,8 @@ export const ControlCard = ({
         compact={control.compact ?? false}
         hueEventRevision={hueEventRevision}
         sizeMode={sizeMode}
+        syncedCount={syncLocked ? 1 : 0}
+        totalCount={1}
         onToggle={(next) => setLightState(light, next, null)}
         onBrightness={(pct, phase) => setLightState(light, true, pct, phase)}
         onActivateScene={() => undefined}
@@ -319,7 +360,30 @@ export const ControlCard = ({
   const members: HueLight[] = lights.filter((light) =>
     roomZone.lightIds.includes(light.id),
   );
-  const tile = roomZoneTileColor(members);
+  const syncedIds = new Set(syncedLightIds);
+  const syncedMemberCount = members.filter((light) =>
+    syncedIds.has(light.id),
+  ).length;
+  const fullSync = members.length > 0 && syncedMemberCount === members.length;
+  const partialSync = syncedMemberCount > 0 && !fullSync;
+  const controllableMembers = members.filter(
+    (light) => !syncedIds.has(light.id),
+  );
+  // Partial sync mirrors the Home tile: display and control the remainder of
+  // the room, since the synced lights ignore commands while streaming.
+  const onControllable = controllableMembers.filter((light) => light.isOn);
+  const isOn = partialSync ? onControllable.length > 0 : roomZone.anyOn;
+  const brightness = partialSync
+    ? onControllable.length > 0
+      ? onControllable.reduce(
+          (sum, light) => sum + (light.brightness ?? 0),
+          0,
+        ) / onControllable.length
+      : 0
+    : roomZone.brightness;
+  const tile = fullSync
+    ? { background: null, glow: null }
+    : roomZoneTileColor(partialSync ? controllableMembers : members);
   // Resolve the chosen scenes in the order the control stored them, dropping
   // any that no longer exist on the bridge.
   const sceneById = new Map(scenes.map((scene) => [scene.id, scene]));
@@ -332,8 +396,8 @@ export const ControlCard = ({
     <ControlView
       name={control.label ?? roomZone.name}
       icon={<Icon size={iconSize} strokeWidth={2.5} />}
-      isOn={roomZone.anyOn}
-      brightness={roomZone.brightness}
+      isOn={isOn}
+      brightness={brightness}
       tileBackground={tile.background}
       tileTint={tile.glow ?? tile.background}
       dimmable={roomZone.groupedLightId != null}
@@ -342,6 +406,8 @@ export const ControlCard = ({
       compact={control.compact ?? false}
       hueEventRevision={hueEventRevision}
       sizeMode={sizeMode}
+      syncedCount={syncedMemberCount}
+      totalCount={members.length}
       onToggle={(next) => setRoomZoneState(roomZone, next, null)}
       onBrightness={(pct, phase) =>
         setRoomZoneState(roomZone, true, pct, phase)

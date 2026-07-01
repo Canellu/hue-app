@@ -2715,6 +2715,12 @@ impl HueClient {
     /// Opens a persistent SSE connection to the bridge event stream and emits a
     /// `hue-event` Tauri event (`Vec<HueEventUpdate>`) for every change the
     /// bridge reports, reconnecting with a short backoff until `active` clears.
+    ///
+    /// Also emits `hue-connection` (`{ connected: bool }`) whenever the stream's
+    /// health changes so every window can surface an "unreachable" state, and
+    /// after a few straight failures re-runs session restore — which
+    /// re-discovers the bridge by id and persists its new address — so a DHCP
+    /// IP change heals without a restart.
     pub async fn run_event_stream<R: Runtime>(
         &self,
         app: &AppHandle<R>,
@@ -2722,9 +2728,23 @@ impl HueClient {
         ip: &str,
         application_key: &str,
     ) {
-        let url = format!("https://{ip}/eventstream/clip/v2");
+        const REDISCOVER_AFTER_FAILURES: u32 = 3;
+
+        let mut current_ip = ip.to_string();
+        let mut consecutive_failures: u32 = 0;
+        let mut last_reported: Option<bool> = None;
+        let mut report = |connected: bool| {
+            if last_reported == Some(connected) {
+                return;
+            }
+            last_reported = Some(connected);
+            if let Err(error) = app.emit("hue-connection", json!({ "connected": connected })) {
+                println!("WARN: failed to emit hue-connection: {error}");
+            }
+        };
 
         while active.load(Ordering::Relaxed) {
+            let url = format!("https://{current_ip}/eventstream/clip/v2");
             let result = self
                 .client
                 .get(&url)
@@ -2734,8 +2754,10 @@ impl HueClient {
                 .await;
 
             match result {
-                Ok(mut response) => {
+                Ok(mut response) if response.status().is_success() => {
                     println!("DEBUG: event stream connected ({})", response.status());
+                    consecutive_failures = 0;
+                    report(true);
                     let mut buffer = String::new();
 
                     loop {
@@ -2767,9 +2789,40 @@ impl HueClient {
                             }
                         }
                     }
+                    report(false);
+                }
+                Ok(response) => {
+                    println!(
+                        "WARN: event stream rejected with HTTP status {}",
+                        response.status()
+                    );
+                    consecutive_failures += 1;
+                    report(false);
                 }
                 Err(error) => {
                     println!("WARN: event stream connection failed: {error}");
+                    consecutive_failures += 1;
+                    report(false);
+                }
+            }
+
+            // The bridge may have moved to a new DHCP address: restore_session
+            // re-discovers it by bridge id (mDNS + cloud fallback) and persists
+            // the new IP. Use a fresh timeout-capped client — `self` is the
+            // streaming client, which deliberately has no request timeout.
+            if consecutive_failures >= REDISCOVER_AFTER_FAILURES {
+                if let Ok(client) = HueClient::new() {
+                    if let Ok(session) = client.restore_session(app).await {
+                        if session.connected {
+                            if let Some(new_ip) = session.bridge_ip {
+                                if new_ip != current_ip {
+                                    println!("DEBUG: bridge rediscovered at {new_ip}");
+                                }
+                                current_ip = new_ip;
+                            }
+                            consecutive_failures = 0;
+                        }
+                    }
                 }
             }
 

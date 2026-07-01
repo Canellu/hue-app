@@ -1,4 +1,15 @@
 import { PacedSlider } from "@/components/PacedSlider";
+import { SyncIndicator } from "@/components/SyncIndicator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -138,16 +149,19 @@ export const SyncBoxConnectedView = ({
   const {
     state,
     error,
+    loadError,
     isLoading,
     isUpdating,
     areaLightIds,
     refresh,
     loadAreaLights,
     updateExecution,
+    startSync,
     clear,
   } = useSyncBoxStore();
   useSyncBoxPolling();
   const hasState = state !== null;
+  const [takeoverOpen, setTakeoverOpen] = useState(false);
 
   useEffect(() => {
     if (hasState) void loadAreaLights();
@@ -164,7 +178,9 @@ export const SyncBoxConnectedView = ({
   if (!state) {
     return (
       <div className="mx-auto flex max-w-2xl items-center justify-between gap-4 rounded-2xl bg-destructive/10 p-4 text-sm text-destructive">
-        <span>{error ?? session.error ?? "Unable to read Sync Box state."}</span>
+        <span>
+          {loadError ?? session.error ?? "Unable to read Sync Box state."}
+        </span>
         <Button variant="outline" disabled={isLoading} onClick={() => void refresh()}>
           {isLoading && <Loader2 className="animate-spin" />}
           Retry
@@ -174,9 +190,23 @@ export const SyncBoxConnectedView = ({
   }
 
   const execution = state.execution;
+  // "busy" means the box is paired and reachable — another app just owns the
+  // bridge's entertainment stream right now, so starting sync is a takeover,
+  // not a connection problem.
   const hueConnected =
     state.hue.connectionState === "connected" ||
-    state.hue.connectionState === "streaming";
+    state.hue.connectionState === "streaming" ||
+    state.hue.connectionState === "busy";
+  // An active stream on the bridge that isn't this box's own sync session.
+  const conflictingStream =
+    Object.entries(state.hue.groups).find(
+      ([id, group]) =>
+        group.active && !(execution.syncActive && execution.hueTarget === id),
+    ) ?? null;
+  const streamConflict =
+    !execution.syncActive &&
+    (conflictingStream != null || state.hue.connectionState === "busy");
+  const conflictOwner = conflictingStream?.[1].owner ?? "another app";
   const currentIntensity =
     execution.mode === "video" ||
     execution.mode === "game" ||
@@ -223,7 +253,14 @@ export const SyncBoxConnectedView = ({
                     0,
                   ) / onMembers.length
                 : 0;
-            const tile = roomZoneTileColor(members);
+            // Streaming (by this box or any other app) owns these lights, so
+            // the tile's manual controls are replaced by the sync-locked look.
+            const syncing =
+              group.active ||
+              (execution.syncActive && execution.hueTarget === id);
+            const tile = syncing
+              ? { active: false, background: null, glow: null }
+              : roomZoneTileColor(members);
             const controlsDisabled =
               isUpdating || !hueConnected || members.length === 0;
             return (
@@ -279,52 +316,79 @@ export const SyncBoxConnectedView = ({
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-base font-medium">{group.name}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {group.numLights} {group.numLights === 1 ? "light" : "lights"}
-                    </p>
+                    {group.active ? (
+                      <p
+                        className={cn(
+                          "truncate text-sm",
+                          execution.syncActive && execution.hueTarget === id
+                            ? "text-primary"
+                            : "text-(--warn-text)",
+                        )}
+                      >
+                        Syncing with {group.owner ?? "another app"}
+                      </p>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        {group.numLights}{" "}
+                        {group.numLights === 1 ? "light" : "lights"}
+                      </p>
+                    )}
                   </div>
-                  <div onClick={(event) => event.stopPropagation()}>
-                    <Switch
-                      size="xl"
-                      className={TILE_POWER_SWITCH_CLASS}
-                      checked={anyOn}
-                      disabled={controlsDisabled}
-                      aria-label={`Toggle ${group.name} lights`}
-                      onCheckedChange={(checked) => {
-                        members.forEach((light) =>
-                          setLightState(light, checked, null),
-                        );
-                      }}
+                  {syncing ? (
+                    <SyncIndicator
+                      syncedCount={group.numLights}
+                      totalCount={group.numLights}
                     />
-                  </div>
+                  ) : (
+                    <div onClick={(event) => event.stopPropagation()}>
+                      <Switch
+                        size="xl"
+                        className={TILE_POWER_SWITCH_CLASS}
+                        checked={anyOn}
+                        disabled={controlsDisabled}
+                        aria-label={`Toggle ${group.name} lights`}
+                        onCheckedChange={(checked) => {
+                          members.forEach((light) =>
+                            setLightState(light, checked, null),
+                          );
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
                 <div
                   className="px-(--card-spacing)"
                   onClick={(event) => event.stopPropagation()}
                 >
-                  <PacedSlider
-                    value={anyOn ? Math.max(1, brightness) : 1}
-                    min={1}
-                    disabled={controlsDisabled}
-                    ariaLabel={`${group.name} light brightness`}
-                    className={cn(
-                      TILE_BRIGHTNESS_SLIDER_CLASS,
-                      !anyOn && "tile-brightness-slider-off",
-                    )}
-                    size="default"
-                    isGroup
-                    animateKey={hueEventRevision}
-                    onCommit={(value, phase) => {
-                      members.forEach((light: HueLight) =>
-                        setLightState(
-                          light,
-                          value > 0,
-                          value,
-                          phase,
-                        ),
-                      );
-                    }}
-                  />
+                  {syncing ? (
+                    <span className="block h-1 overflow-hidden rounded-full bg-primary/15">
+                      <span className="block h-full w-full animate-pulse bg-primary/40" />
+                    </span>
+                  ) : (
+                    <PacedSlider
+                      value={anyOn ? Math.max(1, brightness) : 1}
+                      min={1}
+                      disabled={controlsDisabled}
+                      ariaLabel={`${group.name} light brightness`}
+                      className={cn(
+                        TILE_BRIGHTNESS_SLIDER_CLASS,
+                        !anyOn && "tile-brightness-slider-off",
+                      )}
+                      size="default"
+                      isGroup
+                      animateKey={hueEventRevision}
+                      onCommit={(value, phase) => {
+                        members.forEach((light: HueLight) =>
+                          setLightState(
+                            light,
+                            value > 0,
+                            value,
+                            phase,
+                          ),
+                        );
+                      }}
+                    />
+                  )}
                 </div>
               </Card>
             );
@@ -377,11 +441,7 @@ export const SyncBoxConnectedView = ({
       await updateExecution({ syncActive: false });
       return;
     }
-    if (areaId && execution.hueTarget !== areaId) {
-      await updateExecution({ hueTarget: areaId });
-    }
-    if (!execution.hdmiActive) await updateExecution({ hdmiActive: true });
-    await updateExecution({ syncActive: true });
+    if (areaId) await startSync(areaId);
   };
 
   return (
@@ -428,7 +488,10 @@ export const SyncBoxConnectedView = ({
                 isUpdating ||
                 (!execution.syncActive && (!hueConnected || !areaId))
               }
-              onClick={() => void toggleSync()}
+              onClick={() => {
+                if (streamConflict) setTakeoverOpen(true);
+                else void toggleSync();
+              }}
             >
               {isUpdating ? (
                 <Loader2 className="animate-spin" />
@@ -439,11 +502,20 @@ export const SyncBoxConnectedView = ({
               )}
               {execution.syncActive ? "Stop light sync" : "Start light sync"}
             </Button>
-            {!hueConnected && (
+            {!hueConnected ? (
               <p className="text-sm text-destructive">
                 Connect the Sync Box to its Hue Bridge to start syncing.
               </p>
-            )}
+            ) : streamConflict ? (
+              <p className="flex items-start gap-2 text-sm text-(--warn-text)">
+                <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  {conflictingStream
+                    ? `${conflictingStream[1].name} is syncing with ${conflictOwner}.`
+                    : "Another app is syncing with the Hue Bridge."}
+                </span>
+              </p>
+            ) : null}
           </div>
           <div className="flex items-center gap-3 rounded-2xl bg-background/60 p-4 backdrop-blur-sm">
             <div className="rounded-xl bg-primary/10 p-3 text-primary">
@@ -612,6 +684,33 @@ export const SyncBoxConnectedView = ({
           Set up another Sync Box
         </Button>
       </div>
+
+      <AlertDialog open={takeoverOpen} onOpenChange={setTakeoverOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Take over light sync?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Lights will stop syncing with{" "}
+              <span className="font-medium text-foreground">
+                {conflictOwner}
+              </span>{" "}
+              if you start light sync.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel size="xl">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              size="xl"
+              onClick={() => {
+                setTakeoverOpen(false);
+                void toggleSync();
+              }}
+            >
+              Start anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

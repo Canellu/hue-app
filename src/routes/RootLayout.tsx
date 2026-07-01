@@ -1,5 +1,6 @@
 import { AppHeader } from "@/components/AppHeader";
 import { Button } from "@/components/ui/button";
+import { useHue } from "@/context/HueContext";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
 import { GroupPane } from "@/features/space-screen/components/GroupPane";
@@ -18,7 +19,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SyncBoxSession } from "@/types/sync-box";
-import { Loader2, Tv } from "lucide-react";
+import { ChevronRight, Loader2, TriangleAlert, Tv } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 
 /** Whichever resource the inspector is currently showing. */
@@ -26,8 +27,6 @@ type InspectorContent =
   | { kind: "light"; id: string; light: HueLight }
   | { kind: "scene"; id: string; scene: HueScene }
   | { kind: "group"; id: string; roomZone: HueRoomZone; lights: HueLight[] };
-
-const EMPTY_SYNCED_LIGHT_IDS: string[] = [];
 
 const getInspectorPaneWidth = () => {
   const rootFontSize = Number.parseFloat(
@@ -74,13 +73,7 @@ const LightInspector: React.FC = () => {
       setRoomZoneState: state.setRoomZoneState,
     })),
   );
-  const syncedLightIds = useSyncBoxStore((state) => {
-    const target = state.state?.execution.hueTarget;
-    if (!state.state?.execution.syncActive || !target) {
-      return EMPTY_SYNCED_LIGHT_IDS;
-    }
-    return state.areaLightIds[target] ?? EMPTY_SYNCED_LIGHT_IDS;
-  });
+  const syncedLightIds = useSyncBoxStore((state) => state.syncedLightIds);
 
   // The inspector only opens from inside a space, so resolve which room/zone is
   // on screen — the light pane removes a light from *this* space specifically.
@@ -402,21 +395,31 @@ export const RootLayout: React.FC = () => {
     (state) => state.inspectorPaneOpen,
   );
   const roomZones = useHueResourcesStore((state) => state.roomZones);
+  const bridgeConnected = useHueResourcesStore(
+    (state) => state.bridgeConnected,
+  );
+  const { refreshSession, isLoading: sessionLoading } = useHue();
   const syncState = useSyncBoxStore((state) => state.state);
-  const activeSyncedLightIds = useSyncBoxStore((state) => {
-    const target = state.state?.execution.hueTarget;
-    if (!state.state?.execution.syncActive || !target) {
-      return EMPTY_SYNCED_LIGHT_IDS;
-    }
-    return state.areaLightIds[target] ?? EMPTY_SYNCED_LIGHT_IDS;
-  });
+  const activeSyncedLightIds = useSyncBoxStore(
+    (state) => state.syncedLightIds,
+  );
   const syncUpdating = useSyncBoxStore((state) => state.isUpdating);
   const refreshSync = useSyncBoxStore((state) => state.refresh);
   const loadAreaLights = useSyncBoxStore((state) => state.loadAreaLights);
   const updateSync = useSyncBoxStore((state) => state.updateExecution);
-  const activeSyncArea = syncState?.execution.hueTarget
-    ? syncState.hue.groups[syncState.execution.hueTarget]
-    : null;
+  // The entertainment area with an active stream: this box's own sync session
+  // first, otherwise one streamed by another app (e.g. the official Hue Sync
+  // app) — the bridge only ever runs one stream at a time.
+  const activeSync = (() => {
+    if (!syncState) return null;
+    const groups = Object.entries(syncState.hue.groups);
+    const owned = syncState.execution.syncActive
+      ? groups.find(([id]) => id === syncState.execution.hueTarget)
+      : undefined;
+    const entry = owned ?? groups.find(([, group]) => group.active);
+    if (!entry) return null;
+    return { id: entry[0], group: entry[1], ownedByBox: owned != null };
+  })();
   const activeSpace = pathname.startsWith("/space/")
     ? roomZones.find(
         (roomZone) =>
@@ -472,32 +475,84 @@ export const RootLayout: React.FC = () => {
       <HueResourcesStoreEffects />
       <div className="flex h-full flex-col">
         <ShellHeader />
-        {showSyncBanner &&
-          syncState?.execution.syncActive &&
-          activeSyncArea && (
-            <div className="mx-12 mb-2 flex items-center gap-4 rounded-2xl border border-primary/25 bg-primary/10 px-5 py-3">
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
-                <Tv size={21} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">Light sync is active</p>
-                <p className="truncate text-sm text-muted-foreground">
-                  {activeSpace && activeSpaceSyncedLightCount > 0
-                    ? `${activeSpaceSyncedLightCount} ${activeSpaceSyncedLightCount === 1 ? "light" : "lights"} in ${activeSpace.name} ${activeSpaceSyncedLightCount === 1 ? "is" : "are"} controlled by the Sync Box.`
-                    : `${activeSyncArea.name} is controlled by the Sync Box.`}{" "}
-                  Stop sync to control those lights normally.
-                </p>
-              </div>
+        {!bridgeConnected && (
+          <div className="mx-12 mb-2 flex items-center gap-4 rounded-2xl border border-destructive/25 bg-destructive/10 px-5 py-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-destructive/15 text-destructive">
+              <TriangleAlert size={21} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">Hue Bridge unreachable</p>
+              <p className="truncate text-sm text-muted-foreground">
+                Trying to reconnect automatically. Check that the bridge is
+                powered and on your network.
+              </p>
+            </div>
+            <Button
+              variant="outline"
+              disabled={sessionLoading}
+              onClick={() => void refreshSession()}
+            >
+              {sessionLoading && <Loader2 className="animate-spin" />}
+              Reconnect
+            </Button>
+          </div>
+        )}
+        {showSyncBanner && activeSync && (
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label={`Open sync controls for ${activeSync.group.name}`}
+            onClick={() =>
+              void navigate({
+                to: "/sync/$areaId",
+                params: { areaId: activeSync.id },
+              })
+            }
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                void navigate({
+                  to: "/sync/$areaId",
+                  params: { areaId: activeSync.id },
+                });
+              }
+            }}
+            className="mx-12 mb-2 flex cursor-pointer items-center gap-4 rounded-2xl border border-primary/25 bg-primary/10 px-5 py-3 outline-none transition-colors hover:bg-primary/15 focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+              <Tv size={21} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">Light sync is active</p>
+              <p className="truncate text-sm text-muted-foreground">
+                {(() => {
+                  const subject =
+                    activeSpace && activeSpaceSyncedLightCount > 0
+                      ? `${activeSpaceSyncedLightCount} ${activeSpaceSyncedLightCount === 1 ? "light" : "lights"} in ${activeSpace.name} ${activeSpaceSyncedLightCount === 1 ? "is" : "are"}`
+                      : `${activeSync.group.name} is`;
+                  return activeSync.ownedByBox
+                    ? `${subject} controlled by the Sync Box. Stop sync to control those lights normally.`
+                    : `${subject} syncing with ${activeSync.group.owner ?? "another app"}.`;
+                })()}
+              </p>
+            </div>
+            {activeSync.ownedByBox ? (
               <Button
                 variant="outline"
                 disabled={syncUpdating}
-                onClick={() => void updateSync({ syncActive: false })}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void updateSync({ syncActive: false });
+                }}
               >
                 {syncUpdating && <Loader2 className="animate-spin" />}
                 Stop sync
               </Button>
-            </div>
-          )}
+            ) : (
+              <ChevronRight className="size-5 shrink-0 text-muted-foreground" />
+            )}
+          </div>
+        )}
         <div className="flex min-h-0 flex-1">
           <ScrollArea
             fade

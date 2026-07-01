@@ -40,7 +40,13 @@ export interface SyncBoxState {
     connectionState: string;
     groups: Record<
       string,
-      { name: string; numLights: number; active: boolean }
+      {
+        name: string;
+        numLights: number;
+        active: boolean;
+        /** App currently streaming to this group, set while `active`. */
+        owner: string | null;
+      }
     >;
   };
   execution: {

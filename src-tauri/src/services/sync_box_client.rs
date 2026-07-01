@@ -97,6 +97,10 @@ pub struct SyncBoxHueGroup {
     pub num_lights: u32,
     #[serde(default)]
     pub active: bool,
+    /// Name of the application currently streaming to this group, e.g.
+    /// "HueSyncBox (C429960B4B6C)" — present while `active` is true.
+    #[serde(default)]
+    pub owner: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

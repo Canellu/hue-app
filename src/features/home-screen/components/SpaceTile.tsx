@@ -16,7 +16,6 @@ import { useSyncBoxStore } from "@/stores/SyncBoxStore";
 import { getRoomZoneIcon } from "./room-zone-icons";
 
 type ControlCommitPhase = "live" | "final";
-const EMPTY_SYNCED_LIGHT_IDS: string[] = [];
 
 interface SpaceTileProps {
   roomZone: HueRoomZone;
@@ -46,13 +45,7 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
   onRoomZoneToggle,
   onRoomZoneBrightness,
 }) => {
-  const syncedLightIds = useSyncBoxStore((store) => {
-    const target = store.state?.execution.hueTarget;
-    if (!store.state?.execution.syncActive || !target) {
-      return EMPTY_SYNCED_LIGHT_IDS;
-    }
-    return store.areaLightIds[target] ?? EMPTY_SYNCED_LIGHT_IDS;
-  });
+  const syncedLightIds = useSyncBoxStore((store) => store.syncedLightIds);
   const syncedIds = new Set(syncedLightIds);
   const syncedLightCount = members.filter((light) =>
     syncedIds.has(light.id),

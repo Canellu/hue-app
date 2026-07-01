@@ -41,14 +41,9 @@ export const LightCard: React.FC<LightCardProps> = ({
   onToggle,
   onBrightness,
 }) => {
-  const syncLocked = useSyncBoxStore((store) => {
-    const target = store.state?.execution.hueTarget;
-    return Boolean(
-      store.state?.execution.syncActive &&
-      target &&
-      store.areaLightIds[target]?.includes(light.id),
-    );
-  });
+  const syncLocked = useSyncBoxStore((store) =>
+    store.syncedLightIds.includes(light.id),
+  );
   const pct = Math.round(light.brightness ?? 0);
   // When the light is on, tint the whole card with its live color (mirrors the
   // Home room/zone tiles); off or color-less lights stay on the muted surface.

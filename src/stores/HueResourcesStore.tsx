@@ -29,12 +29,8 @@ import type {
   HueZone,
 } from "@/types/hue";
 
-const activeSyncedLightIds = (): Set<string> => {
-  const sync = useSyncBoxStore.getState();
-  const target = sync.state?.execution.hueTarget;
-  if (!sync.state?.execution.syncActive || !target) return new Set();
-  return new Set(sync.areaLightIds[target] ?? []);
-};
+const activeSyncedLightIds = (): Set<string> =>
+  new Set(useSyncBoxStore.getState().syncedLightIds);
 
 const isSyncLocked = (lightIds: string[]): boolean => {
   const syncedIds = activeSyncedLightIds();
@@ -77,6 +73,13 @@ export interface HueResourcesState extends LayoutState {
   isLoading: boolean;
   hasLoaded: boolean;
   error: string | null;
+  /**
+   * Health of the bridge event stream, from the backend's `hue-connection`
+   * events. False means the bridge is currently unreachable (the backend keeps
+   * retrying and re-discovering on its own); flipping back to true triggers a
+   * full reload so state that changed during the outage is picked up.
+   */
+  bridgeConnected: boolean;
   /**
    * Bumps on any change a slider/tile should *ease* across rather than snap to:
    * inbound bridge SSE updates, plus our own discrete optimistic writes (a power
@@ -625,6 +628,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   isLoading: true,
   hasLoaded: false,
   error: null,
+  bridgeConnected: true,
   hueEventRevision: 0,
   ...buildLayoutState([], initialStoredLayout, initialGroupingMode),
   draftLayout: [],
@@ -1731,6 +1735,28 @@ export const HueResourcesStoreEffects: React.FC = () => {
     const unlisten = listen<HueEventUpdate[]>("hue-event", (event) => {
       useHueResourcesStore.getState().applyHueEvents(event.payload);
     });
+
+    return () => {
+      void unlisten.then((dispose) => dispose());
+    };
+  }, []);
+
+  useEffect(() => {
+    const unlisten = listen<{ connected: boolean }>(
+      "hue-connection",
+      (event) => {
+        const wasConnected = useHueResourcesStore.getState().bridgeConnected;
+        if (event.payload.connected === wasConnected) return;
+        useHueResourcesStore.setState({
+          bridgeConnected: event.payload.connected,
+        });
+        // Back online after an outage: reload everything, since any changes
+        // made while unreachable (or from other apps) were missed.
+        if (event.payload.connected) {
+          void useHueResourcesStore.getState().loadAll();
+        }
+      },
+    );
 
     return () => {
       void unlisten.then((dispose) => dispose());

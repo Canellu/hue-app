@@ -10,6 +10,8 @@ import {
   HueResourcesStoreEffects,
   useHueResourcesStore,
 } from "@/stores/HueResourcesStore";
+import { useSyncBoxStore } from "@/stores/SyncBoxStore";
+import type { SyncBoxSession } from "@/types/sync-box";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -203,13 +205,55 @@ const ControlList = ({
 }) => {
   const roomZones = useHueResourcesStore((state) => state.roomZones);
   const lights = useHueResourcesStore((state) => state.lights);
+  const bridgeConnected = useHueResourcesStore(
+    (state) => state.bridgeConnected,
+  );
+  const loadFailed = useHueResourcesStore((state) => state.error != null);
+  const isLoading = useHueResourcesStore((state) => state.isLoading);
+  const empty = roomZones.length === 0 && lights.length === 0;
 
-  if (roomZones.length === 0 && lights.length === 0) {
+  // Self-heal: while there's nothing to show, quietly retry the load. The
+  // bridge-reconnect event also triggers a reload, so this mostly covers a
+  // bridge that was unreachable when the widget opened (e.g. at OS login).
+  useEffect(() => {
+    if (!empty) return;
+    const interval = window.setInterval(() => {
+      const store = useHueResourcesStore.getState();
+      if (!store.isLoading) void store.loadAll();
+    }, 15000);
+    return () => window.clearInterval(interval);
+  }, [empty]);
+
+  if (empty) {
+    if (!bridgeConnected || loadFailed) {
+      return (
+        <Centered>
+          <p className="text-base font-semibold">
+            Can’t reach your Hue Bridge
+          </p>
+          <p className="text-sm text-muted-foreground">
+            Retrying automatically — check that the bridge is powered and on
+            your network.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            disabled={isLoading}
+            onClick={() => void useHueResourcesStore.getState().loadAll()}
+          >
+            {isLoading && <Loader2 className="animate-spin" />}
+            Reconnect
+          </Button>
+        </Centered>
+      );
+    }
     return (
       <Centered>
         <p className="text-base font-semibold">No Hue devices</p>
         <p className="text-sm text-muted-foreground">
-          Open the main app to set up your bridge, then reopen this widget.
+          Open the main app to set up your bridge — this widget picks it up
+          automatically.
         </p>
       </Centered>
     );
@@ -276,6 +320,34 @@ export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
       delete document.documentElement.dataset.window;
     };
   }, [widgetId]);
+
+  // Widgets respect sync-locked lights too, so poll the Sync Box state — at a
+  // slower cadence than the main window since several widgets may be open.
+  useEffect(() => {
+    let interval: number | undefined;
+    void invoke<SyncBoxSession>("get-sync-box-session")
+      .then((session) => {
+        if (!session.configured) return;
+        const syncStore = useSyncBoxStore.getState();
+        void syncStore.refresh().then(syncStore.loadAreaLights);
+        interval = window.setInterval(
+          () => void useSyncBoxStore.getState().refresh(),
+          5000,
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      if (interval) window.clearInterval(interval);
+    };
+  }, []);
+
+  // If the first load stalls, surface a retry instead of shimmering forever.
+  const [connectStalled, setConnectStalled] = useState(false);
+  useEffect(() => {
+    if (hasLoaded) return;
+    const timer = window.setTimeout(() => setConnectStalled(true), 10000);
+    return () => window.clearTimeout(timer);
+  }, [hasLoaded]);
 
   // The OS drag-drop handler is disabled (so transparent corners work), which
   // would otherwise let a stray file drop navigate the webview away. Swallow it.
@@ -448,6 +520,16 @@ export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
           <p className="text-shimmer font-heading text-sm font-semibold">
             Connecting to your bridge…
           </p>
+          {connectStalled && (
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => void useHueResourcesStore.getState().loadAll()}
+            >
+              Retry
+            </Button>
+          )}
         </div>
       ) : (
         /* Fill the window and pad the top by the title-bar height (so the

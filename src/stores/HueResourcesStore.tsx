@@ -18,6 +18,7 @@ import {
   hueDynamicSpeedValueToStep,
 } from "@/lib/hue-speed";
 import { TRANSITION_MS } from "@/lib/transitions";
+import { useSyncBoxStore } from "@/stores/SyncBoxStore";
 import type { HomeGroupingMode, HomeLayout } from "@/types/app-layout";
 import type {
   HueEventUpdate,
@@ -27,6 +28,18 @@ import type {
   HueScene,
   HueZone,
 } from "@/types/hue";
+
+const activeSyncedLightIds = (): Set<string> => {
+  const sync = useSyncBoxStore.getState();
+  const target = sync.state?.execution.hueTarget;
+  if (!sync.state?.execution.syncActive || !target) return new Set();
+  return new Set(sync.areaLightIds[target] ?? []);
+};
+
+const isSyncLocked = (lightIds: string[]): boolean => {
+  const syncedIds = activeSyncedLightIds();
+  return lightIds.some((id) => syncedIds.has(id));
+};
 import { requestInspectorTransition } from "@/features/space-screen/utils/inspector-transition";
 
 /** Color attributes that can be pushed to an individual light. */
@@ -271,8 +284,7 @@ const drainLightColorWrites = async (): Promise<void> => {
       next.onError(error);
     }
 
-    const remainingGap =
-      LIGHT_COLOR_WRITE_GAP_MS - (Date.now() - dispatchedAt);
+    const remainingGap = LIGHT_COLOR_WRITE_GAP_MS - (Date.now() - dispatchedAt);
     if (remainingGap > 0) await wait(remainingGap);
   }
 
@@ -470,8 +482,7 @@ const patchSceneLocal = (
 ): void => {
   set((state) => ({
     scenes: state.scenes.map((candidate) =>
-      candidate.id === scene.id &&
-      candidate.resourceType === scene.resourceType
+      candidate.id === scene.id && candidate.resourceType === scene.resourceType
         ? {
             ...candidate,
             ...(patch.name != null ? { name: patch.name } : {}),
@@ -626,7 +637,11 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
 
   setSelectedLightId: (id) =>
     requestInspectorTransition(() =>
-      set({ selectedLightId: id, selectedSceneId: null, selectedGroupId: null }),
+      set({
+        selectedLightId: id,
+        selectedSceneId: null,
+        selectedGroupId: null,
+      }),
     ),
   toggleLightInspector: (id) =>
     requestInspectorTransition(() =>
@@ -643,7 +658,11 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
     ),
   setSelectedSceneId: (id) =>
     requestInspectorTransition(() =>
-      set({ selectedSceneId: id, selectedLightId: null, selectedGroupId: null }),
+      set({
+        selectedSceneId: id,
+        selectedLightId: null,
+        selectedGroupId: null,
+      }),
     ),
   toggleSceneInspector: (id) =>
     requestInspectorTransition(() =>
@@ -660,7 +679,11 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
     ),
   setSelectedGroupId: (id) =>
     requestInspectorTransition(() =>
-      set({ selectedGroupId: id, selectedLightId: null, selectedSceneId: null }),
+      set({
+        selectedGroupId: id,
+        selectedLightId: null,
+        selectedSceneId: null,
+      }),
     ),
   toggleGroupInspector: (id) =>
     requestInspectorTransition(() =>
@@ -812,16 +835,18 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
     const knownSceneKeys = new Set(
       get().scenes.map((scene) => `${scene.resourceType}:${scene.id}`),
     );
-    const shouldRefreshScenes = sceneChanges.length > 0 && sceneChanges.some((change) => {
-      const known = knownSceneKeys.has(`${change.type}:${change.id ?? ""}`);
-      return (
-        change.eventType === "update" ||
-        change.eventType === "add" ||
-        change.eventType === "delete" ||
-        !known ||
-        change.value == null
-      );
-    });
+    const shouldRefreshScenes =
+      sceneChanges.length > 0 &&
+      sceneChanges.some((change) => {
+        const known = knownSceneKeys.has(`${change.type}:${change.id ?? ""}`);
+        return (
+          change.eventType === "update" ||
+          change.eventType === "add" ||
+          change.eventType === "delete" ||
+          !known ||
+          change.value == null
+        );
+      });
 
     set((state) => {
       const lights = state.lights.map((light) => {
@@ -903,7 +928,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
                 (sum, light) => sum + (light.brightness ?? 0),
                 0,
               ) / onMembers.length
-          : roomZone.brightness,
+            : roomZone.brightness,
         };
       });
 
@@ -949,14 +974,21 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
                 ...scene,
                 ...(change?.value ? { status: change.value } : {}),
                 ...(change?.speed != null ? { speed: change.speed } : {}),
-                ...(liveDynamicSpeed != null ? { speed: liveDynamicSpeed } : {}),
+                ...(liveDynamicSpeed != null
+                  ? { speed: liveDynamicSpeed }
+                  : {}),
                 ...(change?.autoDynamic != null
                   ? { autoDynamic: change.autoDynamic }
                   : {}),
               };
             });
 
-      return { lights, roomZones, scenes, hueEventRevision: state.hueEventRevision + 1 };
+      return {
+        lights,
+        roomZones,
+        scenes,
+        hueEventRevision: state.hueEventRevision + 1,
+      };
     });
 
     if (shouldRefreshScenes) {
@@ -965,17 +997,37 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   },
 
   setRoomZoneState: (roomZone, nextOn, brightnessPct, phase = "final") => {
-    if (!roomZone.groupedLightId) return;
+    const syncedIds = activeSyncedLightIds();
+    const memberIds = new Set(
+      roomZone.lightIds.filter((id) => !syncedIds.has(id)),
+    );
+    if (memberIds.size === 0) return;
+    const hasSyncedMembers = memberIds.size < roomZone.lightIds.length;
+    const useGroupedLight =
+      !hasSyncedMembers && roomZone.groupedLightId != null;
+    const controllableMembers = get().lights.filter((light) =>
+      memberIds.has(light.id),
+    );
+    const onControllableMembers = controllableMembers.filter(
+      (light) => light.isOn,
+    );
+    const controllableAnyOn = onControllableMembers.length > 0;
+    const controllableBrightness =
+      onControllableMembers.length > 0
+        ? onControllableMembers.reduce(
+            (sum, light) => sum + (light.brightness ?? 0),
+            0,
+          ) / onControllableMembers.length
+        : null;
     const isToggle = brightnessPct === null;
     // Turning on sends a concrete brightness as well as `on`; some grouped
     // light states accept `on: true` but do not physically wake the members
     // until dimming is written. Turning off still sends only `on: false`.
     const sendBrightness = nextOn
       ? brightnessPct === null
-        ? restoreBrightness(roomZone.brightness)
+        ? restoreBrightness(controllableBrightness)
         : Math.max(1, brightnessPct)
       : null;
-    const memberIds = new Set(roomZone.lightIds);
     const transitionMs =
       phase === "live"
         ? LIVE_SLIDER_TRANSITION_MS
@@ -985,11 +1037,10 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
     // Only send `on` when it's actually changing: a brightness drag on an
     // already-on group should carry dimming alone (fewer ZigBee messages, and
     // it won't re-trigger an on-transition mid-drag).
-    const sendOn = !isToggle && roomZone.anyOn === nextOn ? null : nextOn;
+    const sendOn = !isToggle && controllableAnyOn === nextOn ? null : nextOn;
 
     // Optimistic brightness shown right away: on/drag uses the value we send;
     // off leaves the last useful level in place for the next restore.
-    const groupOptimisticBri = sendBrightness;
     const groupToggleLock = isToggle
       ? {
           durationMs: GROUP_TOGGLE_SETTLE_MS,
@@ -999,14 +1050,16 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
 
     // Guard the optimistic state from the echo flurry our own write triggers.
     // Switch-on carries brightness intentionally; switch-off only locks power.
-    lockResource(
-      roomZone.groupedLightId,
-      {
-        on: nextOn,
-        ...(sendBrightness !== null ? { brightness: sendBrightness } : {}),
-      },
-      groupToggleLock,
-    );
+    if (useGroupedLight) {
+      lockResource(
+        roomZone.groupedLightId!,
+        {
+          on: nextOn,
+          ...(sendBrightness !== null ? { brightness: sendBrightness } : {}),
+        },
+        groupToggleLock,
+      );
+    }
     for (const memberId of memberIds) {
       lockResource(
         memberId,
@@ -1018,18 +1071,8 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
       );
     }
 
-    set((state) => ({
-      roomZones: state.roomZones.map((g) =>
-        g.id === roomZone.id
-          ? {
-              ...g,
-              anyOn: nextOn,
-              allOn: nextOn ? g.allOn : false,
-              brightness: groupOptimisticBri ?? g.brightness,
-            }
-          : g,
-      ),
-      lights: state.lights.map((light) =>
+    set((state) => {
+      const lights = state.lights.map((light) =>
         memberIds.has(light.id)
           ? {
               ...light,
@@ -1040,28 +1083,72 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
                 light.brightness,
             }
           : light,
-      ),
-      // A toggle or a released drag is a discrete change the sliders should glide
-      // across; live drag frames stay un-bumped so the thumbs track 1:1.
-      hueEventRevision:
-        phase === "live"
-          ? state.hueEventRevision
-          : state.hueEventRevision + 1,
-    }));
+      );
+      const lightById = new Map(lights.map((light) => [light.id, light]));
+      const roomZones = state.roomZones.map((candidate) => {
+        if (candidate.id !== roomZone.id) return candidate;
+        const members = candidate.lightIds
+          .map((id) => lightById.get(id))
+          .filter((light): light is HueLight => light != null);
+        const onMembers = members.filter((light) => light.isOn);
+        return {
+          ...candidate,
+          anyOn: onMembers.length > 0,
+          allOn: members.length > 0 && onMembers.length === members.length,
+          brightness:
+            onMembers.length > 0
+              ? onMembers.reduce(
+                  (sum, light) => sum + (light.brightness ?? 0),
+                  0,
+                ) / onMembers.length
+              : candidate.brightness,
+        };
+      });
+      return {
+        roomZones,
+        lights,
+        hueEventRevision:
+          phase === "live"
+            ? state.hueEventRevision
+            : state.hueEventRevision + 1,
+      };
+    });
 
-    void invoke("set-grouped-light-state", {
-      id: roomZone.groupedLightId,
-      on: sendOn,
-      brightness: sendBrightness,
-      transitionMs,
-    }).catch((e) => {
-      clearResourceLocks([roomZone.groupedLightId, ...memberIds]);
+    // A mixed space requires one request per controllable light. Keep live
+    // dragging optimistic and send only the released value to avoid flooding
+    // the bridge with N writes per slider frame.
+    if (!useGroupedLight && phase === "live") return;
+
+    const write = useGroupedLight
+      ? invoke("set-grouped-light-state", {
+          id: roomZone.groupedLightId,
+          on: sendOn,
+          brightness: sendBrightness,
+          transitionMs,
+        })
+      : Promise.all(
+          [...memberIds].map((id) =>
+            invoke("set-light-state", {
+              id,
+              on: sendOn,
+              brightness: sendBrightness,
+              transitionMs,
+            }),
+          ),
+        );
+
+    void write.catch((e) => {
+      clearResourceLocks([
+        ...(useGroupedLight ? [roomZone.groupedLightId] : []),
+        ...memberIds,
+      ]);
       set({ error: String(e) || "Unable to update room or zone." });
       void get().loadAll();
     });
   },
 
   setLightState: (light, nextOn, brightnessPct, phase = "final") => {
+    if (isSyncLocked([light.id])) return;
     const isToggle = brightnessPct === null;
     // Turning on sends brightness too. That makes switch-on behave like the
     // slider path, which reliably wakes lights even after a grouped off command.
@@ -1100,9 +1187,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
       ),
       // Glide the slider across a toggle or a released drag; live frames snap.
       hueEventRevision:
-        phase === "live"
-          ? state.hueEventRevision
-          : state.hueEventRevision + 1,
+        phase === "live" ? state.hueEventRevision : state.hueEventRevision + 1,
     }));
 
     void invoke("set-light-state", {
@@ -1118,6 +1203,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   },
 
   setLightColor: (light, change) => {
+    if (isSyncLocked([light.id])) return;
     // Remember the wheel's vivid pre-clamp color so cards/tiles/the side-pane
     // icon show what the thumb showed rather than the duller clamped readback.
     if (change.xy && change.vividHex) {
@@ -1129,12 +1215,8 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
       light.id,
       {
         on: true,
-        ...(change.xy
-          ? { colorMode: "xy" as const, xy: change.xy }
-          : {}),
-        ...(change.ct
-          ? { colorMode: "ct" as const, mirek: change.ct }
-          : {}),
+        ...(change.xy ? { colorMode: "xy" as const, xy: change.xy } : {}),
+        ...(change.ct ? { colorMode: "ct" as const, mirek: change.ct } : {}),
         ...(change.effect
           ? { effect: change.effect, effectV2: change.effect }
           : {}),
@@ -1178,9 +1260,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
           light.id,
           {
             on: true,
-            ...(change.xy
-              ? { colorMode: "xy" as const, xy: change.xy }
-              : {}),
+            ...(change.xy ? { colorMode: "xy" as const, xy: change.xy } : {}),
             ...(change.ct
               ? { colorMode: "ct" as const, mirek: change.ct }
               : {}),
@@ -1283,7 +1363,12 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
     galleryPreviewSnapshot = null;
 
     const { lights, setLightColor, setLightState } = get();
-    restoreLightSnapshots(snapshot.lights, lights, setLightColor, setLightState);
+    restoreLightSnapshots(
+      snapshot.lights,
+      lights,
+      setLightColor,
+      setLightState,
+    );
   },
 
   setGallerySceneOnce: (roomZone, preset) => {
@@ -1294,8 +1379,32 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   },
 
   activateScene: async (scene, intent = "apply") => {
-    const actionByLightId = new Map(
+    const allActionsByLightId = new Map(
       scene.actions.map((action) => [action.targetId, action]),
+    );
+    const syncedIds = activeSyncedLightIds();
+    const fallbackTargetIds =
+      scene.group != null
+        ? (get().roomZones.find((roomZone) => roomZone.id === scene.group)
+            ?.lightIds ?? [])
+        : [];
+    const allTargetIds =
+      allActionsByLightId.size > 0
+        ? [...allActionsByLightId.keys()]
+        : fallbackTargetIds;
+    const syncedTargetCount = allTargetIds.filter((id) =>
+      syncedIds.has(id),
+    ).length;
+    const partialSync =
+      syncedTargetCount > 0 && syncedTargetCount < allTargetIds.length;
+    if (
+      (allTargetIds.length > 0 && syncedTargetCount === allTargetIds.length) ||
+      (partialSync && (intent === "dynamic" || scene.smart))
+    ) {
+      return;
+    }
+    const actionByLightId = new Map(
+      [...allActionsByLightId].filter(([id]) => !syncedIds.has(id)),
     );
     const targetIds = [...actionByLightId.keys()];
     const lockOptions = {
@@ -1405,7 +1514,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
     });
 
     const groupedLightIds =
-      targetIds.length === 0
+      partialSync || targetIds.length === 0
         ? []
         : get()
             .roomZones.filter((roomZone) =>
@@ -1436,13 +1545,47 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
     }
 
     try {
-      const command = sceneInvokeCommand(scene, intent);
-      await invoke(
-        command,
-        command === "deactivate-smart-scene"
-          ? { sceneId: scene.id }
-          : { sceneId: scene.id, transitionMs: SCENE_TRANSITION_MS },
-      );
+      if (partialSync) {
+        await Promise.all(
+          [...actionByLightId].map(async ([id, action]) => {
+            const impliesOn =
+              action.brightness != null ||
+              sceneActionHasColor(action) ||
+              action.effect != null ||
+              action.effectV2 != null;
+            if (
+              action.xy != null ||
+              action.mirek != null ||
+              action.effect != null ||
+              action.effectV2 != null
+            ) {
+              await invoke("set-light-color", {
+                id,
+                xy: action.xy,
+                ct: action.mirek,
+                effect: action.effectV2 ?? action.effect,
+                transitionMs: SCENE_TRANSITION_MS,
+              });
+            }
+            if (action.on != null || impliesOn) {
+              await invoke("set-light-state", {
+                id,
+                on: action.on ?? true,
+                brightness: action.brightness,
+                transitionMs: SCENE_TRANSITION_MS,
+              });
+            }
+          }),
+        );
+      } else {
+        const command = sceneInvokeCommand(scene, intent);
+        await invoke(
+          command,
+          command === "deactivate-smart-scene"
+            ? { sceneId: scene.id }
+            : { sceneId: scene.id, transitionMs: SCENE_TRANSITION_MS },
+        );
+      }
     } catch (e) {
       clearResourceLocks([...targetIds, ...groupedLightIds]);
       set({ error: String(e) || "Unable to activate scene." });
@@ -1451,11 +1594,14 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   },
 
   setDynamicSpeedLive: (scene, step) => {
-    const speed = hueDynamicSpeedStepToValue(step);
     const roomZone =
       scene.group != null
         ? get().roomZones.find((candidate) => candidate.id === scene.group)
         : undefined;
+    const targetIds =
+      roomZone?.lightIds ?? scene.actions.map((action) => action.targetId);
+    if (isSyncLocked(targetIds)) return;
+    const speed = hueDynamicSpeedStepToValue(step);
     const brightness =
       roomZone?.anyOn === true && roomZone.brightness != null
         ? Math.max(1, Math.round(roomZone.brightness))
@@ -1548,8 +1694,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
           candidate.id !== scene.id ||
           candidate.resourceType !== scene.resourceType,
       ),
-      selectedSceneId:
-        selectedSceneId === scene.id ? null : selectedSceneId,
+      selectedSceneId: selectedSceneId === scene.id ? null : selectedSceneId,
       error: null,
     }));
     try {

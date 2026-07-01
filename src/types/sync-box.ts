@@ -26,7 +26,7 @@ export interface SyncBoxSession {
   error: string | null;
 }
 
-export type SyncBoxMode = "video" | "game" | "music" | "ambient";
+export type SyncBoxMode = "video" | "game" | "music";
 export type SyncBoxIntensity = "subtle" | "moderate" | "high" | "intense";
 export type SyncBoxHdmiSource = "input1" | "input2" | "input3" | "input4";
 

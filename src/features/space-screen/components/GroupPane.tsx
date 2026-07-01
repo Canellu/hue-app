@@ -69,9 +69,7 @@ export const GroupPane: React.FC<GroupPaneProps> = ({
   }, [colorLights.length, ctLights.length]);
 
   const [tab, setTab] = useState<Tab>("color");
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [focusedId, setFocusedId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -87,7 +85,15 @@ export const GroupPane: React.FC<GroupPaneProps> = ({
     }
   }, [availableTabs, tab]);
 
-  const brightnessPct = Math.round(roomZone.brightness ?? 0);
+  const onLights = lights.filter((light) => light.isOn);
+  const anyOn = onLights.length > 0;
+  const brightnessPct =
+    onLights.length > 0
+      ? Math.round(
+          onLights.reduce((sum, light) => sum + (light.brightness ?? 0), 0) /
+            onLights.length,
+        )
+      : 0;
   const Icon = getRoomZoneIcon(roomZone.class);
   const tile = roomZoneTileColor(lights);
   const previewStyle =
@@ -118,10 +124,10 @@ export const GroupPane: React.FC<GroupPaneProps> = ({
 
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">
-          {roomZone.anyOn ? "On" : "Off"}
+          {anyOn ? "On" : "Off"}
         </span>
         <Switch
-          checked={roomZone.anyOn}
+          checked={anyOn}
           disabled={!roomZone.groupedLightId}
           aria-label={`Toggle ${roomZone.name}`}
           onCheckedChange={(checked) => onToggle(roomZone, checked)}
@@ -138,7 +144,7 @@ export const GroupPane: React.FC<GroupPaneProps> = ({
           </span>
         </div>
         <PacedSlider
-          value={roomZone.anyOn ? Math.max(1, brightnessPct) : 1}
+          value={anyOn ? Math.max(1, brightnessPct) : 1}
           min={1}
           disabled={!roomZone.groupedLightId}
           ariaLabel={`${roomZone.name} brightness`}

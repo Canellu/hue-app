@@ -35,10 +35,11 @@ import {
   type LightColorChange,
   useHueResourcesStore,
 } from "@/stores/HueResourcesStore";
+import { useSyncBoxStore } from "@/stores/SyncBoxStore";
 import type { HueLight, HueRoomZone } from "@/types/hue";
 import { useNavigate } from "@tanstack/react-router";
 import { invoke } from "@tauri-apps/api/core";
-import { Lightbulb, Loader2, Pencil, Sparkles } from "lucide-react";
+import { Lightbulb, Loader2, Pencil, Radio, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ColorWheel } from "./ColorWheel";
 import { RemoveResourceSection } from "./RemoveResourceSection";
@@ -109,6 +110,14 @@ export const LightPane: React.FC<LightPaneProps> = ({
   onLightBrightness,
   onLightColor,
 }) => {
+  const syncLocked = useSyncBoxStore((store) => {
+    const target = store.state?.execution.hueTarget;
+    return Boolean(
+      store.state?.execution.syncActive &&
+      target &&
+      store.areaLightIds[target]?.includes(light.id),
+    );
+  });
   const hasEffects = useMemo(
     () =>
       [...(light.effectsV2 ?? []), ...(light.effects ?? [])].some(
@@ -146,7 +155,7 @@ export const LightPane: React.FC<LightPaneProps> = ({
   const ctMax = light.ctMax ?? 500;
   const ct = light.ct ?? Math.round((ctMin + ctMax) / 2);
   const DeviceIcon = getLightIcon(light.typeName);
-  const color = light.isOn ? lightColorHex(light) : null;
+  const color = light.isOn && !syncLocked ? lightColorHex(light) : null;
   const previewStyle =
     color != null ? activeTileTheme(color, color, brightnessPct) : undefined;
 
@@ -167,13 +176,27 @@ export const LightPane: React.FC<LightPaneProps> = ({
         </h2>
       </div>
 
+      {syncLocked && (
+        <div className="flex items-start gap-3 rounded-2xl border border-primary/20 bg-primary/8 px-4 py-3">
+          <Radio className="mt-0.5 size-4 shrink-0 text-primary" />
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-foreground">
+              Controlled by Sync Box
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Live controls are available again when sync stops.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <span className="text-sm text-muted-foreground">
-          {light.isOn ? "On" : "Off"}
+          {syncLocked ? "Syncing" : light.isOn ? "On" : "Off"}
         </span>
         <Switch
           checked={light.isOn}
-          disabled={!light.reachable}
+          disabled={!light.reachable || syncLocked}
           aria-label={`Toggle ${light.name}`}
           onCheckedChange={(checked) => onLightToggle(light, checked)}
         />
@@ -185,13 +208,13 @@ export const LightPane: React.FC<LightPaneProps> = ({
             Brightness
           </p>
           <span className="text-xs text-muted-foreground tabular-nums">
-            {brightnessPct}%
+            {syncLocked ? "—" : `${brightnessPct}%`}
           </span>
         </div>
         <PacedSlider
           value={Math.max(1, brightnessPct)}
           min={1}
-          disabled={!light.reachable}
+          disabled={!light.reachable || syncLocked}
           ariaLabel={`${light.name} brightness`}
           isGroup={false}
           animateKey={hueEventRevision}
@@ -200,62 +223,69 @@ export const LightPane: React.FC<LightPaneProps> = ({
       </div>
 
       {availableTabs.length > 0 && (
-        <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)}>
-          {availableTabs.length > 1 && (
-            <TabsList className="w-full">
-              {availableTabs.map((id) => (
-                <TabsTrigger key={id} value={id}>
-                  {TAB_LABELS[id]}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          )}
-
-          {light.supportsColor && (
-            <TabsContent value="color" className="flex w-full p-8">
-              <ColorWheel
-                xy={light.xy}
-                gamut={light.gamut}
-                onPick={(xy, vividHex) =>
-                  onLightColor(light, { xy, vividHex })
-                }
-              />
-            </TabsContent>
-          )}
-
-          {light.supportsCt && (
-            <TabsContent value="kelvin" className="flex w-full p-8">
-              <TemperatureWheel
-                value={ct}
-                min={ctMin}
-                max={ctMax}
-                onPick={(value) => onLightColor(light, { ct: value })}
-              />
-            </TabsContent>
-          )}
-
-          {hasEffects && (
-            <TabsContent value="effects" className="py-4">
-              <div className="grid grid-cols-2 gap-2">
-                {effectOptions.map((effect) => (
-                  <Button
-                    key={effect}
-                    variant={
-                      light.effect === effect || light.effectV2 === effect
-                        ? "default"
-                        : "outline"
-                    }
-                    className="justify-start gap-2"
-                    onClick={() => onLightColor(light, { effect })}
-                  >
-                    <Sparkles size={16} />
-                    {effectLabel(effect)}
-                  </Button>
+        <div
+          inert={syncLocked}
+          aria-disabled={syncLocked || undefined}
+          className={cn(syncLocked && "opacity-45")}
+        >
+          <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)}>
+            {availableTabs.length > 1 && (
+              <TabsList className="w-full">
+                {availableTabs.map((id) => (
+                  <TabsTrigger key={id} value={id}>
+                    {TAB_LABELS[id]}
+                  </TabsTrigger>
                 ))}
-              </div>
-            </TabsContent>
-          )}
-        </Tabs>
+              </TabsList>
+            )}
+
+            {light.supportsColor && (
+              <TabsContent value="color" className="flex w-full p-8">
+                <ColorWheel
+                  xy={light.xy}
+                  gamut={light.gamut}
+                  onPick={(xy, vividHex) =>
+                    onLightColor(light, { xy, vividHex })
+                  }
+                />
+              </TabsContent>
+            )}
+
+            {light.supportsCt && (
+              <TabsContent value="kelvin" className="flex w-full p-8">
+                <TemperatureWheel
+                  value={ct}
+                  min={ctMin}
+                  max={ctMax}
+                  onPick={(value) => onLightColor(light, { ct: value })}
+                />
+              </TabsContent>
+            )}
+
+            {hasEffects && (
+              <TabsContent value="effects" className="py-4">
+                <div className="grid grid-cols-2 gap-2">
+                  {effectOptions.map((effect) => (
+                    <Button
+                      key={effect}
+                      disabled={syncLocked}
+                      variant={
+                        light.effect === effect || light.effectV2 === effect
+                          ? "default"
+                          : "outline"
+                      }
+                      className="justify-start gap-2"
+                      onClick={() => onLightColor(light, { effect })}
+                    >
+                      <Sparkles size={16} />
+                      {effectLabel(effect)}
+                    </Button>
+                  ))}
+                </div>
+              </TabsContent>
+            )}
+          </Tabs>
+        </div>
       )}
     </div>
   );
@@ -305,7 +335,9 @@ const EditPane: React.FC<{
   active: boolean;
   onClosePane: () => void;
   onExitEdit: () => void;
-  guardRef: React.MutableRefObject<import("./SidePane").SidePaneEditGuard | null>;
+  guardRef: React.MutableRefObject<
+    import("./SidePane").SidePaneEditGuard | null
+  >;
 }> = ({ light, space, active, onClosePane, onExitEdit, guardRef }) => {
   const navigate = useNavigate();
   const roomZones = useHueResourcesStore((state) => state.roomZones);
@@ -831,5 +863,4 @@ const labelFromHueId = (id: string): string =>
   id.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 
 const sameIds = (left: string[], right: string[]): boolean =>
-  left.length === right.length &&
-  left.every((id) => right.includes(id));
+  left.length === right.length && left.every((id) => right.includes(id));

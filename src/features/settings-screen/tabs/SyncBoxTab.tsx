@@ -84,6 +84,12 @@ export const SyncBoxTab = ({
             }
           />
         </div>
+        <div className="mt-5 flex justify-end border-t border-border pt-5">
+          <Button className="gap-2" onClick={onSetUp}>
+            <Tv size={16} />
+            Open Sync Box controls
+          </Button>
+        </div>
       </Panel>
 
       <Panel title="Danger zone" contentClassName="bg-(--destructive-surface)">

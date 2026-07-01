@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui/card";
+import { SyncIndicator } from "@/components/SyncIndicator";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { PacedSlider } from "@/components/PacedSlider";
@@ -12,6 +13,7 @@ import { UI_EASE_MS } from "@/lib/transitions";
 import { lightColorHex } from "@/features/space-screen/utils/color-state";
 import { getLightIcon } from "@/features/space-screen/utils/light-icons";
 import type { HueLight } from "@/types/hue";
+import { useSyncBoxStore } from "@/stores/SyncBoxStore";
 
 type ControlCommitPhase = "live" | "final";
 
@@ -39,10 +41,18 @@ export const LightCard: React.FC<LightCardProps> = ({
   onToggle,
   onBrightness,
 }) => {
+  const syncLocked = useSyncBoxStore((store) => {
+    const target = store.state?.execution.hueTarget;
+    return Boolean(
+      store.state?.execution.syncActive &&
+      target &&
+      store.areaLightIds[target]?.includes(light.id),
+    );
+  });
   const pct = Math.round(light.brightness ?? 0);
   // When the light is on, tint the whole card with its live color (mirrors the
   // Home room/zone tiles); off or color-less lights stay on the muted surface.
-  const color = light.isOn ? lightColorHex(light) : null;
+  const color = light.isOn && !syncLocked ? lightColorHex(light) : null;
   const active = color != null;
   const unreachable = !light.reachable;
   const DeviceIcon = getLightIcon(light.typeName);
@@ -83,48 +93,69 @@ export const LightCard: React.FC<LightCardProps> = ({
       <div className="flex items-center gap-4 px-(--card-spacing)">
         <span
           className={cn(
-            "flex size-12 shrink-0 items-center justify-center",
+            "relative flex size-12 shrink-0 items-center justify-center",
             active ? "text-foreground" : "text-muted-foreground",
           )}
         >
           <DeviceIcon size={26} strokeWidth={2.5} />
+          {syncLocked && (
+            <SyncIndicator
+              syncedCount={1}
+              totalCount={1}
+              className="absolute -top-1 -right-1"
+            />
+          )}
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-base font-medium" title={light.name}>
             {light.name}
           </p>
         </div>
-        <div onClick={(e) => !editing && e.stopPropagation()}>
-          <Switch
-            size="xl"
-            className={TILE_POWER_SWITCH_CLASS}
-            checked={light.isOn}
-            disabled={unreachable || editing}
-            aria-label={`Toggle ${light.name}`}
-            onCheckedChange={(checked) => onToggle(light, checked)}
-          />
-        </div>
+        {syncLocked ? (
+          <span aria-hidden="true" />
+        ) : (
+          <div onClick={(e) => !editing && e.stopPropagation()}>
+            <Switch
+              size="xl"
+              className={TILE_POWER_SWITCH_CLASS}
+              checked={light.isOn}
+              disabled={unreachable || editing}
+              aria-label={`Toggle ${light.name}`}
+              onCheckedChange={(checked) => onToggle(light, checked)}
+            />
+          </div>
+        )}
       </div>
 
-      <div
-        className="px-(--card-spacing)"
-        onClick={(e) => !editing && e.stopPropagation()}
-      >
-        <PacedSlider
-          value={light.isOn ? Math.max(1, pct) : 1}
-          min={1}
-          disabled={unreachable || editing}
-          ariaLabel={`${light.name} brightness`}
-          className={cn(
-            TILE_BRIGHTNESS_SLIDER_CLASS,
-            !light.isOn && "tile-brightness-slider-off",
-          )}
-          size="default"
-          isGroup={false}
-          animateKey={hueEventRevision}
-          onCommit={(value, phase) => onBrightness(light, value, phase)}
-        />
-      </div>
+      {syncLocked ? (
+        <div className="px-(--card-spacing)">
+          <div className="flex h-4 items-center gap-2" aria-hidden="true">
+            <span className="h-1 flex-1 overflow-hidden rounded-full bg-primary/15">
+              <span className="block h-full w-full animate-pulse bg-primary/40" />
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div
+          className="px-(--card-spacing)"
+          onClick={(e) => !editing && e.stopPropagation()}
+        >
+          <PacedSlider
+            value={light.isOn ? Math.max(1, pct) : 1}
+            min={1}
+            disabled={unreachable || editing}
+            ariaLabel={`${light.name} brightness`}
+            className={cn(
+              TILE_BRIGHTNESS_SLIDER_CLASS,
+              !light.isOn && "tile-brightness-slider-off",
+            )}
+            size="default"
+            isGroup={false}
+            animateKey={hueEventRevision}
+            onCommit={(value, phase) => onBrightness(light, value, phase)}
+          />
+        </div>
+      )}
     </Card>
   );
 };

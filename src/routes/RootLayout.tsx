@@ -1,4 +1,5 @@
 import { AppHeader } from "@/components/AppHeader";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
 import { GroupPane } from "@/features/space-screen/components/GroupPane";
@@ -10,10 +11,14 @@ import {
   useHueResourcesStore,
 } from "@/stores/HueResourcesStore";
 import type { HueLight, HueRoomZone, HueScene } from "@/types/hue";
+import { useSyncBoxStore } from "@/stores/SyncBoxStore";
 import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { SyncBoxSession } from "@/types/sync-box";
+import { Loader2, Tv } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 
 /** Whichever resource the inspector is currently showing. */
@@ -21,6 +26,8 @@ type InspectorContent =
   | { kind: "light"; id: string; light: HueLight }
   | { kind: "scene"; id: string; scene: HueScene }
   | { kind: "group"; id: string; roomZone: HueRoomZone; lights: HueLight[] };
+
+const EMPTY_SYNCED_LIGHT_IDS: string[] = [];
 
 const getInspectorPaneWidth = () => {
   const rootFontSize = Number.parseFloat(
@@ -67,6 +74,13 @@ const LightInspector: React.FC = () => {
       setRoomZoneState: state.setRoomZoneState,
     })),
   );
+  const syncedLightIds = useSyncBoxStore((state) => {
+    const target = state.state?.execution.hueTarget;
+    if (!state.state?.execution.syncActive || !target) {
+      return EMPTY_SYNCED_LIGHT_IDS;
+    }
+    return state.areaLightIds[target] ?? EMPTY_SYNCED_LIGHT_IDS;
+  });
 
   // The inspector only opens from inside a space, so resolve which room/zone is
   // on screen — the light pane removes a light from *this* space specifically.
@@ -88,8 +102,9 @@ const LightInspector: React.FC = () => {
       const roomZone = roomZones.find((r) => r.id === selectedGroupId);
       if (!roomZone) return null;
       const ids = new Set(roomZone.lightIds);
+      const syncedIds = new Set(syncedLightIds);
       const members = lights
-        .filter((light) => ids.has(light.id))
+        .filter((light) => ids.has(light.id) && !syncedIds.has(light.id))
         .sort((a, b) => a.name.localeCompare(b.name));
       return { kind: "group", id: roomZone.id, roomZone, lights: members };
     }
@@ -105,6 +120,7 @@ const LightInspector: React.FC = () => {
     lights,
     scenes,
     roomZones,
+    syncedLightIds,
   ]);
 
   const open = inspectorPaneOpen;
@@ -242,6 +258,7 @@ const ShellHeader: React.FC = () => {
   );
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const syncBoxState = useSyncBoxStore((state) => state.state);
 
   useEffect(() => {
     const update = (event: Event) =>
@@ -271,28 +288,38 @@ const ShellHeader: React.FC = () => {
   const onWidgetWizard = pathname === "/settings/widget-wizard";
   const onSpacesWizard = pathname === "/settings/spaces-wizard";
   const onSync = pathname === "/sync";
+  const activeSyncAreaId = pathname.startsWith("/sync/")
+    ? decodeURIComponent(pathname.slice("/sync/".length))
+    : null;
+  const activeSyncArea = activeSyncAreaId
+    ? syncBoxState?.hue.groups[activeSyncAreaId]
+    : null;
   const title = onDeviceDiscovery
     ? "Add devices"
     : onWidgetWizard
       ? "Create widget"
       : onSpacesWizard
         ? "Create room or zone"
-        : onSync
-          ? "Sync"
-          : pathname === "/settings"
-            ? "Settings"
-            : activeSpace?.name;
+        : activeSyncArea
+          ? activeSyncArea.name
+          : onSync
+            ? "Sync"
+            : pathname === "/settings"
+              ? "Settings"
+              : activeSpace?.name;
   const description = onDeviceDiscovery
     ? "Discover and place Hue devices"
     : onWidgetWizard
       ? "Build a pinned desktop widget"
       : onSpacesWizard
         ? "Group your devices and lights"
-        : onSync
-          ? "Philips Hue HDMI Sync Box"
-          : pathname === "/settings"
-            ? "Bridge & app preferences"
-            : undefined;
+        : activeSyncArea
+          ? "Entertainment area"
+          : onSync
+            ? "Philips Hue HDMI Sync Box"
+            : pathname === "/settings"
+              ? "Bridge & app preferences"
+              : undefined;
   return (
     <AppHeader
       onBack={
@@ -301,11 +328,13 @@ const ShellHeader: React.FC = () => {
           : () =>
               void (onDeviceDiscovery
                 ? navigate({ to: "/settings", search: { tab: "devices" } })
-                : onWidgetWizard
-                  ? navigate({ to: "/settings", search: { tab: "widget" } })
-                  : onSpacesWizard
-                    ? navigate({ to: "/settings", search: { tab: "spaces" } })
-                    : navigate({ to: "/" }))
+                : activeSyncArea
+                  ? navigate({ to: "/sync" })
+                  : onWidgetWizard
+                    ? navigate({ to: "/settings", search: { tab: "widget" } })
+                    : onSpacesWizard
+                      ? navigate({ to: "/settings", search: { tab: "spaces" } })
+                      : navigate({ to: "/" }))
       }
       title={title}
       description={description}
@@ -372,6 +401,45 @@ export const RootLayout: React.FC = () => {
   const inspectorPaneOpen = useHueResourcesStore(
     (state) => state.inspectorPaneOpen,
   );
+  const roomZones = useHueResourcesStore((state) => state.roomZones);
+  const syncState = useSyncBoxStore((state) => state.state);
+  const activeSyncedLightIds = useSyncBoxStore((state) => {
+    const target = state.state?.execution.hueTarget;
+    if (!state.state?.execution.syncActive || !target) {
+      return EMPTY_SYNCED_LIGHT_IDS;
+    }
+    return state.areaLightIds[target] ?? EMPTY_SYNCED_LIGHT_IDS;
+  });
+  const syncUpdating = useSyncBoxStore((state) => state.isUpdating);
+  const refreshSync = useSyncBoxStore((state) => state.refresh);
+  const loadAreaLights = useSyncBoxStore((state) => state.loadAreaLights);
+  const updateSync = useSyncBoxStore((state) => state.updateExecution);
+  const activeSyncArea = syncState?.execution.hueTarget
+    ? syncState.hue.groups[syncState.execution.hueTarget]
+    : null;
+  const activeSpace = pathname.startsWith("/space/")
+    ? roomZones.find(
+        (roomZone) =>
+          roomZone.id === decodeURIComponent(pathname.slice("/space/".length)),
+      )
+    : null;
+  const activeSpaceSyncedLightCount = activeSpace
+    ? activeSpace.lightIds.filter((id) => activeSyncedLightIds.includes(id))
+        .length
+    : 0;
+  const showSyncBanner = pathname === "/" || activeSpaceSyncedLightCount > 0;
+
+  useEffect(() => {
+    let interval: number | undefined;
+    void invoke<SyncBoxSession>("get-sync-box-session").then((session) => {
+      if (!session.configured) return;
+      void refreshSync().then(loadAreaLights);
+      interval = window.setInterval(() => void refreshSync(), 1500);
+    });
+    return () => {
+      if (interval) window.clearInterval(interval);
+    };
+  }, [loadAreaLights, refreshSync]);
 
   // The viewport is a single persistent element across route changes, so its
   // scroll offset would otherwise carry over to the next page. Reset to the top
@@ -404,15 +472,39 @@ export const RootLayout: React.FC = () => {
       <HueResourcesStoreEffects />
       <div className="flex h-full flex-col">
         <ShellHeader />
+        {showSyncBanner &&
+          syncState?.execution.syncActive &&
+          activeSyncArea && (
+            <div className="mx-12 mb-2 flex items-center gap-4 rounded-2xl border border-primary/25 bg-primary/10 px-5 py-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/15 text-primary">
+                <Tv size={21} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="font-medium">Light sync is active</p>
+                <p className="truncate text-sm text-muted-foreground">
+                  {activeSpace && activeSpaceSyncedLightCount > 0
+                    ? `${activeSpaceSyncedLightCount} ${activeSpaceSyncedLightCount === 1 ? "light" : "lights"} in ${activeSpace.name} ${activeSpaceSyncedLightCount === 1 ? "is" : "are"} controlled by the Sync Box.`
+                    : `${activeSyncArea.name} is controlled by the Sync Box.`}{" "}
+                  Stop sync to control those lights normally.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                disabled={syncUpdating}
+                onClick={() => void updateSync({ syncActive: false })}
+              >
+                {syncUpdating && <Loader2 className="animate-spin" />}
+                Stop sync
+              </Button>
+            </div>
+          )}
         <div className="flex min-h-0 flex-1">
           <ScrollArea
             fade
             hideScrollbar
             viewportRef={viewportRef}
             viewportProps={
-              routeOwnsScroll
-                ? { style: { overflowY: "hidden" } }
-                : undefined
+              routeOwnsScroll ? { style: { overflowY: "hidden" } } : undefined
             }
             className="min-h-0 min-w-0 flex-1"
             viewportClassName={cn(

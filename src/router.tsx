@@ -11,6 +11,7 @@ import { RootLayout } from "./routes/RootLayout";
 import { SettingsRoute } from "./routes/SettingsRoute";
 import { SpaceRoute } from "./routes/SpaceRoute";
 import { SyncBoxRoute } from "./routes/SyncBoxRoute";
+import { SyncBoxAreaRoute } from "./routes/SyncBoxAreaRoute";
 import { WidgetWizardRoute } from "./routes/WidgetWizardRoute";
 
 // The desktop shell has no addressable URL bar, so an in-memory history keeps
@@ -68,6 +69,12 @@ const syncBoxRoute = createRoute({
   component: SyncBoxRoute,
 });
 
+const syncBoxAreaRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/sync/$areaId",
+  component: SyncBoxAreaRoute,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   spaceRoute,
@@ -76,6 +83,7 @@ const routeTree = rootRoute.addChildren([
   widgetWizardRoute,
   roomZoneWizardRoute,
   syncBoxRoute,
+  syncBoxAreaRoute,
 ]);
 
 export const router = createRouter({

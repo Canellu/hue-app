@@ -2,6 +2,7 @@ import { ChevronsUpDown } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { PacedSlider } from "@/components/PacedSlider";
+import { SyncIndicator } from "@/components/SyncIndicator";
 import { Card } from "@/components/ui/card";
 import {
   Collapsible,
@@ -32,6 +33,7 @@ type ControlCommitPhase = "live" | "final";
 interface GroupControlsProps {
   roomZone: HueRoomZone;
   lights: HueLight[];
+  syncedLightIds: string[];
   /** The dynamic scene currently animating in this space, if any. */
   playingScene: HueScene | null;
   hueEventRevision: number;
@@ -58,6 +60,7 @@ interface GroupControlsProps {
 export const GroupControls: React.FC<GroupControlsProps> = ({
   roomZone,
   lights,
+  syncedLightIds,
   playingScene,
   hueEventRevision,
   editing = false,
@@ -69,8 +72,26 @@ export const GroupControls: React.FC<GroupControlsProps> = ({
     (state) => state.setDynamicSpeedLive,
   );
   const [open, setOpen] = useState(false);
-  const brightnessPct = roomZone.brightness ?? 0;
-  const tile = roomZoneTileColor(lights);
+  const syncedIds = new Set(syncedLightIds);
+  const syncedLightCount = lights.filter((light) =>
+    syncedIds.has(light.id),
+  ).length;
+  const fullSync = syncedLightCount > 0 && syncedLightCount === lights.length;
+  const partialSync = syncedLightCount > 0 && !fullSync;
+  const controllableLights = lights.filter((light) => !syncedIds.has(light.id));
+  const onControllableLights = controllableLights.filter((light) => light.isOn);
+  const anyOn = onControllableLights.length > 0;
+  const brightnessPct =
+    onControllableLights.length > 0
+      ? onControllableLights.reduce(
+          (sum, light) => sum + (light.brightness ?? 0),
+          0,
+        ) / onControllableLights.length
+      : 0;
+  const tile = fullSync
+    ? { active: false, background: null, glow: null }
+    : roomZoneTileColor(controllableLights);
+  const controlsDisabled = editing || fullSync;
 
   return (
     <Collapsible open={open && !editing} onOpenChange={setOpen}>
@@ -96,13 +117,14 @@ export const GroupControls: React.FC<GroupControlsProps> = ({
           // collapsible panel sits flush and isn't a gap-spaced sibling — a
           // sibling gap is static layout that snaps when the panel hides.
           role="button"
-          tabIndex={editing ? -1 : 0}
+          tabIndex={controlsDisabled ? -1 : 0}
           aria-label={`Adjust ${roomZone.name} lights`}
+          aria-disabled={fullSync || undefined}
           onClick={() => {
-            if (!editing) onOpen(roomZone);
+            if (!controlsDisabled) onOpen(roomZone);
           }}
           onKeyDown={(e) => {
-            if (editing) return;
+            if (controlsDisabled) return;
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
               onOpen(roomZone);
@@ -112,7 +134,7 @@ export const GroupControls: React.FC<GroupControlsProps> = ({
             "gap-0 border border-tile-border bg-tile-off outline-none focus-visible:ring-2 focus-visible:ring-ring",
             TILE_INTERACTION_TRANSITION_CLASS,
             tile.active && "ring-transparent",
-            editing ? "cursor-default" : "cursor-pointer",
+            controlsDisabled ? "cursor-default" : "cursor-pointer",
           )}
           style={
             {
@@ -139,36 +161,51 @@ export const GroupControls: React.FC<GroupControlsProps> = ({
               >
                 Brightness
               </span>
-              <div className="flex items-center">
-                <div onClick={(e) => !editing && e.stopPropagation()}>
-                  <Switch
-                    size="xl"
-                    className={TILE_POWER_SWITCH_CLASS}
-                    checked={roomZone.anyOn}
-                    disabled={editing}
-                    aria-label={`Toggle ${roomZone.name}`}
-                    onCheckedChange={(checked) => onToggle(roomZone, checked)}
+              <div className="flex items-center gap-3">
+                {syncedLightCount > 0 && (
+                  <SyncIndicator
+                    syncedCount={syncedLightCount}
+                    totalCount={lights.length}
+                    showCount={partialSync}
                   />
-                </div>
+                )}
+                {!fullSync && (
+                  <div onClick={(e) => !editing && e.stopPropagation()}>
+                    <Switch
+                      size="xl"
+                      className={TILE_POWER_SWITCH_CLASS}
+                      checked={anyOn}
+                      disabled={controlsDisabled}
+                      aria-label={`Toggle ${roomZone.name}`}
+                      onCheckedChange={(checked) => onToggle(roomZone, checked)}
+                    />
+                  </div>
+                )}
               </div>
             </div>
             <div
               className="px-6"
               onClick={(e) => !editing && e.stopPropagation()}
             >
-              <PacedSlider
-                value={roomZone.anyOn ? Math.max(1, brightnessPct) : 1}
-                min={1}
-                disabled={editing}
-                ariaLabel={`${roomZone.name} brightness`}
-                className={cn(
-                  TILE_BRIGHTNESS_SLIDER_CLASS,
-                  !roomZone.anyOn && "tile-brightness-slider-off",
-                )}
-                isGroup
-                animateKey={hueEventRevision}
-                onCommit={(pct, phase) => onBrightness(roomZone, pct, phase)}
-              />
+              {fullSync ? (
+                <span className="block h-1 overflow-hidden rounded-full bg-primary/15">
+                  <span className="block h-full w-full animate-pulse bg-primary/40" />
+                </span>
+              ) : (
+                <PacedSlider
+                  value={anyOn ? Math.max(1, brightnessPct) : 1}
+                  min={1}
+                  disabled={controlsDisabled}
+                  ariaLabel={`${roomZone.name} brightness`}
+                  className={cn(
+                    TILE_BRIGHTNESS_SLIDER_CLASS,
+                    !anyOn && "tile-brightness-slider-off",
+                  )}
+                  isGroup
+                  animateKey={hueEventRevision}
+                  onCommit={(pct, phase) => onBrightness(roomZone, pct, phase)}
+                />
+              )}
             </div>
           </div>
           {/*
@@ -181,6 +218,7 @@ export const GroupControls: React.FC<GroupControlsProps> = ({
             <DynamicSpeedControl
               scene={playingScene}
               active={tile.active}
+              syncLocked={syncedLightCount > 0}
               onSpeedLive={setDynamicSpeedLive}
             />
           </CollapsibleContent>
@@ -200,9 +238,10 @@ export const GroupControls: React.FC<GroupControlsProps> = ({
 const DynamicSpeedControl: React.FC<{
   scene: HueScene | null;
   active: boolean;
+  syncLocked: boolean;
   onSpeedLive: (scene: HueScene, step: number) => void;
-}> = ({ scene, active, onSpeedLive }) => {
-  const disabled = scene == null;
+}> = ({ scene, active, syncLocked, onSpeedLive }) => {
+  const disabled = scene == null || syncLocked;
   const [step, setStep] = useState(() =>
     hueDynamicSpeedValueToStep(scene?.speed),
   );

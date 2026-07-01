@@ -2799,6 +2799,8 @@ fn ensure_supported_resource_type(resource_type: &str) -> Result<(), String> {
         | "tamper"
         | "device_power"
         | "zigbee_connectivity"
+        | "entertainment"
+        | "entertainment_configuration"
         | "switch_input_configuration"
         | "device_discovery" => Ok(()),
         _ => Err(format!(

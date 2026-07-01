@@ -100,6 +100,8 @@ function useColumnCount(ref: React.RefObject<HTMLDivElement | null>): number {
 interface ScenesSectionProps {
   roomZoneName: string;
   scenes: HueScene[];
+  syncedLightCount: number;
+  totalLightCount: number;
   activeSceneId: string | null;
   /** Reorder mode: scene tiles become sortable within the carousel. */
   editing: boolean;
@@ -121,6 +123,8 @@ interface ScenesSectionProps {
 export const ScenesSection: React.FC<ScenesSectionProps> = ({
   roomZoneName,
   scenes,
+  syncedLightCount,
+  totalLightCount,
   activeSceneId,
   editing,
   reordering,
@@ -150,6 +154,14 @@ export const ScenesSection: React.FC<ScenesSectionProps> = ({
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
   );
+  const fullSync = syncedLightCount > 0 && syncedLightCount === totalLightCount;
+  const partialSync = syncedLightCount > 0 && !fullSync;
+
+  useEffect(() => {
+    if (!fullSync || !sceneGalleryOpen) return;
+    onGalleryScenePreviewEnd();
+    setSceneGalleryOpen(false);
+  }, [fullSync, onGalleryScenePreviewEnd, sceneGalleryOpen]);
 
   const sceneById = new Map(scenes.map((scene) => [scene.id, scene]));
   const validIds = new Set([...sceneById.keys(), GALLERY_TILE_ID]);
@@ -359,6 +371,7 @@ export const ScenesSection: React.FC<ScenesSectionProps> = ({
                         {tile.id === GALLERY_TILE_ID ? (
                           <SceneGalleryCard
                             editing={editing}
+                            disabled={fullSync}
                             onOpen={() => setSceneGalleryOpen(true)}
                           />
                         ) : (
@@ -366,6 +379,10 @@ export const ScenesSection: React.FC<ScenesSectionProps> = ({
                             scene={tile.scene!}
                             active={tile.id === activeSceneId}
                             editing={editing}
+                            disabled={
+                              fullSync || (partialSync && tile.scene!.smart)
+                            }
+                            playDisabled={syncedLightCount > 0}
                             onApply={onSceneApply}
                             onInspect={onSceneInspect}
                             onTogglePlay={onSceneTogglePlay}
@@ -387,6 +404,8 @@ export const ScenesSection: React.FC<ScenesSectionProps> = ({
                 scene={sceneById.get(activeDragId)!}
                 active={activeDragId === activeSceneId}
                 editing
+                disabled={fullSync}
+                playDisabled={syncedLightCount > 0}
                 onApply={onSceneApply}
                 onInspect={onSceneInspect}
                 onTogglePlay={onSceneTogglePlay}

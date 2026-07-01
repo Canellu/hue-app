@@ -46,6 +46,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useSyncBoxStore } from "@/stores/SyncBoxStore";
 import { SPACE_ARCHETYPES } from "@/features/settings-screen/constants";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
 import type {
@@ -82,6 +83,7 @@ const DEFAULT_SECTION_ORDER: SectionId[] = [
   "switches",
   "sensors",
 ];
+const EMPTY_SYNCED_LIGHT_IDS: string[] = [];
 
 const readSectionOrder = (key: string): SectionId[] => {
   try {
@@ -291,6 +293,17 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
   onRefresh,
 }) => {
   const reduceMotion = useReducedMotion();
+  const syncedLightIds = useSyncBoxStore((store) => {
+    const target = store.state?.execution.hueTarget;
+    if (!store.state?.execution.syncActive || !target) {
+      return EMPTY_SYNCED_LIGHT_IDS;
+    }
+    return store.areaLightIds[target] ?? EMPTY_SYNCED_LIGHT_IDS;
+  });
+  const syncedIds = new Set(syncedLightIds);
+  const syncedLightCount = lights.filter((light) =>
+    syncedIds.has(light.id),
+  ).length;
   const [editing, setEditing] = useState(false);
   const [managing, setManaging] = useState(false);
   const [selection, setSelection] = useState<{
@@ -513,6 +526,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
         key={roomZone.id}
         roomZone={roomZone}
         lights={lights}
+        syncedLightIds={syncedLightIds}
         playingScene={playingScene}
         hueEventRevision={hueEventRevision}
         editing={editing || managing}
@@ -525,6 +539,8 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
       <ScenesSection
         roomZoneName={roomZone.name}
         scenes={orderedScenes}
+        syncedLightCount={syncedLightCount}
+        totalLightCount={lights.length}
         activeSceneId={activeSceneId}
         editing={editing || managing}
         reordering={editing}

@@ -1,5 +1,6 @@
 import { Palette, PanelRightOpen, Play, Square } from "lucide-react";
 
+import { SyncIndicator } from "@/components/SyncIndicator";
 import { Button } from "@/components/ui/button";
 import {
   sceneBrightness,
@@ -18,6 +19,8 @@ export const SceneCard: React.FC<{
   compact?: boolean;
   /** In edit mode the play/stop control is muted and the overflow menu hidden. */
   editing?: boolean;
+  disabled?: boolean;
+  playDisabled?: boolean;
   onApply: (scene: HueScene) => void;
   /** Open the scene in the side pane without applying it. */
   onInspect: (scene: HueScene) => void;
@@ -27,12 +30,14 @@ export const SceneCard: React.FC<{
   active = false,
   compact = false,
   editing = false,
+  disabled = false,
+  playDisabled = false,
   onApply,
   onInspect,
   onTogglePlay,
 }) => {
   const bubble = sceneBubbleCss(scene);
-  const activeBackground = active && bubble != null;
+  const activeBackground = active && bubble != null && !disabled;
   const dynamicActive = isSceneDynamicActive(scene);
 
   return (
@@ -40,14 +45,19 @@ export const SceneCard: React.FC<{
       editId={scene.id}
       name={scene.name}
       ariaPressed={active}
+      disabled={disabled}
       activeBackground={activeBackground}
       fullWidth={compact}
-      className={
+      className={cn(
+        disabled && "cursor-not-allowed opacity-60",
         activeBackground
           ? "text-foreground"
-          : active
+          : active && !disabled
             ? "bg-accent"
-            : "bg-scene-tile"
+            : "bg-scene-tile",
+      )}
+      cornerLabelLeft={
+        disabled ? <SyncIndicator syncedCount={1} totalCount={1} /> : undefined
       }
       style={
         activeBackground && bubble
@@ -65,24 +75,24 @@ export const SceneCard: React.FC<{
       // multiselect toggle and the card body is a reorder handle.
       topRightAction={
         editing ? undefined : (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          aria-label={`Open ${scene.name} details`}
-          title="Open scene details"
-          className={cn(
-            "text-muted-foreground/75 hover:bg-foreground/10 hover:text-foreground",
-            activeBackground &&
-              "text-foreground/75 hover:bg-white/20 hover:text-foreground",
-          )}
-          onClick={(event) => {
-            event.stopPropagation();
-            onInspect(scene);
-          }}
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <PanelRightOpen className="size-4" />
-        </Button>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Open ${scene.name} details`}
+            title="Open scene details"
+            className={cn(
+              "text-muted-foreground/75 hover:bg-foreground/10 hover:text-foreground",
+              activeBackground &&
+                "text-foreground/75 hover:bg-white/20 hover:text-foreground",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              onInspect(scene);
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <PanelRightOpen className="size-4" />
+          </Button>
         )
       }
       visual={
@@ -91,6 +101,7 @@ export const SceneCard: React.FC<{
           bubble={bubble}
           compact={compact}
           editing={editing}
+          disabled={disabled || playDisabled}
           dynamic={scene.dynamic}
           dynamicActive={dynamicActive}
           sceneName={scene.name}
@@ -106,6 +117,7 @@ const SceneCardVisual: React.FC<{
   bubble: string | null;
   compact: boolean;
   editing?: boolean;
+  disabled?: boolean;
   dynamic: boolean;
   dynamicActive: boolean;
   sceneName: string;
@@ -115,6 +127,7 @@ const SceneCardVisual: React.FC<{
   bubble,
   compact,
   editing = false,
+  disabled = false,
   dynamic,
   dynamicActive,
   sceneName,
@@ -134,11 +147,12 @@ const SceneCardVisual: React.FC<{
     return (
       <button
         type="button"
+        disabled={disabled}
         aria-label={dynamicActive ? `Stop ${sceneName}` : `Play ${sceneName}`}
-        aria-disabled={editing || undefined}
-        tabIndex={editing ? -1 : undefined}
+        aria-disabled={editing || disabled || undefined}
+        tabIndex={editing || disabled ? -1 : undefined}
         onClick={(event) => {
-          if (editing) return;
+          if (editing || disabled) return;
           event.stopPropagation();
           onTogglePlay();
         }}
@@ -151,12 +165,10 @@ const SceneCardVisual: React.FC<{
               ? "bg-white/30 text-white"
               : "bg-foreground/15 text-foreground",
           // Let pointer gestures pass through to the sortable tile in edit mode.
-          editing && "pointer-events-none",
+          (editing || disabled) && "pointer-events-none",
           size,
         )}
-        style={
-          showBubble ? { background: bubble } : undefined
-        }
+        style={showBubble ? { background: bubble } : undefined}
       >
         <Icon
           className={cn(

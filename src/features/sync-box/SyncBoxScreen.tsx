@@ -181,10 +181,21 @@ export const SyncBoxConnectedView = ({
         <span>
           {loadError ?? session.error ?? "Unable to read Sync Box state."}
         </span>
-        <Button variant="outline" disabled={isLoading} onClick={() => void refresh()}>
-          {isLoading && <Loader2 className="animate-spin" />}
-          Retry
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              clear();
+              onReset();
+            }}
+          >
+            Pair again
+          </Button>
+          <Button variant="outline" disabled={isLoading} onClick={() => void refresh()}>
+            {isLoading && <Loader2 className="animate-spin" />}
+            Retry
+          </Button>
+        </div>
       </div>
     );
   }

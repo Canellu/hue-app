@@ -1,9 +1,11 @@
 use keyring::Entry;
 use mdns_sd::{ServiceDaemon, ServiceEvent};
-use reqwest::Client;
+use reqwest::{Certificate, Client};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr, SocketAddr};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Runtime};
 use tauri_plugin_store::StoreExt;
@@ -160,20 +162,86 @@ struct MdnsSyncBox {
     port: u16,
 }
 
+/// Box identity a pinned client was built for; a change to any field means the
+/// cached client's DNS override is stale and it must be rebuilt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SecureTarget {
+    unique_id: String,
+    ip_address: String,
+    port: u16,
+}
+
 pub struct SyncBoxClient {
-    client: Client,
+    /// Insecure transport used only for unauthenticated discovery probes,
+    /// where the box's uniqueId (needed to build the pinned client) is not yet
+    /// known. Secrets never travel over this client.
+    probe_client: Client,
+    /// The Philips "root-hsb" CA that signs every Sync Box leaf certificate.
+    ca: Certificate,
+    /// Cached pinned client for the one configured box; rebuilt if it moves.
+    secure: Mutex<Option<(SecureTarget, Client)>>,
 }
 
 impl SyncBoxClient {
-    /// Phase-one transport. This mirrors the current Bridge client so discovery
-    /// and onboarding can be exercised before the pinned Sync Box CA is added.
     pub fn new() -> Result<Self, String> {
-        let client = Client::builder()
+        let probe_client = Client::builder()
             .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
             .danger_accept_invalid_certs(true)
             .build()
             .map_err(|error| format!("Failed to create Sync Box HTTP client: {error}"))?;
-        Ok(Self { client })
+        let ca = Certificate::from_pem(include_bytes!("../../assets/hsb_cacert.pem"))
+            .map_err(|error| format!("Invalid bundled Sync Box CA certificate: {error}"))?;
+        Ok(Self {
+            probe_client,
+            ca,
+            secure: Mutex::new(None),
+        })
+    }
+
+    /// Pinned-TLS transport for everything beyond discovery probes. Dials the
+    /// box by its uniqueId — which is the certificate's CN — and routes that
+    /// name to the discovered IP, so both the chain (against the bundled
+    /// Philips CA only) and the hostname are fully validated. The leaf cert
+    /// carries a CN but no SAN, which native-tls accepts and rustls would
+    /// reject, so this must stay on reqwest's native-tls backend.
+    fn secure_client(
+        &self,
+        unique_id: &str,
+        ip_address: &str,
+        port: u16,
+    ) -> Result<Client, String> {
+        let hostname = sync_box_hostname(unique_id)?;
+        if port == 0 {
+            return Err("Invalid Sync Box HTTPS port 0.".to_string());
+        }
+        // The URL parser lowercases hostnames before reqwest's DNS override
+        // lookup, so the override must be registered lowercase too.
+        let target = SecureTarget {
+            unique_id: hostname,
+            ip_address: ip_address.to_string(),
+            port,
+        };
+        let mut cache = self
+            .secure
+            .lock()
+            .map_err(|_| "Sync Box client state is unavailable.".to_string())?;
+        if let Some((cached, client)) = cache.as_ref() {
+            if *cached == target {
+                return Ok(client.clone());
+            }
+        }
+        let ip: IpAddr = ip_address
+            .parse()
+            .map_err(|error| format!("Invalid Sync Box IP address {ip_address}: {error}"))?;
+        let client = Client::builder()
+            .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
+            .tls_built_in_root_certs(false)
+            .add_root_certificate(self.ca.clone())
+            .resolve(&target.unique_id, SocketAddr::new(ip, port))
+            .build()
+            .map_err(|error| format!("Failed to create pinned Sync Box HTTP client: {error}"))?;
+        *cache = Some((target, client.clone()));
+        Ok(client)
     }
 
     pub async fn discover(&self) -> Result<Vec<DiscoveredSyncBox>, String> {
@@ -238,12 +306,17 @@ impl SyncBoxClient {
         ip_address: &str,
         port: u16,
     ) -> Result<(StoredSyncBoxInfo, String), String> {
-        let device = self.get_device(ip_address, port).await?;
+        // The insecure probe only supplies the uniqueId needed to build the
+        // pinned client. Everything after it — including re-reading the device
+        // info that gets stored — happens over pinned TLS, so a spoofed probe
+        // response can only make pairing fail, never leak the access token.
+        let probed = self.get_device(ip_address, port).await?;
+        let client = self.secure_client(&probed.unique_id, ip_address, port)?;
+        let device = get_device_secure(&client, &probed.unique_id, port).await?;
         ensure_supported(&device)?;
 
-        let url = endpoint(ip_address, port, "/api/v1/registrations");
-        let response = self
-            .client
+        let url = secure_endpoint(&device.unique_id, port, "/api/v1/registrations")?;
+        let response = client
             .post(&url)
             .json(&json!({
                 "appName": "Hue Desktop",
@@ -335,10 +408,7 @@ impl SyncBoxClient {
             });
         };
 
-        match self
-            .get_state(&sync_box.ip_address, sync_box.port, &access_token)
-            .await
-        {
+        match self.get_state(&sync_box, &access_token).await {
             Ok(_) => Ok(SyncBoxSession {
                 configured: true,
                 connected: true,
@@ -359,10 +429,12 @@ impl SyncBoxClient {
         clear_access_token()
     }
 
+    /// Unauthenticated discovery probe by IP. The response is untrusted; the
+    /// pinned client re-reads anything that gets persisted or acted on.
     async fn get_device(&self, ip_address: &str, port: u16) -> Result<SyncBoxDevice, String> {
         let url = endpoint(ip_address, port, "/api/v1/device");
         let response = self
-            .client
+            .probe_client
             .get(&url)
             .send()
             .await
@@ -383,12 +455,12 @@ impl SyncBoxClient {
         &self,
         app: &AppHandle<R>,
     ) -> Result<SyncBoxState, String> {
-        let sync_box = load_sync_box_info(app)?
-            .ok_or_else(|| "No Sync Box is configured.".to_string())?;
-        let access_token = load_access_token()?
-            .ok_or_else(|| "The saved Sync Box access token is missing. Pair it again.".to_string())?;
-        self.get_state(&sync_box.ip_address, sync_box.port, &access_token)
-            .await
+        let sync_box =
+            load_sync_box_info(app)?.ok_or_else(|| "No Sync Box is configured.".to_string())?;
+        let access_token = load_access_token()?.ok_or_else(|| {
+            "The saved Sync Box access token is missing. Pair it again.".to_string()
+        })?;
+        self.get_state(&sync_box, &access_token).await
     }
 
     pub async fn update_saved_execution<R: Runtime>(
@@ -396,17 +468,19 @@ impl SyncBoxClient {
         app: &AppHandle<R>,
         update: Value,
     ) -> Result<SyncBoxState, String> {
-        let sync_box = load_sync_box_info(app)?
-            .ok_or_else(|| "No Sync Box is configured.".to_string())?;
-        let access_token = load_access_token()?
-            .ok_or_else(|| "The saved Sync Box access token is missing. Pair it again.".to_string())?;
+        let sync_box =
+            load_sync_box_info(app)?.ok_or_else(|| "No Sync Box is configured.".to_string())?;
+        let access_token = load_access_token()?.ok_or_else(|| {
+            "The saved Sync Box access token is missing. Pair it again.".to_string()
+        })?;
         let object = update
             .as_object()
             .filter(|object| !object.is_empty())
             .ok_or_else(|| "Execution update must be a non-empty JSON object.".to_string())?;
-        let url = endpoint(&sync_box.ip_address, sync_box.port, "/api/v1/execution");
-        let response = self
-            .client
+        let client =
+            self.secure_client(&sync_box.unique_id, &sync_box.ip_address, sync_box.port)?;
+        let url = secure_endpoint(&sync_box.unique_id, sync_box.port, "/api/v1/execution")?;
+        let response = client
             .put(url)
             .bearer_auth(&access_token)
             .json(object)
@@ -418,19 +492,18 @@ impl SyncBoxClient {
             return Err(sync_box_response_error(response, "Sync Box execution update").await);
         }
 
-        self.get_state(&sync_box.ip_address, sync_box.port, &access_token)
-            .await
+        self.get_state(&sync_box, &access_token).await
     }
 
     async fn get_state(
         &self,
-        ip_address: &str,
-        port: u16,
+        sync_box: &StoredSyncBoxInfo,
         access_token: &str,
     ) -> Result<SyncBoxState, String> {
-        let url = endpoint(ip_address, port, "/api/v1");
-        let response = self
-            .client
+        let client =
+            self.secure_client(&sync_box.unique_id, &sync_box.ip_address, sync_box.port)?;
+        let url = secure_endpoint(&sync_box.unique_id, sync_box.port, "/api/v1")?;
+        let response = client
             .get(&url)
             .bearer_auth(access_token)
             .send()
@@ -445,6 +518,34 @@ impl SyncBoxClient {
             .await
             .map_err(|error| format!("Invalid Sync Box state response: {error}"))
     }
+}
+
+async fn get_device_secure(
+    client: &Client,
+    unique_id: &str,
+    port: u16,
+) -> Result<SyncBoxDevice, String> {
+    let url = secure_endpoint(unique_id, port, "/api/v1/device")?;
+    let response = client.get(url).send().await.map_err(|error| {
+        format!("Unable to establish a secure connection to the Sync Box: {error}")
+    })?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(format!(
+            "Secure Sync Box device request failed with HTTP status {status}."
+        ));
+    }
+    let device = response
+        .json::<SyncBoxDevice>()
+        .await
+        .map_err(|error| format!("Invalid secure Sync Box device response: {error}"))?;
+    if !device.unique_id.eq_ignore_ascii_case(unique_id) {
+        return Err(format!(
+            "Sync Box identity mismatch: expected {unique_id}, received {}.",
+            device.unique_id
+        ));
+    }
+    Ok(device)
 }
 
 async fn sync_box_response_error(response: reqwest::Response, context: &str) -> String {
@@ -487,6 +588,30 @@ fn endpoint(ip_address: &str, port: u16, path: &str) -> String {
     } else {
         format!("https://{host}:{port}{path}")
     }
+}
+
+fn secure_endpoint(unique_id: &str, port: u16, path: &str) -> Result<String, String> {
+    let hostname = sync_box_hostname(unique_id)?;
+    if port == 0 {
+        return Err("Invalid Sync Box HTTPS port 0.".to_string());
+    }
+    if !path.starts_with('/') {
+        return Err("Sync Box API path must start with '/'.".to_string());
+    }
+    if port == default_https_port() {
+        Ok(format!("https://{hostname}{path}"))
+    } else {
+        Ok(format!("https://{hostname}:{port}{path}"))
+    }
+}
+
+fn sync_box_hostname(unique_id: &str) -> Result<String, String> {
+    if unique_id.len() != 12 || !unique_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(format!(
+            "Invalid Sync Box unique ID '{unique_id}'; expected 12 hexadecimal characters."
+        ));
+    }
+    Ok(unique_id.to_ascii_lowercase())
 }
 
 const fn default_https_port() -> u16 {
@@ -567,5 +692,44 @@ fn clear_access_token() -> Result<(), String> {
     match token_entry()?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(error) => Err(format!("Failed to clear Sync Box access token: {error}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn secure_endpoint_uses_normalized_certificate_hostname() {
+        assert_eq!(
+            secure_endpoint("C429960B4B6C", 443, "/api/v1").unwrap(),
+            "https://c429960b4b6c/api/v1"
+        );
+        assert_eq!(
+            secure_endpoint("c429960b4b6c", 8443, "/api/v1/device").unwrap(),
+            "https://c429960b4b6c:8443/api/v1/device"
+        );
+    }
+
+    #[test]
+    fn secure_endpoint_rejects_untrusted_hostname_input() {
+        assert!(secure_endpoint("not-a-device", 443, "/api/v1").is_err());
+        assert!(secure_endpoint("C429960B4B6C.example", 443, "/api/v1").is_err());
+        assert!(secure_endpoint("C429960B4B6C", 0, "/api/v1").is_err());
+        assert!(secure_endpoint("C429960B4B6C", 443, "api/v1").is_err());
+    }
+
+    #[test]
+    fn bundled_ca_builds_a_pinned_client() {
+        let client = SyncBoxClient::new().unwrap();
+        client
+            .secure_client("C429960B4B6C", "192.168.1.12", 443)
+            .unwrap();
+
+        let cache = client.secure.lock().unwrap();
+        let (target, _) = cache.as_ref().unwrap();
+        assert_eq!(target.unique_id, "c429960b4b6c");
+        assert_eq!(target.ip_address, "192.168.1.12");
+        assert_eq!(target.port, 443);
     }
 }

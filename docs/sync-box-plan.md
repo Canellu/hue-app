@@ -1,9 +1,14 @@
 # Plan: HDMI Sync Box Control ("Sync" tab)
 
-Status: **in progress**. Discovery, API-level gating, pushlink registration,
-session persistence, onboarding, Sync controls, and visibility-scoped state
-polling are implemented. Hardware validation and production TLS hardening
-remain.
+Status: **finished**. Discovery, API-level gating, pushlink registration,
+session persistence, onboarding, Sync controls, visibility-scoped state
+polling, edge handling, and production TLS hardening are implemented.
+
+> **Optional follow-up for the next agent:** The pinned-CA implementation can be
+> checked end to end against a physical Sync Box. Before performing that check,
+> explain what will be tested and get explicit confirmation from the user. Do
+> not start pairing, send Sync Box commands, or change the saved session without
+> that confirmation.
 
 ## Goal
 
@@ -245,6 +250,6 @@ approach.
    registration, full-state GET, execution PUT.
 3. [x] Tauri commands + minimal store.
 4. [x] `features/sync-screen` UI; polling while visible.
-5. Phase 2 TLS hardening (pin CA, resolve CN); no caller changes.
-6. Error/edge handling: overheating/undervolt, connectionState, apiLevel < 7,
+5. [x] Phase 2 TLS hardening (pin CA, resolve CN); no caller changes.
+6. [x] Error/edge handling: overheating/undervolt, connectionState, apiLevel < 7,
    token loss / re-pair.

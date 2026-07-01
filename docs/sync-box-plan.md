@@ -4,6 +4,8 @@ Status: **finished**. Discovery, API-level gating, pushlink registration,
 session persistence, onboarding, Sync controls, visibility-scoped state
 polling, edge handling, and production TLS hardening are implemented.
 
+Related plan: [PC-hosted Hue Entertainment Sync](pc-sync-plan.md)
+
 > **Optional follow-up for the next agent:** The pinned-CA implementation can be
 > checked end to end against a physical Sync Box. Before performing that check,
 > explain what will be tested and get explicit confirmation from the user. Do

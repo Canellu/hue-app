@@ -8,7 +8,7 @@ function Accordion({ className, ...props }: AccordionPrimitive.Root.Props) {
     <AccordionPrimitive.Root
       data-slot="accordion"
       className={cn(
-        "flex w-full flex-col overflow-hidden rounded-2xl border",
+        "flex w-full min-w-0 flex-col overflow-hidden rounded-2xl border",
         className,
       )}
       {...props}
@@ -20,7 +20,10 @@ function AccordionItem({ className, ...props }: AccordionPrimitive.Item.Props) {
   return (
     <AccordionPrimitive.Item
       data-slot="accordion-item"
-      className={cn("not-last:border-b data-open:bg-muted/50", className)}
+      className={cn(
+        "min-w-0 not-last:border-b data-open:bg-muted/50",
+        className,
+      )}
       {...props}
     />
   );
@@ -32,11 +35,11 @@ function AccordionTrigger({
   ...props
 }: AccordionPrimitive.Trigger.Props) {
   return (
-    <AccordionPrimitive.Header className="flex">
+    <AccordionPrimitive.Header className="flex w-full min-w-0 max-w-full">
       <AccordionPrimitive.Trigger
         data-slot="accordion-trigger"
         className={cn(
-          "group/accordion-trigger relative flex flex-1 items-start justify-between gap-6 border border-transparent p-4 text-left text-sm font-medium transition-all outline-none hover:underline aria-disabled:pointer-events-none aria-disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ml-auto **:data-[slot=accordion-trigger-icon]:size-4 **:data-[slot=accordion-trigger-icon]:text-muted-foreground",
+          "group/accordion-trigger relative flex min-w-0 flex-1 items-start justify-between gap-6 border border-transparent p-4 text-left text-sm font-medium transition-all outline-none hover:underline aria-disabled:pointer-events-none aria-disabled:opacity-50 **:data-[slot=accordion-trigger-icon]:ml-auto **:data-[slot=accordion-trigger-icon]:size-4 **:data-[slot=accordion-trigger-icon]:text-muted-foreground",
           className,
         )}
         {...props}
@@ -63,7 +66,7 @@ function AccordionContent({
   return (
     <AccordionPrimitive.Panel
       data-slot="accordion-content"
-      className="overflow-hidden px-4 text-sm data-open:animate-accordion-down data-closed:animate-accordion-up"
+      className="w-full min-w-0 max-w-full overflow-hidden px-4 text-sm data-open:animate-accordion-down data-closed:animate-accordion-up"
       {...props}
     >
       <div

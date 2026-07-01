@@ -6,6 +6,16 @@
 export const FLAT_CARD =
   "border border-border/60 shadow-none ring-0 dark:shadow-none";
 
+/** Visual contract used by the elevated, expandable cards in Settings. */
+export const SETTINGS_EXPANDABLE_CARD =
+  "border-0 bg-card shadow-sm ring-0 dark:shadow-sm dark:shadow-black/25";
+
+export const SETTINGS_EXPANDABLE_TRIGGER =
+  "transition-colors hover:bg-(--settings-control-hover)";
+
+export const SETTINGS_EXPANDABLE_TRIGGER_OPEN =
+  "bg-(--settings-control-open)";
+
 /**
  * Curated Hue v2 room/zone archetypes offered in the create wizard. The bridge
  * accepts these snake_case values; each maps to an icon via `getRoomZoneIcon`.

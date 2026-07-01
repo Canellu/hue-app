@@ -25,7 +25,12 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
-import { FLAT_CARD } from "../constants";
+import {
+  FLAT_CARD,
+  SETTINGS_EXPANDABLE_CARD,
+  SETTINGS_EXPANDABLE_TRIGGER,
+  SETTINGS_EXPANDABLE_TRIGGER_OPEN,
+} from "../constants";
 import { DeleteResourceButton } from "./DeleteResourceButton";
 import {
   SegmentedControl,
@@ -101,16 +106,14 @@ export const WidgetCard = ({
         "gap-0 py-0",
         // Active widgets read as "lifted" off the list with real elevation;
         // closed ones stay as quiet flat rows.
-        enabled
-          ? "border-border bg-card shadow-sm ring-0"
-          : FLAT_CARD,
+        enabled ? SETTINGS_EXPANDABLE_CARD : FLAT_CARD,
       )}
     >
       <div
         className={cn(
-          "flex items-center transition-colors hover:bg-[oklch(0.95_0_0)] dark:hover:bg-[oklch(0.30_0_0)]",
-          configOpen &&
-            "bg-[oklch(0.97_0_0)] dark:bg-[oklch(0.28_0_0)]",
+          "flex items-center",
+          SETTINGS_EXPANDABLE_TRIGGER,
+          configOpen && SETTINGS_EXPANDABLE_TRIGGER_OPEN,
         )}
       >
         <button

@@ -126,6 +126,13 @@
   --success-soft: oklch(0.6 0.15 150);
   --success-surface: oklch(0.89 0.03 157.12);
   --success-text: oklch(0.39 0.1 150.05);
+  /* Settings-screen neutral surfaces. The recessed section matches the widget
+     container; cards use `--card`, and interactive rows lift to the hover step.
+     The same dark-to-light elevation order is preserved in both themes. */
+  --settings-surface: oklch(0.95 0 0);
+  --settings-surface-hover: oklch(0.99 0 0);
+  --settings-control-hover: oklch(0.95 0 0);
+  --settings-control-open: oklch(0.97 0 0);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -197,6 +204,11 @@
   --success-soft: oklch(0.58 0.13 150);
   --success-surface: oklch(0.3 0.03 154.02);
   --success-text: oklch(0.83 0.05 150.22);
+  /* Settings-screen neutral surfaces (see :root note). */
+  --settings-surface: oklch(0.22 0 0);
+  --settings-surface-hover: oklch(0.3 0 0);
+  --settings-control-hover: oklch(0.3 0 0);
+  --settings-control-open: oklch(0.28 0 0);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);

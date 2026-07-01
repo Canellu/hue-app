@@ -68,6 +68,10 @@ export interface MonitorInfo {
   y: number;
   width: number;
   height: number;
+  workX: number;
+  workY: number;
+  workWidth: number;
+  workHeight: number;
   scaleFactor: number;
   isPrimary: boolean;
 }

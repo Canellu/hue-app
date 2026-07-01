@@ -34,18 +34,19 @@ export const ResourceChecklist = ({
   return (
     <ScrollArea
       fade
-      className="max-h-64 rounded-xl bg-background/60"
-      viewportClassName="p-2"
+      className="max-h-64 w-full min-w-0 max-w-full overflow-hidden rounded-xl bg-background/60"
+      viewportClassName="overflow-x-hidden p-2"
+      contentClassName="w-full min-w-0 max-w-full overflow-hidden"
     >
-      <div className="grid gap-2">
+      <div className="grid min-w-0 gap-2">
         {options.map((option) => (
           <label
             key={option.id}
-            className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-muted/60"
+            className="flex min-w-0 cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-muted/60"
           >
             <input
               type="checkbox"
-              className="size-4 accent-primary"
+              className="size-4 shrink-0 accent-primary"
               checked={selected.has(option.id)}
               onChange={() => onToggle(option.id)}
             />

@@ -17,7 +17,7 @@ export const SettingsSection = ({
   return (
     <section className="grid gap-4">
       <h2 className="text-base font-semibold text-foreground">{title}</h2>
-      <div className="grid gap-4 rounded-2xl bg-background p-5">
+      <div className="grid gap-4 rounded-2xl bg-(--settings-surface) p-5">
         {rows.map((row, index) => (
           <Fragment key={`settings-row-${index}`}>
             {index > 0 && <Separator />}

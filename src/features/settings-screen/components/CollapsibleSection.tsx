@@ -2,7 +2,11 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { ChevronDown } from "lucide-react";
-import { FLAT_CARD } from "../constants";
+import {
+  SETTINGS_EXPANDABLE_CARD,
+  SETTINGS_EXPANDABLE_TRIGGER,
+  SETTINGS_EXPANDABLE_TRIGGER_OPEN,
+} from "../constants";
 
 /**
  * A panel whose body collapses behind a header that doubles as a toggle. Open
@@ -21,12 +25,16 @@ export const CollapsibleSection = ({
   onToggle: () => void;
   children: React.ReactNode;
 }) => (
-  <Card className={cn("gap-0 py-0", FLAT_CARD)}>
+  <Card className={cn("gap-0 py-0", SETTINGS_EXPANDABLE_CARD)}>
     <button
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      className="flex w-full items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-muted/40"
+      className={cn(
+        "flex w-full items-center justify-between gap-4 px-5 py-4 text-left",
+        SETTINGS_EXPANDABLE_TRIGGER,
+        open && SETTINGS_EXPANDABLE_TRIGGER_OPEN,
+      )}
     >
       <span className="flex items-center gap-2">
         <h2 className="text-base font-semibold text-foreground">{title}</h2>
@@ -44,6 +52,8 @@ export const CollapsibleSection = ({
         )}
       />
     </button>
-    {open && <div className="px-5 pb-5">{children}</div>}
+    {open && (
+      <div className="border-t border-border/60 px-5 py-5">{children}</div>
+    )}
   </Card>
 );

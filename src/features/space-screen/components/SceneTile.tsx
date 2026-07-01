@@ -100,7 +100,7 @@ export const SceneTile: React.FC<{
     }
   >
     {topRightAction != null && (
-      <span className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+      <span className="absolute top-1 right-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
         {topRightAction}
       </span>
     )}

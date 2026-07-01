@@ -1,53 +1,108 @@
 import {
   Blocks,
   Boxes,
+  Cable,
   Home,
   Monitor,
   Palette,
   Router,
+  SlidersHorizontal,
+  Tv,
   type LucideIcon,
 } from "lucide-react";
+
+export type SettingsGroupValue = "app" | "home" | "connections";
+
+/**
+ * Top-level settings groups shown as folder tabs. Each group owns a set of
+ * leaf tabs (see `settingsTabs`) surfaced as a secondary segmented control.
+ * Keep this list short — it is the primary nav and must never wrap.
+ */
+export const settingsGroups = [
+  {
+    value: "app",
+    label: "App",
+    icon: SlidersHorizontal,
+  },
+  {
+    value: "home",
+    label: "Your Home",
+    icon: Home,
+  },
+  {
+    value: "connections",
+    label: "Connections",
+    icon: Cable,
+  },
+] satisfies Array<{
+  value: SettingsGroupValue;
+  label: string;
+  icon: LucideIcon;
+}>;
 
 export const settingsTabs = [
   {
     value: "general",
     label: "General",
+    group: "app",
     description: "Set app appearance and desktop window behavior.",
     icon: Monitor,
   },
   {
-    value: "bridge",
-    label: "Bridge",
-    description: "Manage bridge connection and saved credentials.",
-    icon: Router,
-  },
-  {
-    value: "devices",
-    label: "Devices",
-    description: "Review Hue devices, sensors, switches, and connectivity.",
-    icon: Boxes,
+    value: "widget",
+    label: "Widgets",
+    group: "app",
+    description: "Create and manage pinned desktop widget windows.",
+    icon: Blocks,
   },
   {
     value: "spaces",
     label: "Rooms & Zones",
+    group: "home",
     description: "Organize rooms, zones, lights, and memberships.",
     icon: Home,
   },
   {
+    value: "devices",
+    label: "Devices",
+    group: "home",
+    description: "Review Hue devices, sensors, switches, and connectivity.",
+    icon: Boxes,
+  },
+  {
     value: "scenes",
     label: "Scenes",
+    group: "home",
     description: "Create and manage room and zone scenes.",
     icon: Palette,
   },
   {
-    value: "widget",
-    label: "Widget",
-    description: "Prepare pinned desktop widget windows.",
-    icon: Blocks,
+    value: "bridge",
+    label: "Bridge",
+    group: "connections",
+    description: "Manage bridge connection and saved credentials.",
+    icon: Router,
+  },
+  {
+    value: "sync-box",
+    label: "Sync Box",
+    group: "connections",
+    description: "Manage your Hue Play HDMI Sync Box connection.",
+    icon: Tv,
   },
 ] satisfies Array<{
   value: string;
   label: string;
+  group: SettingsGroupValue;
   description: string;
   icon: LucideIcon;
 }>;
+
+/** Leaf tabs belonging to a group, in declaration order. */
+export const groupTabs = (group: SettingsGroupValue) =>
+  settingsTabs.filter((tab) => tab.group === group);
+
+/** The group that owns a given leaf tab (falls back to the first group). */
+export const groupForTab = (value: string): SettingsGroupValue =>
+  settingsTabs.find((tab) => tab.value === value)?.group ??
+  settingsGroups[0].value;

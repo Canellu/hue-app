@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -8,15 +7,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   INSPECTOR_TRANSITION_EVENT,
   type InspectorTransitionDetail,
   requestInspectorTransition,
 } from "@/features/space-screen/utils/inspector-transition";
+import { useBlocker } from "@tanstack/react-router";
 import { ArrowLeft, Pencil, X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useBlocker } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export interface SidePaneEditGuard {
@@ -130,10 +130,7 @@ export const SidePane: React.FC<SidePaneProps> = ({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      if (
-        pendingTransition != null ||
-        routeBlocker.status === "blocked"
-      ) {
+      if (pendingTransition != null || routeBlocker.status === "blocked") {
         return;
       }
 
@@ -147,7 +144,7 @@ export const SidePane: React.FC<SidePaneProps> = ({
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between gap-2 p-6 pb-4">
+      <div className="flex items-center justify-between gap-2 px-6 pt-3 pb-0">
         <div className="flex min-w-0 items-center">
           {/* Back arrow animates in alongside the eyebrow in edit mode. */}
           <AnimatePresence initial={false}>
@@ -207,6 +204,11 @@ export const SidePane: React.FC<SidePaneProps> = ({
               hideScrollbar
               className="min-h-0 flex-1"
               viewportClassName="px-6 pb-6"
+              // Base UI's ScrollArea.Content sets `min-width: fit-content`, so
+              // the color/temperature wheels (whose 360px canvas has an
+              // intrinsic width) blow the pane out and overflow. Pin the content
+              // wrapper to the viewport width so `w-full` shrinks to fit.
+              contentClassName="min-w-0!"
             >
               {view}
             </ScrollArea>
@@ -251,10 +253,7 @@ export const SidePane: React.FC<SidePaneProps> = ({
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogAction
-              variant="outline"
-              onClick={discardAndContinue}
-            >
+            <AlertDialogAction variant="outline" onClick={discardAndContinue}>
               Discard
             </AlertDialogAction>
             <AlertDialogAction onClick={() => void saveAndContinue()}>

@@ -5,14 +5,20 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { Fragment } from "react";
+import { Fragment, useRef } from "react";
 import { useIconOnly } from "../hooks/useIconOnly";
-import { settingsTabs } from "../settingsTabs";
+import {
+  groupForTab,
+  groupTabs,
+  settingsGroups,
+  type SettingsGroupValue,
+} from "../settingsTabs";
 
 /**
- * Settings section navigation: centered folder tabs above the content card.
- * Below the `@5xl` container width the labels collapse to icons, with the label
- * still available via tooltip.
+ * Top-level settings navigation: centered folder tabs (one per group) above the
+ * content card. Selecting a group opens the leaf tab last visited within it, so
+ * switching groups feels like returning where you left off. Below the `@5xl`
+ * container width the labels collapse to icons, with the label kept in a tooltip.
  */
 export const SettingsNav = ({
   activeTab,
@@ -21,14 +27,22 @@ export const SettingsNav = ({
   activeTab: string;
   onSelect: (tab: string) => void;
 }) => {
-  // Below the `@5xl` container width the tabs collapse to icon-only (a container
-  // query on the label span). Tooltips only earn their keep in that state —
-  // with the label visible they'd just echo it — so gate them on whether the
-  // label has actually collapsed to `display: none`.
   const { containerRef, labelRef, iconOnly } = useIconOnly<
     HTMLElement,
     HTMLSpanElement
   >();
+
+  const activeGroup = groupForTab(activeTab);
+
+  // Remember the leaf tab most recently visited in each group so a group click
+  // restores it instead of always snapping back to the first sub-tab.
+  const lastByGroup = useRef<Partial<Record<SettingsGroupValue, string>>>({});
+  lastByGroup.current[activeGroup] = activeTab;
+
+  const selectGroup = (group: SettingsGroupValue) => {
+    const target = lastByGroup.current[group] ?? groupTabs(group)[0]?.value;
+    if (target) onSelect(target);
+  };
 
   return (
     <TooltipProvider>
@@ -37,14 +51,14 @@ export const SettingsNav = ({
         aria-label="Settings sections"
         className="relative z-10 -mb-px flex justify-center gap-2"
       >
-        {settingsTabs.map(({ value, label, icon: Icon }, index) => {
-          const isActive = activeTab === value;
+        {settingsGroups.map(({ value, label, icon: Icon }, index) => {
+          const isActive = activeGroup === value;
           const isFirst = index === 0;
           const tab = (
             <button
               type="button"
               aria-current={isActive ? "page" : undefined}
-              onClick={() => onSelect(value)}
+              onClick={() => selectGroup(value)}
               className={cn(
                 "flex h-11 items-center justify-center gap-2 rounded-t-xl border border-b-0 border-transparent px-6 text-base font-medium transition-colors",
                 isActive

@@ -24,13 +24,8 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { MetaRow, ROW_CLASS } from "../components/MetaRow";
 import { Panel } from "../components/Panel";
-
-// Shared styling for the copyable Bridge Details rows. The rows sit in a
-// `bg-background` well; on hover they lift to the surrounding card color
-// (`bg-card`), which is a notch lighter than the well in both light and dark.
-const ROW_CLASS =
-  "group flex items-center justify-between gap-10 rounded-lg px-3 py-2 text-left transition-colors hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70";
 
 export const BridgeTab = ({
   bridge,
@@ -56,7 +51,7 @@ export const BridgeTab = ({
       isLoading={isLoadingSummary}
     />
     <Panel title="Bridge Details">
-      <div className="grid gap-0.5 rounded-2xl bg-background p-3 text-sm">
+      <div className="grid gap-0.5 text-sm">
         <MetaRow label="Name" value={bridge?.name} />
         <MetaRow
           label="Bridge ID"
@@ -78,15 +73,15 @@ export const BridgeTab = ({
       </div>
     </Panel>
 
-    <Panel title="Danger zone">
-      <div className="flex items-start gap-3 rounded-2xl bg-destructive/5 p-4">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/15 text-destructive">
+    <Panel title="Danger zone" contentClassName="bg-(--destructive-surface)">
+      <div className="flex items-start gap-3">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-destructive/10 text-(--destructive-soft)">
           <TriangleAlert size={18} />
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <div className="space-y-1">
-            <p className="font-medium text-destructive">Remove bridge</p>
-            <p className="text-sm text-destructive/80">
+            <p className="font-medium text-(--destructive-text)">Remove bridge</p>
+            <p className="text-sm text-(--destructive-text)">
               Removes the saved bridge and its credentials (including the
               application key) from this device. Your lights and scenes on the
               bridge itself are untouched, but you'll need to pair again to
@@ -163,91 +158,6 @@ const BridgeHeader = ({
     )}
   </div>
 );
-
-/**
- * A labelled value in the Bridge Details list. When the value is present the
- * whole row becomes a copy-to-clipboard button: hovering brightens it and
- * reveals a copy glyph (the affordance), and clicking copies the value and
- * flips to a transient "Copied" check. A toast confirms the copy. Rows with no
- * value (shown as "Unknown") stay inert — there's nothing to copy.
- */
-const MetaRow = ({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | null | undefined;
-}) => {
-  const [copied, setCopied] = useState(false);
-  const resetRef = useRef<number | null>(null);
-  const hasValue = value != null && value !== "";
-
-  useEffect(
-    () => () => {
-      if (resetRef.current) window.clearTimeout(resetRef.current);
-    },
-    [],
-  );
-
-  const copy = async () => {
-    if (!hasValue) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      if (resetRef.current) window.clearTimeout(resetRef.current);
-      resetRef.current = window.setTimeout(() => setCopied(false), 1500);
-      toast.success(`${label} copied`, { id: "bridge-detail-copy" });
-    } catch {
-      toast.error("Couldn't copy to clipboard", { id: "bridge-detail-copy" });
-    }
-  };
-
-  if (!hasValue) {
-    return (
-      <div className="flex items-center justify-between gap-10 px-3 py-2">
-        <dt className="shrink-0 text-muted-foreground">{label}</dt>
-        <dd className="flex min-w-0 items-center justify-end gap-2 text-muted-foreground">
-          <span className="truncate text-right font-medium">Unknown</span>
-          {/* Reserve the copy-glyph slot so every row's value shares one right edge. */}
-          <span className="size-3.5 shrink-0" aria-hidden />
-        </dd>
-      </div>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={() => void copy()}
-      aria-label={`Copy ${label}`}
-      className={ROW_CLASS}
-    >
-      <dt className="shrink-0 text-muted-foreground transition-colors group-hover:text-foreground">
-        {label}
-      </dt>
-      <dd className="flex min-w-0 items-center justify-end gap-2">
-        <span className="truncate text-right font-medium">{value}</span>
-        <span className="relative inline-flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
-          <Check
-            size={14}
-            className={cn(
-              "absolute text-green-500 transition-all",
-              copied ? "scale-100 opacity-100" : "scale-50 opacity-0",
-            )}
-          />
-          <Copy
-            size={14}
-            className={cn(
-              "absolute opacity-0 transition-opacity",
-              !copied &&
-                "group-hover:opacity-100 group-focus-visible:opacity-100",
-            )}
-          />
-        </span>
-      </dd>
-    </button>
-  );
-};
 
 /**
  * A bridge-detail row for a sensitive value (e.g. the application key). The

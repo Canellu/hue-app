@@ -5,6 +5,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { HueLight, HueRoomZone, HueSettingsDevice } from "@/types/hue";
 import { Loader2, Save } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -12,6 +13,10 @@ import { EditableResourceRow } from "../components/EditableResourceRow";
 import { EmptyText } from "../components/EmptyText";
 import { Panel } from "../components/Panel";
 import { ResourceChecklist } from "../components/ResourceChecklist";
+import {
+  SETTINGS_EXPANDABLE_CARD,
+  SETTINGS_EXPANDABLE_TRIGGER,
+} from "../constants";
 import type { DeleteResource, RenameResource } from "../types";
 
 export const SpacesTab = ({
@@ -33,7 +38,7 @@ export const SpacesTab = ({
   const zones = roomZones.filter((space) => space.resourceType === "zone");
 
   const renderSpaces = (spaces: HueRoomZone[], emptyText: string) => (
-    <div className="grid gap-3">
+    <div className="grid min-w-0 gap-3">
       {spaces.map((roomZone) => (
         <SpaceManagementRow
           key={roomZone.id}
@@ -51,8 +56,12 @@ export const SpacesTab = ({
 
   return (
     <div className="space-y-5">
-      <Panel title="Rooms">{renderSpaces(rooms, "No rooms yet.")}</Panel>
-      <Panel title="Zones">{renderSpaces(zones, "No zones yet.")}</Panel>
+      <Panel title="Rooms" contentClassName="min-w-0 overflow-hidden">
+        {renderSpaces(rooms, "No rooms yet.")}
+      </Panel>
+      <Panel title="Zones" contentClassName="min-w-0 overflow-hidden">
+        {renderSpaces(zones, "No zones yet.")}
+      </Panel>
     </div>
   );
 };
@@ -145,13 +154,26 @@ const MembershipEditor = ({
   };
 
   return (
-    <Accordion className="mt-3">
-      <AccordionItem value="members">
-        <AccordionTrigger>
+    <Accordion
+      className={cn(
+        "mt-3 min-w-0 max-w-full",
+        SETTINGS_EXPANDABLE_CARD,
+      )}
+    >
+      <AccordionItem
+        value="members"
+        className="min-w-0 data-open:bg-transparent [&_[data-slot=accordion-content]]:border-t [&_[data-slot=accordion-content]]:border-border/60"
+      >
+        <AccordionTrigger
+          className={cn(
+            "min-w-0 p-4 hover:no-underline aria-expanded:bg-(--settings-control-open)",
+            SETTINGS_EXPANDABLE_TRIGGER,
+          )}
+        >
           Edit {roomZone.resourceType === "room" ? "devices" : "lights"}
         </AccordionTrigger>
-        <AccordionContent>
-          <div className="grid gap-3">
+        <AccordionContent className="min-w-0 pt-4">
+          <div className="grid min-w-0 gap-3">
             <ResourceChecklist
               emptyText={
                 roomZone.resourceType === "room"
@@ -162,9 +184,11 @@ const MembershipEditor = ({
               selectedIds={draftIds}
               onToggle={toggle}
             />
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
               {error ? (
-                <p className="text-sm text-destructive">{error}</p>
+                <p className="min-w-0 break-words text-sm text-destructive">
+                  {error}
+                </p>
               ) : (
                 <p className="text-sm text-muted-foreground">
                   {draftIds.length} selected

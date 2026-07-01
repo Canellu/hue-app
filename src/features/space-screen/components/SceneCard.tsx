@@ -1,4 +1,4 @@
-import { MoreHorizontal, Palette, Play, Square } from "lucide-react";
+import { Palette, PanelRightOpen, Play, Square } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -60,7 +60,7 @@ export const SceneCard: React.FC<{
       }
       // Tapping a scene always applies its colors to the room's lights.
       onActivate={() => onApply(scene)}
-      // The overflow button opens the inspector side pane (details + edit)
+      // The panel button opens the inspector side pane (details + edit)
       // without applying the scene. Hidden while editing — there the tap is a
       // multiselect toggle and the card body is a reorder handle.
       topRightAction={
@@ -68,10 +68,12 @@ export const SceneCard: React.FC<{
         <Button
           variant="ghost"
           size="icon-sm"
-          aria-label={`Open ${scene.name} options`}
+          aria-label={`Open ${scene.name} details`}
+          title="Open scene details"
           className={cn(
+            "text-muted-foreground/75 hover:bg-foreground/10 hover:text-foreground",
             activeBackground &&
-              "text-foreground hover:bg-white/20 hover:text-foreground",
+              "text-foreground/75 hover:bg-white/20 hover:text-foreground",
           )}
           onClick={(event) => {
             event.stopPropagation();
@@ -79,7 +81,7 @@ export const SceneCard: React.FC<{
           }}
           onKeyDown={(event) => event.stopPropagation()}
         >
-          <MoreHorizontal />
+          <PanelRightOpen className="size-4" />
         </Button>
         )
       }

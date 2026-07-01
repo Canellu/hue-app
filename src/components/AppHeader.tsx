@@ -385,27 +385,30 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
                 </div>
               )}
 
-              {showSettings && (
-                <Button
-                  variant="ghost"
-                  size="icon-xl"
-                  aria-label="Settings"
-                  onClick={onOpenSettings}
-                >
-                  <Settings size={26} />
-                </Button>
-              )}
+              {(showSync || showSettings) && (
+                <div className="flex items-center">
+                  {showSync && (
+                    <Button
+                      variant="ghost"
+                      size="icon-xl"
+                      aria-label="Sync"
+                      onClick={onOpenSync}
+                    >
+                      <Tv size={26} />
+                    </Button>
+                  )}
 
-              {showSync && (
-                <Button
-                  variant="ghost"
-                  size="xl"
-                  className="gap-2"
-                  onClick={onOpenSync}
-                >
-                  <Tv size={20} />
-                  Sync
-                </Button>
+                  {showSettings && (
+                    <Button
+                      variant="ghost"
+                      size="icon-xl"
+                      aria-label="Settings"
+                      onClick={onOpenSettings}
+                    >
+                      <Settings size={26} />
+                    </Button>
+                  )}
+                </div>
               )}
             </motion.div>
           )}

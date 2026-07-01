@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 function ScrollArea({
   className,
   viewportClassName,
+  contentClassName,
   viewportProps,
   children,
   fade = false,
@@ -15,6 +16,8 @@ function ScrollArea({
 }: ScrollAreaPrimitive.Root.Props & {
   /** Classes applied to the scrollable viewport (where the overflow lives). */
   viewportClassName?: string;
+  /** Classes applied to the content wrapper inside the viewport. */
+  contentClassName?: string;
   /** Props applied to the scrollable viewport. */
   viewportProps?: Omit<
     ScrollAreaPrimitive.Viewport.Props,
@@ -71,7 +74,16 @@ function ScrollArea({
           viewportClassName,
         )}
       >
-        {children}
+        {/*
+         * Wrap children in Content so Base UI's ResizeObserver watches the
+         * inner content, not just the viewport. The viewport keeps a fixed size
+         * in flex/grid layouts, so without this the thumb size and overflow
+         * state go stale whenever the content height changes without the
+         * viewport resizing (e.g. swapping tabs inside a shared scroll area).
+         */}
+        <ScrollAreaPrimitive.Content className={contentClassName}>
+          {children}
+        </ScrollAreaPrimitive.Content>
       </ScrollAreaPrimitive.Viewport>
       {!hideScrollbar &&
         (orientation === "vertical" || orientation === "both") && (

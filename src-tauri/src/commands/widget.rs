@@ -1208,6 +1208,10 @@ pub struct MonitorInfo {
     y: i32,
     width: u32,
     height: u32,
+    work_x: i32,
+    work_y: i32,
+    work_width: u32,
+    work_height: u32,
     scale_factor: f64,
     is_primary: bool,
 }
@@ -1240,6 +1244,41 @@ fn monitor_query_window(app: &tauri::AppHandle) -> Option<WebviewWindow> {
         .or_else(|| app.webview_windows().into_values().next())
 }
 
+#[cfg(windows)]
+fn monitor_work_area(x: i32, y: i32, width: u32, height: u32) -> (i32, i32, u32, u32) {
+    use std::mem::{size_of, zeroed};
+    use windows_sys::Win32::{
+        Foundation::POINT,
+        Graphics::Gdi::{GetMonitorInfoW, MonitorFromPoint, MONITORINFO, MONITOR_DEFAULTTONEAREST},
+    };
+
+    let center = POINT {
+        x: x.saturating_add(i32::try_from(width / 2).unwrap_or(i32::MAX)),
+        y: y.saturating_add(i32::try_from(height / 2).unwrap_or(i32::MAX)),
+    };
+    let handle = unsafe { MonitorFromPoint(center, MONITOR_DEFAULTTONEAREST) };
+    let mut info: MONITORINFO = unsafe { zeroed() };
+    info.cbSize = size_of::<MONITORINFO>() as u32;
+
+    let succeeded = unsafe { GetMonitorInfoW(handle, &mut info) };
+    let work = info.rcWork;
+    if succeeded == 0 || work.right <= work.left || work.bottom <= work.top {
+        return (x, y, width, height);
+    }
+
+    (
+        work.left,
+        work.top,
+        (work.right - work.left) as u32,
+        (work.bottom - work.top) as u32,
+    )
+}
+
+#[cfg(not(windows))]
+fn monitor_work_area(x: i32, y: i32, width: u32, height: u32) -> (i32, i32, u32, u32) {
+    (x, y, width, height)
+}
+
 fn collect_monitors(app: &tauri::AppHandle) -> Result<Vec<MonitorInfo>, String> {
     let window = monitor_query_window(app)
         .ok_or_else(|| "No window is available to read the monitor layout.".to_string())?;
@@ -1259,52 +1298,23 @@ fn collect_monitors(app: &tauri::AppHandle) -> Result<Vec<MonitorInfo>, String> 
         .map(|monitor| {
             let position = monitor.position();
             let size = monitor.size();
+            let (work_x, work_y, work_width, work_height) =
+                monitor_work_area(position.x, position.y, size.width, size.height);
             MonitorInfo {
                 name: monitor.name().cloned(),
                 x: position.x,
                 y: position.y,
                 width: size.width,
                 height: size.height,
+                work_x,
+                work_y,
+                work_width,
+                work_height,
                 scale_factor: monitor.scale_factor(),
                 is_primary: primary_origin == Some((position.x, position.y)),
             }
         })
         .collect())
-}
-
-#[cfg(windows)]
-fn primary_work_area(primary: &MonitorInfo) -> MonitorInfo {
-    use windows_sys::Win32::{
-        Foundation::RECT,
-        UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETWORKAREA},
-    };
-
-    let mut rect = RECT {
-        left: 0,
-        top: 0,
-        right: 0,
-        bottom: 0,
-    };
-    let succeeded =
-        unsafe { SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut rect as *mut RECT).cast(), 0) };
-    if succeeded == 0 || rect.right <= rect.left || rect.bottom <= rect.top {
-        return primary.clone();
-    }
-
-    MonitorInfo {
-        name: primary.name.clone(),
-        x: rect.left,
-        y: rect.top,
-        width: (rect.right - rect.left) as u32,
-        height: (rect.bottom - rect.top) as u32,
-        scale_factor: primary.scale_factor,
-        is_primary: true,
-    }
-}
-
-#[cfg(not(windows))]
-fn primary_work_area(primary: &MonitorInfo) -> MonitorInfo {
-    primary.clone()
 }
 
 /// The widget's current physical bounds: the live window's when it's open,
@@ -1398,11 +1408,10 @@ pub fn reset_widget_position(
         .find(|monitor| monitor.is_primary)
         .or_else(|| monitors.first())
         .ok_or_else(|| "No monitor is available.".to_string())?;
-    let work_area = primary_work_area(primary);
 
     // Keep recovered widgets inside the usable desktop, excluding the taskbar.
-    let max_width = (((work_area.width as f64) * 0.9) as u32).max(MIN_WIDGET_WIDTH);
-    let max_height = (((work_area.height as f64) * 0.9) as u32).max(MIN_WIDGET_HEIGHT);
+    let max_width = (((primary.work_width as f64) * 0.9) as u32).max(MIN_WIDGET_WIDTH);
+    let max_height = (((primary.work_height as f64) * 0.9) as u32).max(MIN_WIDGET_HEIGHT);
 
     let mut settings = read_widget_settings(&app)?;
 
@@ -1424,8 +1433,8 @@ pub fn reset_widget_position(
                 .set_size(PhysicalSize::new(width, height))
                 .map_err(|error| error.to_string())?;
         }
-        let x = work_area.x + (work_area.width.saturating_sub(width) / 2) as i32;
-        let y = work_area.y + (work_area.height.saturating_sub(height) / 2) as i32;
+        let x = primary.work_x + (primary.work_width.saturating_sub(width) / 2) as i32;
+        let y = primary.work_y + (primary.work_height.saturating_sub(height) / 2) as i32;
         window
             .set_position(PhysicalPosition::new(x, y))
             .map_err(|error| error.to_string())?;
@@ -1457,8 +1466,8 @@ pub fn reset_widget_position(
                 )
             })
             .unwrap_or((DEFAULT_WIDGET_WIDTH as u32, DEFAULT_WIDGET_HEIGHT as u32));
-        let x = work_area.x + (work_area.width.saturating_sub(width) / 2) as i32;
-        let y = work_area.y + (work_area.height.saturating_sub(height) / 2) as i32;
+        let x = primary.work_x + (primary.work_width.saturating_sub(width) / 2) as i32;
+        let y = primary.work_y + (primary.work_height.saturating_sub(height) / 2) as i32;
         widget.bounds = Some(StoredWidgetBounds {
             x,
             y,

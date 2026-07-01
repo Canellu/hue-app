@@ -279,8 +279,9 @@ const SceneEditPane: React.FC<{
         hideScrollbar
         className="min-h-0 flex-1"
         viewportClassName="px-6 pb-6"
+        contentClassName="flex min-h-full flex-col"
       >
-        <div className="flex min-h-full flex-col justify-between gap-6">
+        <div className="flex flex-1 flex-col justify-between gap-6">
           <div className="flex flex-col gap-6">
             <div className="flex flex-col items-center gap-3 pt-1">
               <span

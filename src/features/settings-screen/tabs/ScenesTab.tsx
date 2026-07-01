@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -98,32 +99,40 @@ const CreateSceneForm = ({
 
   return (
     <form
-      className="grid gap-3 sm:grid-cols-[1fr_auto_auto]"
+      className="grid items-end gap-3 sm:grid-cols-[1fr_auto_auto]"
       onSubmit={(event) => void submit(event)}
     >
-      <Input
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        placeholder="Scene name"
-        aria-label="Scene name"
-        disabled={isSaving}
-      />
-      <Select
-        items={items}
-        value={selectedSpaceId}
-        onValueChange={(value) => setSelectedSpaceId(value as string | null)}
-      >
-        <SelectTrigger className="w-full sm:w-56">
-          <SelectValue placeholder="Target space" />
-        </SelectTrigger>
-        <SelectContent>
-          {roomZones.map((space) => (
-            <SelectItem key={space.id} value={space.id}>
-              {space.resourceType === "room" ? "Room" : "Zone"} · {space.name}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <div className="grid gap-2">
+        <Label htmlFor="scene-name">Scene name</Label>
+        <Input
+          id="scene-name"
+          size="lg"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Enter scene name"
+          disabled={isSaving}
+        />
+      </div>
+      <div className="grid gap-2">
+        <Label htmlFor="scene-space">Room or zone</Label>
+        <Select
+          items={items}
+          value={selectedSpaceId}
+          onValueChange={(value) => setSelectedSpaceId(value as string | null)}
+          disabled={isSaving}
+        >
+          <SelectTrigger id="scene-space" className="h-10 w-full sm:w-56">
+            <SelectValue placeholder="Choose a space" />
+          </SelectTrigger>
+          <SelectContent>
+            {roomZones.map((space) => (
+              <SelectItem key={space.id} value={space.id}>
+                {space.resourceType === "room" ? "Room" : "Zone"} · {space.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
       <Button
         type="submit"
         className="gap-2"

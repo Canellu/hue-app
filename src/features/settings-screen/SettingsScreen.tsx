@@ -5,6 +5,7 @@ import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { useWidgets } from "@/features/widget-screen/useWidgets";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HueRoomZone, HueSettingsSummary } from "@/types/hue";
+import type { SyncBoxSession } from "@/types/sync-box";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { invoke } from "@tauri-apps/api/core";
 import { ArrowUp } from "lucide-react";
@@ -15,9 +16,10 @@ import type { ThemeMode } from "../../context/ThemeContext";
 import { AddDevicesButton } from "./components/AddDevicesButton";
 import { AddSpaceButton } from "./components/AddSpaceButton";
 import { AddWidgetButton } from "./components/AddWidgetButton";
-import { SettingsNav } from "./components/SettingsNav";
+import { SettingsSidebar } from "./components/SettingsSidebar";
 import { settingsTabs } from "./settingsTabs";
 import { BridgeTab } from "./tabs/BridgeTab";
+import { SyncBoxTab } from "./tabs/SyncBoxTab";
 import { DevicesTab } from "./tabs/DevicesTab";
 import { GeneralTab } from "./tabs/GeneralTab";
 import { ScenesTab } from "./tabs/ScenesTab";
@@ -50,6 +52,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   const loadAll = useHueResourcesStore((state) => state.loadAll);
   const [summary, setSummary] = useState<HueSettingsSummary | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(true);
+  const [syncBoxSession, setSyncBoxSession] = useState<SyncBoxSession | null>(
+    null,
+  );
+  const [isLoadingSyncBox, setIsLoadingSyncBox] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [isLoadingAppSettings, setIsLoadingAppSettings] = useState(true);
@@ -123,9 +129,36 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     }
   };
 
+  const loadSyncBoxSession = async () => {
+    try {
+      const session = await invoke<SyncBoxSession>("get-sync-box-session");
+      setSyncBoxSession(session);
+    } catch (error) {
+      setSettingsError(String(error) || "Unable to load Sync Box settings.");
+    } finally {
+      setIsLoadingSyncBox(false);
+    }
+  };
+
+  const resetSyncBoxSession = async () => {
+    try {
+      await invoke("reset-sync-box-session");
+      setSyncBoxSession({
+        configured: false,
+        connected: false,
+        syncBox: null,
+        error: null,
+      });
+      toast.success("Sync Box removed");
+    } catch (error) {
+      setSettingsError(String(error) || "Unable to remove Sync Box.");
+    }
+  };
+
   useEffect(() => {
     void loadSettingsSummary();
     void loadAppSettings();
+    void loadSyncBoxSession();
   }, []);
 
   const refreshSettings = async () => {
@@ -240,20 +273,20 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
       className="@container flex min-h-0 w-full flex-1 flex-col gap-0"
     >
       <div className="flex min-h-0 flex-1 flex-col">
-        <SettingsNav
-          activeTab={activeTab}
-          onSelect={(tab) =>
-            void navigate({ to: "/settings", search: { tab } })
-          }
-        />
-        <Card className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-border p-0 shadow-none ring-0 dark:shadow-none">
+        <Card className="relative flex min-h-0 flex-1 flex-row overflow-hidden rounded-2xl border border-border p-0 shadow-none ring-0 dark:shadow-none">
+          <SettingsSidebar
+            activeTab={activeTab}
+            onSelect={(tab) =>
+              void navigate({ to: "/settings", search: { tab } })
+            }
+          />
           <ScrollArea
             fade
             className="min-h-0 flex-1"
             viewportClassName="p-6"
             viewportRef={viewportRef}
           >
-            <div className="mx-auto w-full max-w-3xl pt-16">
+            <div className="mx-auto w-full max-w-3xl pt-8">
               <div className="flex items-center justify-between gap-4 pb-10">
                 <div className="min-w-0 space-y-2">
                   <h1 className="font-heading text-2xl font-semibold tracking-tight">
@@ -308,6 +341,17 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   fallbackBridgeIp={bridgeIp}
                   applicationKey={applicationKey}
                   onResetSession={resetSession}
+                />
+              </TabsContent>
+
+              <TabsContent value="sync-box">
+                <SyncBoxTab
+                  syncBox={syncBoxSession?.syncBox}
+                  configured={syncBoxSession?.configured ?? false}
+                  connected={syncBoxSession?.connected ?? false}
+                  isLoadingSession={isLoadingSyncBox}
+                  onSetUp={() => void navigate({ to: "/sync" })}
+                  onResetSession={resetSyncBoxSession}
                 />
               </TabsContent>
 

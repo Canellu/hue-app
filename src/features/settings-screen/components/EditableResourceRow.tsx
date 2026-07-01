@@ -63,7 +63,7 @@ export const EditableResourceRow = ({
   const visibleMeta = meta.filter(Boolean);
 
   return (
-    <div className="rounded-xl bg-background/70 px-3 py-3">
+    <div className="min-w-0 max-w-full overflow-hidden rounded-xl bg-background/70 px-3 py-3">
       {isEditing ? (
         <form className="flex gap-2" onSubmit={(event) => void submit(event)}>
           <Input

@@ -1,9 +1,9 @@
 import { AppHeader } from "@/components/AppHeader";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
 import { GroupPane } from "@/features/space-screen/components/GroupPane";
 import { LightPane } from "@/features/space-screen/components/LightPane";
 import { ScenePane } from "@/features/space-screen/components/ScenePane";
-import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
 import { cn } from "@/lib/utils";
 import {
   HueResourcesStoreEffects,
@@ -12,6 +12,7 @@ import {
 import type { HueLight, HueRoomZone, HueScene } from "@/types/hue";
 import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { listen } from "@tauri-apps/api/event";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 
@@ -21,29 +22,20 @@ type InspectorContent =
   | { kind: "scene"; id: string; scene: HueScene }
   | { kind: "group"; id: string; roomZone: HueRoomZone; lights: HueLight[] };
 
-/**
- * Width of the inspector column; the floating card matches it. Caps at 28rem on
- * wide windows but is allowed to shrink (down to 20rem) on narrow ones so it
- * doesn't crowd out the light grid.
- */
-const PANE_WIDTH = "clamp(20rem, 40vw, 28rem)";
+const getInspectorPaneWidth = () => {
+  const rootFontSize = Number.parseFloat(
+    getComputedStyle(document.documentElement).fontSize,
+  );
+  return Math.min(
+    28 * rootFontSize,
+    Math.max(20 * rootFontSize, innerWidth * 0.4),
+  );
+};
 
 /**
- * The light inspector. The `<aside>` reserves its width in a single step (no CSS
- * width transition) so the reflow happens inside the same React commit that
- * toggles `inspectorPaneOpen` — that lets `motion`'s `layout` FLIP the light
- * grid cards smoothly as the column opens and closes. The width must collapse
- * on the *same* commit the cards re-render, otherwise the reflow has no
- * snapshot to animate from and snaps.
- *
- * The panel itself is a floating, rounded, fully-bordered card inset from the
- * edges, revealed by an inner right-anchored clip frame whose width animates:
- * on open the card wipes in from the right (plus a slight slide + fade), on
- * close it wipes away from the left. That clip frame is `absolute` (out of
- * flow) so its width animation doesn't disturb the grid. The last selected
- * content is kept mounted (`shown`) through the exit transition so the card
- * doesn't blank out mid-fade. On close the spacer collapses immediately (cards
- * FLIP back) while the clip frame wipes the card out over the reclaimed space.
+ * The inspector's real flex width animates so it continuously pushes the main
+ * content aside. The full-width panel translates in from beyond the right edge
+ * in sync, giving it the same movement as a sheet without using an overlay.
  */
 const LightInspector: React.FC = () => {
   const {
@@ -117,105 +109,106 @@ const LightInspector: React.FC = () => {
 
   const open = inspectorPaneOpen;
   const close = () => setInspectorPaneOpen(false);
+  const reduceMotion = useReducedMotion();
+  const [paneWidth, setPaneWidth] = useState(getInspectorPaneWidth);
+  const transition = {
+    duration: reduceMotion ? 0 : 0.3,
+    ease: [0.4, 0, 0.2, 1] as const,
+  };
+
+  useEffect(() => {
+    const updatePaneWidth = () => setPaneWidth(getInspectorPaneWidth());
+    window.addEventListener("resize", updatePaneWidth);
+    return () => window.removeEventListener("resize", updatePaneWidth);
+  }, []);
 
   // Keep showing the last content while the panel animates closed, so it
-  // doesn't blank out before the fade finishes.
+  // doesn't blank out before it is fully clipped.
   const [shown, setShown] = useState<InspectorContent | null>(null);
   useEffect(() => {
     if (current) setShown(current);
   }, [current]);
 
-  // Drive the enter transition: mount in the hidden state, then flip to visible
-  // on the next frame so the browser animates from one to the other.
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    if (!open) {
-      setVisible(false);
-      return;
-    }
-    const id = requestAnimationFrame(() => setVisible(true));
-    return () => cancelAnimationFrame(id);
-  }, [open]);
-
   const content = current ?? (open ? null : shown);
-  const paneWidth = PANE_WIDTH;
+  const contentKey = content ? `${content.kind}:${content.id}` : "empty";
 
   return (
-    <aside
+    <motion.aside
+      initial={false}
+      animate={{ width: open ? paneWidth : 0 }}
+      transition={transition}
       className="relative shrink-0"
-      style={{ width: open ? paneWidth : 0 }}
       inert={!open}
+      onAnimationComplete={() => {
+        if (!open) setShown(null);
+      }}
     >
-      {/*
-        Clip frame: a right-anchored, overflow-hidden box whose width animates
-        0 -> PANE_WIDTH, revealing the fixed-width card from the right on open
-        and clipping it away from the left on close (the real width-reveal the
-        old version had). It's `absolute`, so it's out of flow and its width
-        animation never affects the light grid — the grid's FLIP reflow is
-        driven only by the spacer <aside> above, whose width is instant.
-      */}
-      <div
-        className="absolute inset-y-0 right-0 flex justify-end overflow-hidden transition-[width] duration-300 ease-out"
-        style={{ width: visible ? paneWidth : 0 }}
+      <motion.div
+        initial={false}
+        animate={{
+          x: open ? 0 : paneWidth,
+          opacity: open ? 1 : 0,
+        }}
+        transition={transition}
+        className="absolute inset-y-0 right-0 h-full shrink-0 p-6 pl-0"
+        style={{ width: paneWidth }}
       >
-        <div className="h-full shrink-0 p-6 pl-0" style={{ width: paneWidth }}>
-          <div
-            className={cn(
-              "flex h-full flex-col overflow-hidden rounded-3xl border border-border bg-card text-card-foreground transition-[opacity,transform] duration-300 ease-out",
-              visible ? "translate-x-0 opacity-100" : "translate-x-2 opacity-0",
-            )}
-            onTransitionEnd={() => {
-              if (!open) setShown(null);
-            }}
-          >
-            {content ? (
-              content.kind === "light" ? (
-                <LightPane
-                  key={content.id}
-                  light={content.light}
-                  space={activeSpace}
-                  hueEventRevision={hueEventRevision}
-                  onClose={close}
-                  onLightToggle={(l, on) => setLightState(l, on, null)}
-                  onLightBrightness={(l, pct, phase) =>
-                    setLightState(l, pct > 0, pct, phase)
-                  }
-                  onLightColor={(l, change) => setLightColor(l, change)}
-                />
-              ) : content.kind === "group" ? (
-                <GroupPane
-                  key={content.id}
-                  roomZone={content.roomZone}
-                  lights={content.lights}
-                  hueEventRevision={hueEventRevision}
-                  onClose={close}
-                  onToggle={(g, on) => setRoomZoneState(g, on, null)}
-                  onBrightness={(g, pct, phase) =>
-                    setRoomZoneState(g, pct > 0, pct, phase)
-                  }
-                  onLightColor={(l, change) => setLightColor(l, change)}
-                />
+        <div className="flex h-full flex-col overflow-hidden rounded-3xl border border-border bg-card text-card-foreground">
+          <AnimatePresence initial={false} mode="wait">
+            <motion.div
+              key={contentKey}
+              initial={{ opacity: 0, y: reduceMotion ? 0 : 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{
+                duration: reduceMotion ? 0 : 0.18,
+                ease: "easeOut",
+              }}
+              className="h-full"
+            >
+              {content ? (
+                content.kind === "light" ? (
+                  <LightPane
+                    light={content.light}
+                    space={activeSpace}
+                    hueEventRevision={hueEventRevision}
+                    onClose={close}
+                    onLightToggle={(l, on) => setLightState(l, on, null)}
+                    onLightBrightness={(l, pct, phase) =>
+                      setLightState(l, pct > 0, pct, phase)
+                    }
+                    onLightColor={(l, change) => setLightColor(l, change)}
+                  />
+                ) : content.kind === "group" ? (
+                  <GroupPane
+                    roomZone={content.roomZone}
+                    lights={content.lights}
+                    hueEventRevision={hueEventRevision}
+                    onClose={close}
+                    onToggle={(g, on) => setRoomZoneState(g, on, null)}
+                    onBrightness={(g, pct, phase) =>
+                      setRoomZoneState(g, pct > 0, pct, phase)
+                    }
+                    onLightColor={(l, change) => setLightColor(l, change)}
+                  />
+                ) : (
+                  <ScenePane scene={content.scene} onClose={close} />
+                )
               ) : (
-                <ScenePane
-                  key={content.id}
-                  scene={content.scene}
-                  onClose={close}
-                />
-              )
-            ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
-                <p className="font-heading text-lg font-medium text-foreground">
-                  Nothing selected
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  Click a light or scene tile to show it here.
-                </p>
-              </div>
-            )}
-          </div>
+                <div className="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
+                  <p className="font-heading text-lg font-medium text-foreground">
+                    Nothing selected
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Click a light or scene tile to show it here.
+                  </p>
+                </div>
+              )}
+            </motion.div>
+          </AnimatePresence>
         </div>
-      </div>
-    </aside>
+      </motion.div>
+    </motion.aside>
   );
 };
 
@@ -317,7 +310,9 @@ const ShellHeader: React.FC = () => {
       title={title}
       description={description}
       titleIcon={
-        ActiveSpaceIcon ? <ActiveSpaceIcon size={24} strokeWidth={2.25} /> : undefined
+        ActiveSpaceIcon ? (
+          <ActiveSpaceIcon size={24} strokeWidth={2.25} />
+        ) : undefined
       }
       onTitleRename={(name) =>
         window.dispatchEvent(
@@ -372,7 +367,11 @@ const ShellHeader: React.FC = () => {
 export const RootLayout: React.FC = () => {
   const viewportRef = useRef<HTMLDivElement>(null);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const routeOwnsScroll = pathname === "/settings";
   const navigate = useNavigate();
+  const inspectorPaneOpen = useHueResourcesStore(
+    (state) => state.inspectorPaneOpen,
+  );
 
   // The viewport is a single persistent element across route changes, so its
   // scroll offset would otherwise carry over to the next page. Reset to the top
@@ -382,16 +381,19 @@ export const RootLayout: React.FC = () => {
   }, [pathname]);
 
   useEffect(() => {
-    const unlisten = listen<{ widgetId: string }>("open-widget-settings", (event) => {
-      void navigate({
-        to: "/settings",
-        search: {
-          tab: "widget",
-          widgetId: event.payload.widgetId,
-          widgetRequest: Date.now(),
-        },
-      });
-    });
+    const unlisten = listen<{ widgetId: string }>(
+      "open-widget-settings",
+      (event) => {
+        void navigate({
+          to: "/settings",
+          search: {
+            tab: "widget",
+            widgetId: event.payload.widgetId,
+            widgetRequest: Date.now(),
+          },
+        });
+      },
+    );
     return () => {
       void unlisten.then((dispose) => dispose());
     };
@@ -407,8 +409,20 @@ export const RootLayout: React.FC = () => {
             fade
             hideScrollbar
             viewportRef={viewportRef}
+            viewportProps={
+              routeOwnsScroll
+                ? { style: { overflowY: "hidden" } }
+                : undefined
+            }
             className="min-h-0 min-w-0 flex-1"
-            viewportClassName="px-12 py-6"
+            viewportClassName={cn(
+              "py-6 pl-12 transition-[padding] duration-300 ease-out motion-reduce:transition-none",
+              inspectorPaneOpen ? "pr-2" : "pr-12",
+            )}
+            contentClassName={cn(
+              "min-w-0!",
+              routeOwnsScroll ? "h-full" : "min-h-full",
+            )}
           >
             <Outlet />
           </ScrollArea>

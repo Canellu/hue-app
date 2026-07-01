@@ -22,9 +22,6 @@ import { toast } from "sonner";
 // Rust DEFAULT_WIDGET_WIDTH/HEIGHT so the preview rectangle matches.
 const FALLBACK_WIDTH = 360;
 const FALLBACK_HEIGHT = 136;
-// Gap (physical px) kept between the widget and the monitor edge when snapping
-// to an edge or corner region, so it never sits flush against the bezel.
-const EDGE_MARGIN = 24;
 // Caps the preview height; its width then follows from the desktop aspect ratio
 // so a wide multi-monitor layout stays short rather than overflowing the panel.
 const MAX_PREVIEW_HEIGHT = 200;
@@ -225,28 +222,36 @@ export const WidgetPositionPicker = ({ widgetId }: { widgetId: string }) => {
   const snapToRegion = (monitor: MonitorInfo, row: number, col: number) => {
     const w = Math.min(
       placement?.bounds?.width ?? FALLBACK_WIDTH,
-      monitor.width,
+      monitor.workWidth,
     );
     const h = Math.min(
       placement?.bounds?.height ?? FALLBACK_HEIGHT,
-      monitor.height,
+      monitor.workHeight,
     );
 
     const byCol = [
-      monitor.x + EDGE_MARGIN,
-      monitor.x + (monitor.width - w) / 2,
-      monitor.x + monitor.width - w - EDGE_MARGIN,
+      monitor.workX,
+      monitor.workX + (monitor.workWidth - w) / 2,
+      monitor.workX + monitor.workWidth - w,
     ];
     const byRow = [
-      monitor.y + EDGE_MARGIN,
-      monitor.y + (monitor.height - h) / 2,
-      monitor.y + monitor.height - h - EDGE_MARGIN,
+      monitor.workY,
+      monitor.workY + (monitor.workHeight - h) / 2,
+      monitor.workY + monitor.workHeight - h,
     ];
 
     const clamp = (value: number, min: number, max: number) =>
       Math.min(Math.max(value, min), max);
-    const x = clamp(byCol[col], monitor.x, monitor.x + monitor.width - w);
-    const y = clamp(byRow[row], monitor.y, monitor.y + monitor.height - h);
+    const x = clamp(
+      byCol[col],
+      monitor.workX,
+      monitor.workX + monitor.workWidth - w,
+    );
+    const y = clamp(
+      byRow[row],
+      monitor.workY,
+      monitor.workY + monitor.workHeight - h,
+    );
     void moveTo(x, y);
   };
 

@@ -68,6 +68,7 @@ import {
   type LightFunction,
   type SpaceEditOperation,
 } from "./spaceEditActions";
+import { isSceneDynamicActive } from "./utils/scene-status";
 
 type ControlCommitPhase = "live" | "final";
 // Selectable (multiselect) sections. "group" is reorderable but not selectable.
@@ -248,7 +249,7 @@ interface SpaceScreenProps {
   onSelectLight: (id: string) => void;
   /** Tapping a scene card: apply its stored colors to the room's lights. */
   onSceneApply: (scene: HueScene) => void;
-  /** Open the side pane on a scene without applying it (the card's triple-dot button). */
+  /** Open the side pane on a scene without applying it (the card's panel button). */
   onSceneInspect: (scene: HueScene) => void;
   /** The card's play/stop button: start or stop the dynamic palette. */
   onSceneTogglePlay: (scene: HueScene) => void;
@@ -426,6 +427,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
   const orderedSensors = applyItemOrder(sensors, itemOrder.sensors);
 
   const showScenes = scenes.length > 0 || lights.length > 0;
+  const playingScene = scenes.find(isSceneDynamicActive) ?? null;
 
   const selectFrom =
     (category: EditCategory) => (event: React.MouseEvent<HTMLDivElement>) => {
@@ -511,6 +513,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
         key={roomZone.id}
         roomZone={roomZone}
         lights={lights}
+        playingScene={playingScene}
         hueEventRevision={hueEventRevision}
         editing={editing || managing}
         onToggle={onRoomZoneToggle}

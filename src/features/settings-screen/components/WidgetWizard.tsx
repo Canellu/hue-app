@@ -1,12 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -14,7 +9,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
-import { ControlView } from "@/features/widget-screen/components/ControlCard";
+import { ControlCard } from "@/features/widget-screen/components/ControlCard";
 import {
   SceneCardRail,
   SceneRailItem,
@@ -26,8 +21,10 @@ import {
   type WidgetThemeMode,
 } from "@/features/widget-screen/types";
 import {
-  WIDGET_CARD_GRID_COLUMNS,
+  WIDGET_SIDE_PADDING,
+  WIDGET_SIZE_METRICS,
   resolveWidgetTheme,
+  widgetCardGridColumns,
   widgetShellStyle,
 } from "@/features/widget-screen/widgetShell";
 import { cn } from "@/lib/utils";
@@ -52,7 +49,6 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   Check,
   ChevronDown,
-  ChevronLeft,
   GripVertical,
   Lightbulb,
   Search,
@@ -61,6 +57,11 @@ import {
 } from "lucide-react";
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  SettingsWizardContainedStep,
+  SettingsWizardLayout,
+  SettingsWizardViewport,
+} from "./SettingsWizardLayout";
 
 const BLINK_DURATION_MS = 3_000;
 
@@ -416,343 +417,252 @@ export const WidgetWizard = ({
   };
 
   return (
-    <div className="mx-auto flex h-full w-full max-w-5xl flex-col text-foreground">
-      <header className="mx-auto w-full max-w-2xl shrink-0 pt-2 pb-8">
-        <div className="grid grid-cols-3 gap-2">
-          {steps.map((label, index) => {
-            const active = index === step;
-            const clickable = index <= maxUnlockedStep;
-            return (
-              <button
-                key={label}
-                type="button"
-                disabled={!clickable}
-                onClick={() => setStep(index)}
-                className={cn(
-                  "group flex flex-col items-center gap-2 text-center",
-                  clickable ? "cursor-pointer" : "cursor-default",
-                )}
-              >
-                <span
-                  className={cn(
-                    "block max-w-full truncate text-xs font-medium transition-colors",
-                    active ? "text-foreground" : "text-muted-foreground",
-                    clickable && !active && "group-hover:text-foreground/60",
-                  )}
-                >
-                  {label}
-                </span>
-                <span
-                  className={cn(
-                    "block h-1 w-full rounded-full transition-[opacity,background-color] duration-200 ease-out",
-                    active
-                      ? "bg-primary"
-                      : index <= maxUnlockedStep
-                        ? "bg-foreground"
-                        : "bg-border",
-                    clickable && "group-hover:opacity-60",
-                  )}
-                />
-              </button>
-            );
-          })}
-        </div>
-      </header>
+    <SettingsWizardLayout
+      steps={steps}
+      step={step}
+      maxUnlockedStep={maxUnlockedStep}
+      onStepChange={setStep}
+      canContinue={canContinue}
+      onContinue={nextStep}
+      finalAction={{
+        label: "Create Widget",
+        disabled: !title.trim() || !selected.length,
+        onClick: create,
+      }}
+    >
+      <SettingsWizardViewport stepKey={step} contained={step === 1}>
+        {step === 0 ? (
+          <section className="mx-auto flex w-full max-w-md flex-col items-center gap-12 py-16 text-center">
+            <div className="space-y-3">
+              <h1 className="font-heading text-3xl font-semibold">
+                Name your widget
+              </h1>
+              <p className="text-base text-muted-foreground">
+                Give this widget a unique name so you can easily identify and
+                manage it in the application.
+              </p>
+            </div>
+            <Input
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && canContinue) nextStep();
+              }}
+              placeholder={namePlaceholder}
+              autoFocus
+              size="xl"
+              className="rounded-2xl border-foreground/15 bg-input/50 text-left text-lg"
+            />
+          </section>
+        ) : null}
 
-      <main
-        className={cn(
-          "flex min-h-0 flex-1 flex-col",
-          step === 1 ? "overflow-hidden" : "overflow-y-auto",
-        )}
-      >
-        <div
-          key={step}
-          className={cn(
-            "flex min-h-full flex-1 flex-col animate-in fade-in",
-            step !== 1 && "justify-center",
-          )}
-          style={{
-            animationDuration: "600ms",
-            animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
-          }}
-        >
-          {step === 0 ? (
-            <section className="mx-auto flex w-full max-w-md flex-col items-center gap-12 py-16 text-center">
-              <div className="space-y-3">
-                <h1 className="font-heading text-3xl font-semibold">
-                  Name your widget
-                </h1>
-                <p className="text-base text-muted-foreground">
-                  Give this widget a unique name so you can easily identify and
-                  manage it in the application.
-                </p>
-              </div>
-              <Input
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && canContinue) nextStep();
-                }}
-                placeholder={namePlaceholder}
-                autoFocus
-                size="xl"
-                className="rounded-2xl border-foreground/15 bg-input/50 text-left text-lg"
+        {step === 1 ? (
+          <SettingsWizardContainedStep>
+            <div className="shrink-0 space-y-3 text-center">
+              <h1 className="font-heading text-3xl font-semibold">
+                Select Controls
+              </h1>
+              <p className="text-base text-muted-foreground">
+                Choose the rooms, zones, or individual lights you want to manage
+                with this widget.
+              </p>
+            </div>
+
+            <div className="relative w-full shrink-0">
+              <Search
+                size={18}
+                className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
               />
-            </section>
-          ) : null}
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search rooms, zones, or lights"
+                size="xl"
+                className="rounded-2xl border-foreground/15 bg-input/50 pl-12 text-left"
+              />
+            </div>
 
-          {step === 1 ? (
-            <section className="mx-auto flex h-full w-full max-w-2xl flex-col">
-              <div className="my-auto flex max-h-full min-h-0 w-full flex-col gap-6 py-4">
-                <div className="shrink-0 space-y-3 text-center">
-                  <h1 className="font-heading text-3xl font-semibold">
-                    Select Controls
-                  </h1>
-                  <p className="text-base text-muted-foreground">
-                    Choose the rooms, zones, or individual lights you want to
-                    manage with this widget.
-                  </p>
-                </div>
-
-                <div className="relative w-full shrink-0">
-                  <Search
-                    size={18}
-                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground"
-                  />
-                  <Input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="Search rooms, zones, or lights"
-                    size="xl"
-                    className="rounded-2xl border-foreground/15 bg-input/50 pl-12 text-left"
-                  />
-                </div>
-
-                {roomZoneOptions.length === 0 && lightOptions.length === 0 ? (
-                  <p className="py-12 text-center text-sm text-muted-foreground">
-                    No rooms or lights are available yet.
-                  </p>
-                ) : (
-                  <ScrollArea
-                    fade="bottom"
-                    className="min-h-0 flex-1"
-                    viewportClassName="pr-2"
-                  >
-                    <div className="space-y-6 pb-1">
-                      {roomZoneOptions.length > 0 ? (
-                        <TargetSection
-                          title="Rooms & Zones"
-                          count={filteredRoomZones.length}
-                          open={spacesOpen}
-                          onToggleOpen={() => setSpacesOpen((open) => !open)}
-                          allSelected={roomZonesAllSelected}
-                          onSelectAll={() =>
-                            setKeysSelected(roomZoneKeys, !roomZonesAllSelected)
-                          }
-                        >
-                          {filteredRoomZones.length > 0 ? (
-                            filteredRoomZones.map((target) => (
-                              <TargetRow
-                                key={target.id}
-                                checked={selected.includes(
-                                  targetKey(target.resourceType, target.id),
-                                )}
-                                blinking={blinkingTargets.has(
-                                  targetKey(target.resourceType, target.id),
-                                )}
-                                icon={(() => {
-                                  const Icon = getRoomZoneIcon(target.class);
-                                  return <Icon size={18} />;
-                                })()}
-                                title={target.name}
-                                meta={`${target.resourceType} · ${target.lightCount} light${target.lightCount === 1 ? "" : "s"}`}
-                                onToggle={() =>
-                                  toggleTarget(
-                                    targetKey(target.resourceType, target.id),
-                                  )
-                                }
-                                onFlash={() => flashRoomZone(target)}
-                              />
-                            ))
-                          ) : (
-                            <EmptyRow />
-                          )}
-                        </TargetSection>
-                      ) : null}
-
-                      {lightOptions.length > 0 ? (
-                        <TargetSection
-                          title="Individual Lights"
-                          count={filteredLights.length}
-                          open={lightsOpen}
-                          onToggleOpen={() => setLightsOpen((open) => !open)}
-                          allSelected={lightsAllSelected}
-                          onSelectAll={() =>
-                            setKeysSelected(lightKeys, !lightsAllSelected)
-                          }
-                        >
-                          {filteredLights.length > 0 ? (
-                            filteredLights.map((light) => (
-                              <TargetRow
-                                key={light.id}
-                                checked={selected.includes(
-                                  targetKey("light", light.id),
-                                )}
-                                blinking={blinkingTargets.has(
-                                  targetKey("light", light.id),
-                                )}
-                                icon={<Lightbulb size={18} />}
-                                title={light.name}
-                                meta={[
-                                  light.productName,
-                                  light.reachable ? "Reachable" : "Offline",
-                                ]
-                                  .filter(Boolean)
-                                  .join(" · ")}
-                                onToggle={() =>
-                                  toggleTarget(targetKey("light", light.id))
-                                }
-                                onFlash={() => flashLight(light)}
-                              />
-                            ))
-                          ) : (
-                            <EmptyRow />
-                          )}
-                        </TargetSection>
-                      ) : null}
-                    </div>
-                  </ScrollArea>
-                )}
-              </div>
-            </section>
-          ) : null}
-
-          {step === 2 ? (
-            <section className="space-y-6">
-              <div className="space-y-2 text-center">
-                <h1 className="font-heading text-3xl font-semibold">
-                  Configure
-                </h1>
-                <p className="text-base text-muted-foreground">
-                  Arrange your controls and style the desktop frame before
-                  the widget opens.
-                </p>
-                <p className="text-xs text-muted-foreground/80">
-                  All settings can be changed after the widget is created.
-                </p>
-              </div>
-              <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
-                <Tabs defaultValue="controls" className="min-w-0 gap-4">
-                  <TabsList className="w-full">
-                    <TabsTrigger value="controls">Controls</TabsTrigger>
-                    <TabsTrigger value="appearance">Appearance</TabsTrigger>
-                  </TabsList>
-                  <TabsContent
-                    value="controls"
-                    className="flex min-w-0 flex-col gap-3"
-                  >
-                    {controls.length === 0 ? (
-                      <p className="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-sm text-muted-foreground">
-                        Go back and choose at least one control to configure it
-                        here.
-                      </p>
-                    ) : (
-                      controls.map((control) => {
-                        const isLight = control.target.kind === "light";
-                        const Icon = isLight
-                          ? Lightbulb
-                          : getRoomZoneIcon(
-                              roomZoneById.get(control.target.id)?.class ?? "",
-                            );
-                        const groupScenes = isLight
-                          ? []
-                          : scenes.filter(
-                              (scene) => scene.group === control.target.id,
-                            );
-                        return (
-                          <ControlConfigRow
-                            key={control.id}
-                            control={control}
-                            icon={<Icon size={18} strokeWidth={2.5} />}
-                            groupScenes={groupScenes}
-                            onCompactChange={(compact) =>
-                              setControlCompact(control.id, compact)
+            {roomZoneOptions.length === 0 && lightOptions.length === 0 ? (
+              <p className="py-12 text-center text-sm text-muted-foreground">
+                No rooms or lights are available yet.
+              </p>
+            ) : (
+              <ScrollArea
+                fade="bottom"
+                className="min-h-0 flex-1 overflow-hidden"
+                viewportClassName="pr-2"
+              >
+                <div className="space-y-6 pb-1">
+                  {roomZoneOptions.length > 0 ? (
+                    <TargetSection
+                      title="Rooms & Zones"
+                      count={filteredRoomZones.length}
+                      open={spacesOpen}
+                      onToggleOpen={() => setSpacesOpen((open) => !open)}
+                      allSelected={roomZonesAllSelected}
+                      onSelectAll={() =>
+                        setKeysSelected(roomZoneKeys, !roomZonesAllSelected)
+                      }
+                    >
+                      {filteredRoomZones.length > 0 ? (
+                        filteredRoomZones.map((target) => (
+                          <TargetRow
+                            key={target.id}
+                            checked={selected.includes(
+                              targetKey(target.resourceType, target.id),
+                            )}
+                            blinking={blinkingTargets.has(
+                              targetKey(target.resourceType, target.id),
+                            )}
+                            icon={(() => {
+                              const Icon = getRoomZoneIcon(target.class);
+                              return <Icon size={18} />;
+                            })()}
+                            title={target.name}
+                            meta={`${target.resourceType} · ${target.lightCount} light${target.lightCount === 1 ? "" : "s"}`}
+                            onToggle={() =>
+                              toggleTarget(
+                                targetKey(target.resourceType, target.id),
+                              )
                             }
-                            onToggleScene={(sceneId) =>
-                              toggleControlScene(control.id, sceneId)
-                            }
+                            onFlash={() => flashRoomZone(target)}
                           />
-                        );
-                      })
-                    )}
-                  </TabsContent>
-                  <TabsContent value="appearance" className="space-y-5">
-                    <PickerGroup title="Theme">
-                      {themeModes.map((mode) => (
-                        <OptionButton
-                          key={mode.value}
-                          active={themeMode === mode.value}
-                          compact
-                          icon={<Sparkles size={16} />}
-                          title={mode.label}
-                          onClick={() => setThemeMode(mode.value)}
+                        ))
+                      ) : (
+                        <EmptyRow />
+                      )}
+                    </TargetSection>
+                  ) : null}
+
+                  {lightOptions.length > 0 ? (
+                    <TargetSection
+                      title="Individual Lights"
+                      count={filteredLights.length}
+                      open={lightsOpen}
+                      onToggleOpen={() => setLightsOpen((open) => !open)}
+                      allSelected={lightsAllSelected}
+                      onSelectAll={() =>
+                        setKeysSelected(lightKeys, !lightsAllSelected)
+                      }
+                    >
+                      {filteredLights.length > 0 ? (
+                        filteredLights.map((light) => (
+                          <TargetRow
+                            key={light.id}
+                            checked={selected.includes(
+                              targetKey("light", light.id),
+                            )}
+                            blinking={blinkingTargets.has(
+                              targetKey("light", light.id),
+                            )}
+                            icon={<Lightbulb size={18} />}
+                            title={light.name}
+                            meta={[
+                              light.productName,
+                              light.reachable ? "Reachable" : "Offline",
+                            ]
+                              .filter(Boolean)
+                              .join(" · ")}
+                            onToggle={() =>
+                              toggleTarget(targetKey("light", light.id))
+                            }
+                            onFlash={() => flashLight(light)}
+                          />
+                        ))
+                      ) : (
+                        <EmptyRow />
+                      )}
+                    </TargetSection>
+                  ) : null}
+                </div>
+              </ScrollArea>
+            )}
+          </SettingsWizardContainedStep>
+        ) : null}
+
+        {step === 2 ? (
+          <section className="space-y-6">
+            <div className="space-y-2 text-center">
+              <h1 className="font-heading text-3xl font-semibold">Configure</h1>
+              <p className="text-base text-muted-foreground">
+                Arrange your controls and style the desktop frame before the
+                widget opens.
+              </p>
+              <p className="text-xs text-muted-foreground/80">
+                All settings can be changed after the widget is created.
+              </p>
+            </div>
+            <div className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
+              <Tabs defaultValue="controls" className="min-w-0 gap-4">
+                <TabsList className="w-full">
+                  <TabsTrigger value="controls">Controls</TabsTrigger>
+                  <TabsTrigger value="appearance">Appearance</TabsTrigger>
+                </TabsList>
+                <TabsContent
+                  value="controls"
+                  className="flex min-w-0 flex-col gap-3"
+                >
+                  {controls.length === 0 ? (
+                    <p className="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-sm text-muted-foreground">
+                      Go back and choose at least one control to configure it
+                      here.
+                    </p>
+                  ) : (
+                    controls.map((control) => {
+                      const isLight = control.target.kind === "light";
+                      const Icon = isLight
+                        ? Lightbulb
+                        : getRoomZoneIcon(
+                            roomZoneById.get(control.target.id)?.class ?? "",
+                          );
+                      const groupScenes = isLight
+                        ? []
+                        : scenes.filter(
+                            (scene) => scene.group === control.target.id,
+                          );
+                      return (
+                        <ControlConfigRow
+                          key={control.id}
+                          control={control}
+                          icon={<Icon size={18} strokeWidth={2.5} />}
+                          groupScenes={groupScenes}
+                          onCompactChange={(compact) =>
+                            setControlCompact(control.id, compact)
+                          }
+                          onToggleScene={(sceneId) =>
+                            toggleControlScene(control.id, sceneId)
+                          }
                         />
-                      ))}
-                    </PickerGroup>
-                  </TabsContent>
-                </Tabs>
+                      );
+                    })
+                  )}
+                </TabsContent>
+                <TabsContent value="appearance" className="space-y-5">
+                  <PickerGroup title="Theme">
+                    {themeModes.map((mode) => (
+                      <OptionButton
+                        key={mode.value}
+                        active={themeMode === mode.value}
+                        compact
+                        icon={<Sparkles size={16} />}
+                        title={mode.label}
+                        onClick={() => setThemeMode(mode.value)}
+                      />
+                    ))}
+                  </PickerGroup>
+                </TabsContent>
+              </Tabs>
 
-                <WidgetPreview
-                  theme={previewTheme}
-                  controls={controls}
-                  scenes={scenes}
-                  onReorder={reorderControls}
-                />
-              </div>
-            </section>
-          ) : null}
-        </div>
-      </main>
-
-      <footer className="shrink-0 border-t border-foreground/10 py-5">
-        <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-4">
-          {step > 0 ? (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setStep((current) => Math.max(0, current - 1))}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <ChevronLeft size={16} />
-              Back
-            </Button>
-          ) : (
-            <span />
-          )}
-          {step < 2 ? (
-            <Button
-              type="button"
-              size="lg"
-              disabled={!canContinue}
-              onClick={nextStep}
-              className="rounded-full px-10"
-            >
-              Continue
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              size="lg"
-              disabled={!title.trim() || !selected.length}
-              onClick={create}
-              className="rounded-full px-10"
-            >
-              Create Widget
-            </Button>
-          )}
-        </div>
-      </footer>
-    </div>
+              <WidgetPreview
+                theme={previewTheme}
+                controls={controls}
+                onReorder={reorderControls}
+              />
+            </div>
+          </section>
+        ) : null}
+      </SettingsWizardViewport>
+    </SettingsWizardLayout>
   );
 };
 
@@ -1004,7 +914,7 @@ const ControlConfigRow = ({
         </div>
       </div>
 
-      {!isLight && !compact ? (
+      {!isLight ? (
         <div className="space-y-1.5">
           <p className="text-xs text-muted-foreground">
             {groupScenes.length === 0
@@ -1037,21 +947,14 @@ const ControlConfigRow = ({
 const WidgetPreview = ({
   theme,
   controls,
-  scenes,
   onReorder,
 }: {
   theme: ReturnType<typeof resolveWidgetTheme>;
   controls: WidgetControl[];
-  scenes: HueScene[];
   onReorder: (from: number, to: number) => void;
 }) => {
-  // Mirror the real widget: render every selected control rather than a fixed
-  // sample, falling back to placeholders only when nothing is chosen yet. Only
-  // real (selected) cards are sortable — the fallback placeholders aren't backed
-  // by store state, so reordering them would have nothing to map onto.
-  const sortable = controls.length > 0;
-  const cards = sortable ? controls : previewControls;
-  const sceneById = new Map(scenes.map((scene) => [scene.id, scene] as const));
+  const sizeMode = "default" as const;
+  const sizeMetrics = WIDGET_SIZE_METRICS[sizeMode];
 
   // The widget has a fixed pixel width (320 / 652) and grows with the number of
   // controls, so it can outsize the preview frame. Rather than scroll, we scale
@@ -1093,39 +996,26 @@ const WidgetPreview = ({
     return () => observer.disconnect();
   }, []);
 
-  const grid = (
-    // Mirror the live widget's uniform `auto-fill` grid at a representative
-    // width (two columns wide) so the preview reflects how cards wrap and share
-    // a row height.
-    <div
-      className="grid content-start gap-3"
-      style={{ width: 612, gridTemplateColumns: WIDGET_CARD_GRID_COLUMNS }}
-    >
-      {cards.map((control, index) => {
-        const card = (
-          <PreviewCard
-            control={control}
-            index={index}
-            scenes={control.sceneIds
-              .map((id) => sceneById.get(id))
-              .filter((scene): scene is HueScene => scene != null)}
-          />
-        );
-        return sortable ? (
+  const grid =
+    controls.length > 0 ? (
+      <div
+        className="grid w-full content-start"
+        style={{
+          gap: sizeMetrics.gridGap,
+          gridTemplateColumns: widgetCardGridColumns(sizeMode),
+        }}
+      >
+        {controls.map((control) => (
           <SortablePreviewCard key={control.id} id={control.id} scale={scale}>
-            {card}
+            <ControlCard control={control} sizeMode={sizeMode} />
           </SortablePreviewCard>
-        ) : (
-          <div
-            key={control.id}
-            className="pointer-events-none min-w-0"
-          >
-            {card}
-          </div>
-        );
-      })}
-    </div>
-  );
+        ))}
+      </div>
+    ) : (
+      <p className="px-6 py-10 text-center text-sm text-muted-foreground">
+        Select at least one control to preview the widget.
+      </p>
+    );
 
   return (
     <div className="h-112 overflow-hidden rounded-xl border border-border/70 bg-[linear-gradient(135deg,#627d98,#d9c8a9_52%,#52616b)] p-6">
@@ -1135,28 +1025,31 @@ const WidgetPreview = ({
       >
         <div
           ref={shellRef}
-          // Mark the preview shell with `dark` for a dark widget so Tailwind
-          // `dark:` variants resolve here (the document class reflects the app
-          // theme, not the previewed widget's); the inline tokens from
-          // `widgetShellStyle` keep the surface colors self-contained either way.
+          // Establish an explicit nested theme boundary. `theme-light` prevents
+          // the app's outer `.dark` class from activating dark variants here.
           className={cn(
-            "border border-border/40 p-6 text-foreground shadow-2xl",
-            theme === "dark" && "dark",
+            "border border-border/40 text-foreground shadow-2xl",
+            theme === "dark" ? "dark" : "theme-light",
           )}
           style={{
             ...widgetShellStyle(theme),
+            width: sizeMetrics.cardBasis + WIDGET_SIDE_PADDING * 2,
+            paddingTop: sizeMetrics.edgePadding,
+            paddingRight: WIDGET_SIDE_PADDING,
+            paddingBottom: WIDGET_SIDE_PADDING,
+            paddingLeft: WIDGET_SIDE_PADDING,
             transform: `scale(${scale})`,
             transformOrigin: "center",
           }}
         >
-          {sortable ? (
+          {controls.length > 0 ? (
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
               onDragEnd={handleDragEnd}
             >
               <SortableContext
-                items={cards.map((control) => control.id)}
+                items={controls.map((control) => control.id)}
                 strategy={rectSortingStrategy}
               >
                 {grid}
@@ -1225,68 +1118,3 @@ const SortablePreviewCard = ({
     </div>
   );
 };
-
-// Warm/cool sample tints so each preview card reads as a live, lit control
-// rather than an empty or "unavailable" shell. Cycled by card index.
-const PREVIEW_TINTS = ["#f6b860", "#7fb0ff", "#c98bff", "#7fdca0"];
-const PREVIEW_BRIGHTNESS = [78, 54, 66, 42];
-
-/**
- * Renders the real widget control (`ControlView`) with sample on-state data
- * so the layout/appearance preview matches exactly what the live widget paints,
- * fully themed by the surrounding shell's CSS variables. We render the control
- * directly rather than resolving `ControlCard` against the Hue store, since the
- * placeholder/selected targets aren't live resources and would otherwise fall
- * back to the unstyled "unavailable" card.
- */
-const PreviewCard = ({
-  control,
-  index,
-  scenes,
-}: {
-  control: WidgetControl;
-  index: number;
-  scenes: HueScene[];
-}) => {
-  const isLight = control.target.kind === "light";
-  const Icon = isLight ? Lightbulb : getRoomZoneIcon("living_room");
-  const tint = PREVIEW_TINTS[index % PREVIEW_TINTS.length];
-  return (
-    <ControlView
-      name={control.label ?? (isLight ? "Light" : "Room")}
-      icon={<Icon size={22} strokeWidth={2.5} />}
-      isOn
-      brightness={PREVIEW_BRIGHTNESS[index % PREVIEW_BRIGHTNESS.length]}
-      tileBackground={tint}
-      tileTint={tint}
-      dimmable
-      showBrightness={!control.compact && control.showBrightness}
-      scenes={scenes}
-      compact={control.compact ?? false}
-      hueEventRevision={0}
-      onToggle={() => undefined}
-      onBrightness={() => undefined}
-      onActivateScene={() => undefined}
-      onToggleScenePlay={() => undefined}
-    />
-  );
-};
-
-const previewControls: WidgetControl[] = [
-  {
-    id: "preview-room",
-    target: { kind: "room", id: "preview-room" },
-    label: "Lounge",
-    showBrightness: true,
-    sceneIds: [],
-    hotkey: null,
-  },
-  {
-    id: "preview-light",
-    target: { kind: "light", id: "preview-light" },
-    label: "Desk Lamp",
-    showBrightness: true,
-    sceneIds: [],
-    hotkey: null,
-  },
-];

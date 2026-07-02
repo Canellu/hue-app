@@ -3,7 +3,8 @@ export type RenameableResourceType =
   | "room"
   | "zone"
   | "scene"
-  | "smart_scene";
+  | "smart_scene"
+  | "entertainment_configuration";
 
 export type DeleteableResourceType = RenameableResourceType | "device";
 

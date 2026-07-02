@@ -5,6 +5,7 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 import { DeviceDiscoveryRoute } from "./routes/DeviceDiscoveryRoute";
+import { EntertainmentAreaWizardRoute } from "./routes/EntertainmentAreaWizardRoute";
 import { HomeRoute } from "./routes/HomeRoute";
 import { RoomZoneWizardRoute } from "./routes/RoomZoneWizardRoute";
 import { RootLayout } from "./routes/RootLayout";
@@ -63,6 +64,12 @@ const roomZoneWizardRoute = createRoute({
   component: RoomZoneWizardRoute,
 });
 
+const entertainmentAreaWizardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/entertainment-wizard",
+  component: EntertainmentAreaWizardRoute,
+});
+
 const syncBoxRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/sync",
@@ -82,6 +89,7 @@ const routeTree = rootRoute.addChildren([
   deviceDiscoveryRoute,
   widgetWizardRoute,
   roomZoneWizardRoute,
+  entertainmentAreaWizardRoute,
   syncBoxRoute,
   syncBoxAreaRoute,
 ]);

@@ -7,6 +7,7 @@ import {
   Palette,
   Router,
   SlidersHorizontal,
+  Sparkles,
   Tv,
   type LucideIcon,
 } from "lucide-react";
@@ -61,6 +62,13 @@ export const settingsTabs = [
     group: "home",
     description: "Organize rooms, zones, lights, and memberships.",
     icon: Home,
+  },
+  {
+    value: "entertainment",
+    label: "Entertainment Areas",
+    group: "home",
+    description: "Arrange compatible lights for entertainment and sync.",
+    icon: Sparkles,
   },
   {
     value: "devices",

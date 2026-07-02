@@ -33,8 +33,8 @@ export interface WidgetControl {
   /** Ordered scene ids shown as quick buttons (room/zone targets only). */
   sceneIds: string[];
   /**
-   * Toggle-only display: hides the brightness slider and scene pills, leaving
-   * just the name + power toggle. Defaults to false (full) when absent.
+   * Compact display: hides the brightness slider and renders selected scenes
+   * as pill buttons instead of full scene cards. Defaults to false when absent.
    */
   compact?: boolean;
   hotkey?: ControlHotkey | null;

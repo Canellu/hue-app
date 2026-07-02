@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { useHue } from "../../context/HueContext";
 import type { ThemeMode } from "../../context/ThemeContext";
 import { AddDevicesButton } from "./components/AddDevicesButton";
+import { AddEntertainmentAreaButton } from "./components/AddEntertainmentAreaButton";
 import { AddSpaceButton } from "./components/AddSpaceButton";
 import { AddWidgetButton } from "./components/AddWidgetButton";
 import { SettingsSidebar } from "./components/SettingsSidebar";
@@ -21,6 +22,7 @@ import { settingsTabs } from "./settingsTabs";
 import { BridgeTab } from "./tabs/BridgeTab";
 import { SyncBoxTab } from "./tabs/SyncBoxTab";
 import { DevicesTab } from "./tabs/DevicesTab";
+import { EntertainmentAreasTab } from "./tabs/EntertainmentAreasTab";
 import { GeneralTab } from "./tabs/GeneralTab";
 import { ScenesTab } from "./tabs/ScenesTab";
 import { SpacesTab } from "./tabs/SpacesTab";
@@ -317,6 +319,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     }
                   />
                 )}
+                {activeTab === "entertainment" && (
+                  <AddEntertainmentAreaButton
+                    disabled={!connected}
+                    onClick={() =>
+                      void navigate({
+                        to: "/settings/entertainment-wizard",
+                      })
+                    }
+                  />
+                )}
                 {activeTab === "widget" && (
                   <AddWidgetButton
                     disabled={widgetLimitReached}
@@ -376,6 +388,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   onDelete={deleteResource}
                   onUpdateMembers={updateMembers}
                 />
+              </TabsContent>
+
+              <TabsContent value="entertainment">
+                <EntertainmentAreasTab lights={lights} />
               </TabsContent>
 
               <TabsContent value="scenes">

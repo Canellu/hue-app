@@ -280,6 +280,7 @@ const ShellHeader: React.FC = () => {
   const onDeviceDiscovery = pathname === "/settings/device-discovery";
   const onWidgetWizard = pathname === "/settings/widget-wizard";
   const onSpacesWizard = pathname === "/settings/spaces-wizard";
+  const onEntertainmentWizard = pathname === "/settings/entertainment-wizard";
   const onSync = pathname === "/sync";
   const activeSyncAreaId = pathname.startsWith("/sync/")
     ? decodeURIComponent(pathname.slice("/sync/".length))
@@ -293,26 +294,30 @@ const ShellHeader: React.FC = () => {
       ? "Create widget"
       : onSpacesWizard
         ? "Create room or zone"
-        : activeSyncArea
-          ? activeSyncArea.name
-          : onSync
-            ? "Sync"
-            : pathname === "/settings"
-              ? "Settings"
-              : activeSpace?.name;
+        : onEntertainmentWizard
+          ? "Create entertainment area"
+          : activeSyncArea
+            ? activeSyncArea.name
+            : onSync
+              ? "Sync"
+              : pathname === "/settings"
+                ? "Settings"
+                : activeSpace?.name;
   const description = onDeviceDiscovery
     ? "Discover and place Hue devices"
     : onWidgetWizard
       ? "Build a pinned desktop widget"
       : onSpacesWizard
         ? "Group your devices and lights"
-        : activeSyncArea
-          ? "Entertainment area"
-          : onSync
-            ? "Philips Hue HDMI Sync Box"
-            : pathname === "/settings"
-              ? "Bridge & app preferences"
-              : undefined;
+        : onEntertainmentWizard
+          ? "Choose compatible lights and place them"
+          : activeSyncArea
+            ? "Entertainment area"
+            : onSync
+              ? "Philips Hue HDMI Sync Box"
+              : pathname === "/settings"
+                ? "Bridge & app preferences"
+                : undefined;
   return (
     <AppHeader
       onBack={
@@ -327,7 +332,12 @@ const ShellHeader: React.FC = () => {
                     ? navigate({ to: "/settings", search: { tab: "widget" } })
                     : onSpacesWizard
                       ? navigate({ to: "/settings", search: { tab: "spaces" } })
-                      : navigate({ to: "/" }))
+                      : onEntertainmentWizard
+                        ? navigate({
+                            to: "/settings",
+                            search: { tab: "entertainment" },
+                          })
+                        : navigate({ to: "/" }))
       }
       title={title}
       description={description}
@@ -389,7 +399,9 @@ const ShellHeader: React.FC = () => {
 export const RootLayout: React.FC = () => {
   const viewportRef = useRef<HTMLDivElement>(null);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const routeOwnsScroll = pathname === "/settings";
+  const routeOwnsScroll =
+    pathname === "/settings" ||
+    (pathname.startsWith("/settings/") && pathname.endsWith("-wizard"));
   const navigate = useNavigate();
   const inspectorPaneOpen = useHueResourcesStore(
     (state) => state.inspectorPaneOpen,
@@ -400,9 +412,7 @@ export const RootLayout: React.FC = () => {
   );
   const { refreshSession, isLoading: sessionLoading } = useHue();
   const syncState = useSyncBoxStore((state) => state.state);
-  const activeSyncedLightIds = useSyncBoxStore(
-    (state) => state.syncedLightIds,
-  );
+  const activeSyncedLightIds = useSyncBoxStore((state) => state.syncedLightIds);
   const syncUpdating = useSyncBoxStore((state) => state.isUpdating);
   const refreshSync = useSyncBoxStore((state) => state.refresh);
   const loadAreaLights = useSyncBoxStore((state) => state.loadAreaLights);

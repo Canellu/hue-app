@@ -2301,7 +2301,13 @@ impl HueClient {
         name: &str,
     ) -> Result<(), String> {
         match resource_type {
-            "light" | "room" | "zone" | "scene" | "smart_scene" | "device" => {}
+            "light"
+            | "room"
+            | "zone"
+            | "scene"
+            | "smart_scene"
+            | "device"
+            | "entertainment_configuration" => {}
             _ => {
                 return Err(format!(
                     "Renaming Hue resource type '{resource_type}' is not supported."

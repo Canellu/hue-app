@@ -51,7 +51,7 @@ const SceneButton = ({
         "flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
         active
           ? "border-foreground/40 bg-foreground/15"
-          : "border-border/60 hover:bg-foreground/10",
+          : "border-tile-border bg-tile hover:bg-foreground/10",
         disabled && "opacity-40",
       )}
     >

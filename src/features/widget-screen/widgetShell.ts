@@ -4,6 +4,9 @@ import type { WidgetSizeMode, WidgetThemeMode } from "./types";
 /** Corner radius (px) of the widget window's glass shell. */
 export const WIDGET_CORNER_RADIUS = 18;
 
+/** Horizontal and bottom inset around the live widget control grid. */
+export const WIDGET_SIDE_PADDING = 16;
+
 /** The ideal width (px) of a control card — the basis each grid column grows
  * from. Cards lay out exactly like the main app's space grid (a uniform
  * `auto-fill` grid that wraps and stretches each row to one height), so a single

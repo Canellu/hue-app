@@ -29,6 +29,7 @@ import type { WidgetControl } from "./types";
 import { useWidgetControls } from "./useWidgetControls";
 import {
   WIDGET_SIZE_METRICS,
+  WIDGET_SIDE_PADDING,
   resolveWidgetTheme,
   widgetCardGridColumns,
   widgetShellStyle,
@@ -46,8 +47,6 @@ const RESIZE_SAVE_DELAY_MS = 300;
 /** Side/bottom inset (px) around the control grid — Tailwind `p-4`. Kept tight
  * so the cards sit close to the edges; the top still uses the larger
  * `edgePadding` to clear the overlaid title bar. */
-const WIDGET_SIDE_PADDING = 16;
-
 const TitleBarButton = ({
   label,
   onClick,
@@ -228,9 +227,7 @@ const ControlList = ({
     if (!bridgeConnected || loadFailed) {
       return (
         <Centered>
-          <p className="text-base font-semibold">
-            Can’t reach your Hue Bridge
-          </p>
+          <p className="text-base font-semibold">Can’t reach your Hue Bridge</p>
           <p className="text-sm text-muted-foreground">
             Retrying automatically — check that the bridge is powered and on
             your network.

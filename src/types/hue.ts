@@ -21,7 +21,9 @@ export type HueResourceType =
   | "zigbee_connectivity"
   | "smart_scene"
   | "switch_input_configuration"
-  | "bridge_home";
+  | "bridge_home"
+  | "entertainment"
+  | "entertainment_configuration";
 
 export interface HueResourceReference {
   rid: string;
@@ -103,6 +105,37 @@ export interface HueLight {
   uniqueId: string | null;
   /** What the light is used for: "functional", "decorative", "mixed", or "unknown". */
   function: string | null;
+}
+
+export interface HuePosition {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface HueEntertainmentService {
+  id: string;
+  type: "entertainment";
+  renderer: boolean;
+  renderer_reference?: HueResourceReference;
+  segments?: {
+    segments?: Array<{ start: number; length: number }>;
+  };
+}
+
+export interface HueEntertainmentConfiguration {
+  id: string;
+  type: "entertainment_configuration";
+  metadata: { name: string };
+  configuration_type: "screen" | "monitor" | "music" | "3dspace" | "other";
+  status: "active" | "inactive";
+  locations: {
+    service_locations: Array<{
+      service: HueResourceReference;
+      positions: HuePosition[];
+      equalization_factor?: number;
+    }>;
+  };
 }
 
 /** One preset color from a scene action — exactly one field is set. */

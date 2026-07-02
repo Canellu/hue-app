@@ -533,14 +533,14 @@ export const SyncBoxConnectedView = ({
               <Power className="size-5" />
             </div>
             <div className="min-w-0">
-              <p className="font-medium">Picture and sound to TV</p>
+              <p className="font-medium">Sync Box power</p>
               <p className="text-xs text-muted-foreground">
-                HDMI passthrough {execution.hdmiActive ? "is on" : "is off"}
+                {execution.hdmiActive ? "On" : "Standby"}
               </p>
             </div>
             <Switch
               size="lg"
-              aria-label="Send HDMI picture and sound to the TV"
+              aria-label="Toggle Sync Box power"
               checked={execution.hdmiActive}
               disabled={isUpdating}
               onCheckedChange={(checked) => void updateExecution({ hdmiActive: checked })}

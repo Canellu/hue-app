@@ -723,7 +723,10 @@ impl HostSyncEngine {
             .await?;
 
         let bounds: Vec<_> = selected.iter().map(DisplayInfo::bounds).collect();
-        let tiles = analysis::map_channels_to_tiles(&prepared.area.channels, &bounds);
+        let frame = analysis::ScreenFrame::from_configuration_type(
+            prepared.area.configuration_type.as_deref(),
+        );
+        let tiles = analysis::map_channels_to_tiles(&prepared.area.channels, &bounds, frame);
         let board = ColorBoard::new(prepared.area.channels.len());
         let rig = match CaptureRig::start(&selected, &tiles, &board, tick) {
             Ok(rig) => rig,

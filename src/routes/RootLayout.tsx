@@ -470,6 +470,11 @@ export const RootLayout: React.FC = () => {
     (pathname.startsWith("/settings/") &&
       (pathname.endsWith("-wizard") ||
         pathname.startsWith("/settings/entertainment-placement/")));
+  // The placement editor draws a full-bleed canvas with a floating side
+  // panel, so the shared viewport padding would frame it back in.
+  const routeIsFullBleed = pathname.startsWith(
+    "/settings/entertainment-placement/",
+  );
   const navigate = useNavigate();
   const inspectorPaneOpen = useHueResourcesStore(
     (state) => state.inspectorPaneOpen,
@@ -698,8 +703,10 @@ export const RootLayout: React.FC = () => {
             }
             className="min-h-0 min-w-0 flex-1"
             viewportClassName={cn(
-              "py-6 pl-12 transition-[padding] duration-300 ease-out motion-reduce:transition-none",
-              inspectorPaneOpen ? "pr-2" : "pr-12",
+              !routeIsFullBleed && [
+                "py-6 pl-12 transition-[padding] duration-300 ease-out motion-reduce:transition-none",
+                inspectorPaneOpen ? "pr-2" : "pr-12",
+              ],
             )}
             contentClassName={cn(
               "min-w-0!",

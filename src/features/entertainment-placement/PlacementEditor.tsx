@@ -9,13 +9,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
@@ -39,23 +33,25 @@ import {
   Loader2,
   Monitor,
   MoveVertical,
-  RectangleHorizontal,
   Sparkles,
   TriangleAlert,
   Undo2,
   Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import {
-  autoArrangePositions,
-  CANVAS_ASPECT,
-  clampAxis,
-  testColor,
-  type RoomView,
-} from "./geometry";
+import { autoArrangePositions, clampAxis, testColor } from "./geometry";
 import { DisplayCalibrationCanvas } from "./DisplayCalibrationCanvas";
 import { RoomCanvas, type RoomPin } from "./RoomCanvas";
+import {
+  createVirtualTvDisplay,
+  DEFAULT_TV_ASPECT_RATIO,
+  formatTvAspectRatio,
+  loadTvAspectRatio,
+  saveTvAspectRatio,
+  type TvAspectRatio,
+} from "./tv-display";
+import { TvAspectRatioControl } from "./TvAspectRatioControl";
 
 interface DraftLocation {
   serviceId: string;
@@ -65,7 +61,7 @@ interface DraftLocation {
   positions: HuePosition[];
 }
 
-type PlacementView = "display" | RoomView;
+type PlacementView = "display" | "room";
 
 const positionKey = (serviceId: string, index: number) =>
   `${serviceId}:${index}`;
@@ -130,9 +126,15 @@ export const PlacementEditor = ({ areaId }: { areaId: string }) => {
   const [area, setArea] = useState<HueEntertainmentConfiguration | null>(null);
   const [locations, setLocations] = useState<DraftLocation[]>([]);
   const [displays, setDisplays] = useState<HostSyncDisplay[]>([]);
+  const [tvAspectRatio, setTvAspectRatio] = useState<TvAspectRatio>(
+    DEFAULT_TV_ASPECT_RATIO,
+  );
   const [savedSnapshot, setSavedSnapshot] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [canvasRightOcclusion, setCanvasRightOcclusion] = useState(0);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const sidePanelRef = useRef<HTMLElement>(null);
 
   const [view, setView] = useState<PlacementView>("room");
   const [activeKey, setActiveKey] = useState<string | null>(null);
@@ -145,6 +147,27 @@ export const PlacementEditor = ({ areaId }: { areaId: string }) => {
   // True while this editor owns the bridge stream (test or flash).
   const ownsStreamRef = useRef(false);
   const flashTimerRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    const editor = editorRef.current;
+    const panel = sidePanelRef.current;
+    if (isLoading || !editor || !panel) return;
+
+    const measureOcclusion = () => {
+      const editorBounds = editor.getBoundingClientRect();
+      const panelBounds = panel.getBoundingClientRect();
+      const next = Math.max(0, editorBounds.right - panelBounds.left);
+      setCanvasRightOcclusion((current) =>
+        Math.abs(current - next) < 0.5 ? current : next,
+      );
+    };
+
+    const observer = new ResizeObserver(measureOcclusion);
+    observer.observe(editor);
+    observer.observe(panel);
+    measureOcclusion();
+    return () => observer.disconnect();
+  }, [isLoading]);
 
   useEffect(() => {
     let active = true;
@@ -179,13 +202,14 @@ export const PlacementEditor = ({ areaId }: { areaId: string }) => {
         setLocations(draft);
         const selectedDisplays = selectedDisplaysFromOverview(overview);
         setDisplays(selectedDisplays);
-        if (
-          selectedDisplays.length > 0 &&
-          (configuration.configuration_type === "screen" ||
-            configuration.configuration_type === "monitor")
-        ) {
-          setView("display");
-        }
+        setView(
+          configuration.configuration_type === "screen" ||
+            (selectedDisplays.length > 0 &&
+              configuration.configuration_type === "monitor")
+            ? "display"
+            : "room",
+        );
+        setTvAspectRatio(loadTvAspectRatio(areaId));
         setSavedSnapshot(JSON.stringify(draft.map((entry) => entry.positions)));
         setActiveKey(draft[0] ? positionKey(draft[0].serviceId, 0) : null);
       })
@@ -262,6 +286,20 @@ export const PlacementEditor = ({ areaId }: { areaId: string }) => {
     liveArea?.status === "active" && pcStatus.state === "idle";
   const channels = area?.channels ?? [];
   const testSupported = channels.length > 0;
+  const placementDisplays = useMemo(
+    () =>
+      area?.configuration_type === "screen"
+        ? [createVirtualTvDisplay(tvAspectRatio)]
+        : area?.configuration_type === "monitor"
+          ? displays
+          : [],
+    [area?.configuration_type, displays, tvAspectRatio],
+  );
+
+  const updateTvAspectRatio = (next: TvAspectRatio) => {
+    setTvAspectRatio(next);
+    saveTvAspectRatio(areaId, next);
+  };
 
   const updatePosition = (key: string, update: Partial<HuePosition>) => {
     setLocations((current) =>
@@ -475,7 +513,7 @@ export const PlacementEditor = ({ areaId }: { areaId: string }) => {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-[calc(100vh-12rem)] items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <Loader2 className="size-8 animate-spin text-muted-foreground" />
       </div>
     );
@@ -490,123 +528,179 @@ export const PlacementEditor = ({ areaId }: { areaId: string }) => {
     );
   }
 
+  // Screen sampling is only offered when there is a screen to sample; without
+  // it the 3D room is the only view, so the view picker disappears.
+  const canSampleScreen =
+    (area.configuration_type === "screen" ||
+      area.configuration_type === "monitor") &&
+    placementDisplays.length > 0;
+
   return (
-    <div className="mx-auto h-full min-h-0 w-full max-w-7xl">
-      <Card className="h-full min-h-0">
-        <CardHeader className="shrink-0 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <CardTitle>{area.metadata.name}</CardTitle>
-            <CardDescription>
-              {view === "display"
-                ? "Drag each light over the part of the selected displays it should follow."
-                : "Drag each light to where it sits in your room. In the 3D room, drag empty space to look from a different angle."}
-            </CardDescription>
-          </div>
-          <div className="flex items-center gap-2">
-            {isDirty && (
-              <Button
-                variant="ghost"
-                disabled={isSaving}
-                onClick={resetPositions}
-              >
-                <Undo2 /> Reset
-              </Button>
-            )}
-            <Button disabled={!isDirty || isSaving} onClick={() => void save()}>
-              {isSaving ? <Loader2 className="animate-spin" /> : null}
-              Save positions
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-            <div className="flex rounded-full border border-foreground/12 p-1">
-              {(
-                [
-                  ...(displays.length > 0
-                    ? [
-                        {
-                          value: "display",
-                          label: "Displays",
-                          icon: Monitor,
-                        } as const,
-                      ]
-                    : []),
-                  { value: "flat", label: "Flat", icon: RectangleHorizontal },
-                  { value: "room", label: "3D room", icon: Cuboid },
-                ] as const
-              ).map(({ value, label, icon: Icon }) => (
-                <button
-                  key={value}
-                  type="button"
-                  aria-pressed={view === value}
-                  onClick={() => setView(value)}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-colors",
-                    view === value
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <Icon className="size-4" />
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="text-right">
-                <p className="text-sm font-medium">Position check</p>
-                <p className="text-xs text-muted-foreground">
-                  {view === "display"
-                    ? "Each light shows its sampling window's color."
-                    : "Each light shows its pin's color."}
-                </p>
+    // The 3D canvas runs behind the floating panel so the room can be panned
+    // across the full editor instead of being clipped at the panel edge.
+    <div
+      ref={editorRef}
+      className="relative h-full min-h-0 w-full overflow-hidden bg-[radial-gradient(circle_at_center,var(--border)_1px,transparent_1px)] bg-size-[24px_24px]"
+    >
+      <div
+        className={cn(
+          "absolute inset-y-0 left-0",
+          view === "room" ? "right-0" : "right-92 2xl:right-100",
+        )}
+      >
+        {view === "display" ? (
+          <DisplayCalibrationCanvas
+            configurationType={area.configuration_type}
+            displays={placementDisplays}
+            displayDetails={
+              area.configuration_type === "screen"
+                ? formatTvAspectRatio(tvAspectRatio)
+                : undefined
+            }
+            pins={pins}
+            activeKey={activeKey}
+            onActivate={setActiveKey}
+            onMove={updatePosition}
+            className="rounded-none border-0 bg-transparent"
+          />
+        ) : (
+          <RoomCanvas
+            configurationType={area.configuration_type}
+            displays={placementDisplays}
+            pins={pins}
+            activeKey={activeKey}
+            onActivate={setActiveKey}
+            onMove={updatePosition}
+            className="h-full w-full rounded-none border-0 bg-none"
+            overlayInsetClassName="right-[calc(23rem+0.75rem)] 2xl:right-[calc(25rem+0.75rem)]"
+            viewportRightInset={canvasRightOcclusion}
+          />
+        )}
+      </div>
+
+      <aside
+        ref={sidePanelRef}
+        className="absolute inset-y-6 right-6 z-10 flex w-80 flex-col overflow-hidden rounded-3xl border border-border bg-card text-card-foreground shadow-xl 2xl:w-88"
+      >
+        <div className="shrink-0 space-y-4 p-5 pb-4">
+          {canSampleScreen && (
+            <div className="space-y-2">
+              <p className="font-heading text-xs font-medium text-muted-foreground">
+                View
+              </p>
+              <div className="grid gap-1.5">
+                {(
+                  [
+                    {
+                      value: "display",
+                      label: "Screen sampling",
+                      description:
+                        "Pick the part of the picture each light follows",
+                      icon: Monitor,
+                    },
+                    {
+                      value: "room",
+                      label: "3D room",
+                      description: "Place lights where they sit in the room",
+                      icon: Cuboid,
+                    },
+                  ] as const
+                ).map(({ value, label, description, icon: Icon }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={view === value}
+                    onClick={() => setView(value)}
+                    className={cn(
+                      "flex items-center gap-3 rounded-xl border px-3 py-2 text-left transition-colors",
+                      view === value
+                        ? "border-primary bg-primary/5"
+                        : "border-foreground/12 hover:bg-foreground/4",
+                    )}
+                  >
+                    <Icon
+                      className={cn(
+                        "size-4 shrink-0",
+                        view === value
+                          ? "text-primary"
+                          : "text-muted-foreground",
+                      )}
+                    />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium">{label}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {description}
+                      </span>
+                    </span>
+                  </button>
+                ))}
               </div>
-              <Switch
-                aria-label="Toggle the light position check"
-                checked={testActive}
-                disabled={
-                  !testSupported ||
-                  engineBusy ||
-                  syncRunning ||
-                  flashingServiceId != null
-                }
-                onCheckedChange={(checked) => void toggleTest(checked)}
-              />
             </div>
+          )}
+
+          {area.configuration_type === "screen" && (
+            <TvAspectRatioControl
+              value={tvAspectRatio}
+              onChange={updateTvAspectRatio}
+            />
+          )}
+
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-foreground/4 px-3 py-2.5">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">Position check</p>
+              <p className="text-xs text-muted-foreground">
+                {view === "display"
+                  ? "Lights preview their sampling regions."
+                  : "Lights match their numbered pins."}
+              </p>
+            </div>
+            <Switch
+              aria-label="Toggle the light position check"
+              checked={testActive}
+              disabled={
+                !testSupported ||
+                engineBusy ||
+                syncRunning ||
+                flashingServiceId != null
+              }
+              onCheckedChange={(checked) => void toggleTest(checked)}
+            />
           </div>
 
           {syncRunning && (
-            <p className="flex items-start gap-2 rounded-xl bg-(--warn-surface) p-3 text-sm text-(--warn-text)">
+            <p className="flex items-start gap-2 rounded-xl bg-(--warn-surface) p-3 text-xs text-(--warn-text)">
               <TriangleAlert className="mt-0.5 size-4 shrink-0" />
               Light sync is running from this PC. Stop it to use the position
               check; position changes apply on the next start.
             </p>
           )}
+        </div>
 
-          <div className="flex min-h-0 flex-1 items-center justify-center [container-type:size]">
-            {view === "display" ? (
-              <DisplayCalibrationCanvas
-                displays={displays}
-                pins={pins}
-                activeKey={activeKey}
-                onActivate={setActiveKey}
-                onMove={updatePosition}
-              />
-            ) : (
-              <RoomCanvas
-                view={view}
-                configurationType={area.configuration_type}
-                pins={pins}
-                activeKey={activeKey}
-                onActivate={setActiveKey}
-                onMove={updatePosition}
-                className={cn("w-[min(100cqw,160cqh)] shrink-0", CANVAS_ASPECT)}
-              />
-            )}
-          </div>
+        <div className="flex shrink-0 items-center justify-between gap-2 px-5 pb-1">
+          <p className="font-heading text-xs font-medium text-muted-foreground">
+            Lights{" "}
+            <span className="text-muted-foreground/60">{pins.length}</span>
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={autoArrange}
+            disabled={pins.length === 0}
+            title={`Auto-arrange for ${formatConfigurationType(area.configuration_type)}`}
+          >
+            <Sparkles /> Auto-arrange
+          </Button>
+        </div>
 
-          <div className="flex shrink-0 gap-2 overflow-x-auto pb-1">
+        <ScrollArea
+          fade
+          hideScrollbar
+          className="min-h-0 flex-1"
+          viewportClassName="px-5 pb-4"
+          contentClassName="min-w-0!"
+        >
+          <div className="grid gap-1.5">
             {locations.map((location, index) => {
               const key = positionKey(location.serviceId, 0);
               const selected = activePin?.key.startsWith(
@@ -616,7 +710,7 @@ export const PlacementEditor = ({ areaId }: { areaId: string }) => {
                 <div
                   key={location.serviceId}
                   className={cn(
-                    "flex min-w-44 shrink-0 items-center gap-2 rounded-xl border px-3 py-2",
+                    "flex items-center gap-2 rounded-xl border px-3 py-2",
                     selected
                       ? "border-primary bg-primary/5"
                       : "border-foreground/12",
@@ -670,73 +764,81 @@ export const PlacementEditor = ({ areaId }: { areaId: string }) => {
               );
             })}
           </div>
+        </ScrollArea>
 
-          {activePin && activeLocationIndex >= 0 && (
-            <div className="grid shrink-0 gap-4 rounded-2xl bg-foreground/4 px-4 py-3 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <div className="flex items-center justify-between text-sm">
-                  <p className="flex items-center gap-2 font-medium">
-                    <MoveVertical className="size-4" /> Height
-                  </p>
-                  <span className="text-xs text-muted-foreground">
-                    Floor → Ceiling
-                  </span>
-                </div>
-                <Slider
-                  min={-1}
-                  max={1}
-                  step={0.05}
-                  value={[activePin.position.z]}
-                  aria-label={`${activePin.name} height`}
-                  onValueChange={(value) =>
-                    updatePosition(activePin.key, {
-                      z: Array.isArray(value) ? value[0] : value,
-                    })
-                  }
-                />
-              </div>
-              <div className="grid gap-2">
-                <div className="flex items-center justify-between text-sm">
-                  <p className="font-medium">Depth</p>
-                  <span className="text-xs text-muted-foreground">
-                    {view === "display"
-                      ? "Saved for 3D effects · not used by PC Sync"
-                      : "Behind you → Screen wall"}
-                  </span>
-                </div>
-                <Slider
-                  min={-1}
-                  max={1}
-                  step={0.05}
-                  value={[activePin.position.y]}
-                  aria-label={`${activePin.name} depth`}
-                  onPointerDown={() => setView("room")}
-                  onValueChange={(value) =>
-                    updatePosition(activePin.key, {
-                      y: Array.isArray(value) ? value[0] : value,
-                    })
-                  }
-                />
-              </div>
-            </div>
-          )}
-
-          <div className="flex shrink-0 items-center justify-between gap-3">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={autoArrange}
-              disabled={pins.length === 0}
-            >
-              <Sparkles /> Auto-arrange for{" "}
-              {formatConfigurationType(area.configuration_type)}
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              {pins.length} {pins.length === 1 ? "light" : "lights"} placed
+        {activePin && activeLocationIndex >= 0 && (
+          <div className="shrink-0 space-y-4 border-t border-border p-5 pt-4">
+            <p className="truncate font-heading text-xs font-medium text-muted-foreground">
+              Position · {activePin.name}
             </p>
+            <div className="grid gap-1.5">
+              <p className="flex items-center gap-2 text-sm font-medium">
+                <MoveVertical className="size-4" />
+                {view === "display" ? "Vertical sampling" : "Height"}
+              </p>
+              <Slider
+                min={-1}
+                max={1}
+                step={0.05}
+                value={[activePin.position.z]}
+                aria-label={`${activePin.name} height`}
+                onValueChange={(value) =>
+                  updatePosition(activePin.key, {
+                    z: Array.isArray(value) ? value[0] : value,
+                  })
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                {view === "display"
+                  ? "Bottom → Top · linked to room height"
+                  : "Floor → Ceiling · linked to screen sampling"}
+              </p>
+            </div>
+            <div className="grid gap-1.5">
+              <p className="text-sm font-medium">
+                {view === "display" ? "Room depth" : "Depth"}
+              </p>
+              <Slider
+                min={-1}
+                max={1}
+                step={0.05}
+                value={[activePin.position.y]}
+                aria-label={`${activePin.name} depth`}
+                onValueChange={(value) =>
+                  updatePosition(activePin.key, {
+                    y: Array.isArray(value) ? value[0] : value,
+                  })
+                }
+              />
+              <p className="text-xs text-muted-foreground">
+                {view === "display"
+                  ? "Back: broader, softer · Screen: focused, stronger"
+                  : "Behind you → Screen wall"}
+              </p>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        )}
+
+        <div className="flex shrink-0 items-center gap-2 border-t border-border p-4">
+          {isDirty && (
+            <Button
+              variant="ghost"
+              disabled={isSaving}
+              onClick={resetPositions}
+            >
+              <Undo2 /> Reset
+            </Button>
+          )}
+          <Button
+            className="flex-1"
+            disabled={!isDirty || isSaving}
+            onClick={() => void save()}
+          >
+            {isSaving ? <Loader2 className="animate-spin" /> : null}
+            Save positions
+          </Button>
+        </div>
+      </aside>
 
       <AlertDialog open={takeoverOpen} onOpenChange={setTakeoverOpen}>
         <AlertDialogContent>

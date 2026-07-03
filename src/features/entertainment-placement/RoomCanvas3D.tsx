@@ -1,11 +1,22 @@
+import { useTheme } from "@/context/ThemeContext";
 import { cn } from "@/lib/utils";
+import type { HostSyncDisplay } from "@/types/host-sync";
 import type { HuePosition } from "@/types/hue";
 import { Canvas, useThree } from "@react-three/fiber";
-import { RotateCcw, ZoomIn, ZoomOut } from "lucide-react";
 import {
+  Grid2x2,
+  RectangleHorizontal,
+  RotateCcw,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
+import {
+  BackSide,
   BoxGeometry,
+  BufferGeometry,
   DoubleSide,
   EdgesGeometry,
+  Float32BufferAttribute,
   MathUtils,
   PerspectiveCamera,
   Plane,
@@ -15,6 +26,7 @@ import {
   Vector3,
 } from "three";
 import {
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -23,14 +35,14 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import type { RoomPin } from "./RoomCanvas";
+import { roomDisplayFrames, roomFrameOptionsFor } from "./display-geometry";
 
 const CAMERA_FOV = 38;
 const CAMERA_ASPECT = 16 / 10;
 const DEFAULT_CAMERA_RADIUS = 3.8;
 const MIN_CAMERA_RADIUS = 2.6;
-const MAX_CAMERA_RADIUS = 5.4;
+const MAX_CAMERA_RADIUS = 10;
 const DEFAULT_CAMERA_TARGET = { x: 0, y: -0.05, z: 0 };
-const MAX_PAN = { x: 0.8, y: 0.65, z: 0.8 };
 const DEFAULT_YAW = 0;
 const DEFAULT_TILT = 0.28;
 const MIN_TILT = -0.08;
@@ -44,14 +56,22 @@ const FLOOR_PLANE = new Plane(new Vector3(0, 1, 0), 1);
 const STRUCTURE_COLOR = "#8b8b8b";
 const PROP_COLOR = "#777777";
 const ACCENT_COLOR = "#d6a84f";
+const ROOM_EDGE_SIZE = 1.992;
+const ROOM_SURFACE_COLOR = {
+  light: "#f8f8f8",
+  dark: "#292929",
+} as const;
 
 interface RoomCanvas3DProps {
   configurationType: string | null;
+  displays?: HostSyncDisplay[];
   pins: RoomPin[];
   activeKey: string | null;
   onActivate: (key: string) => void;
   onMove: (key: string, update: Partial<HuePosition>) => void;
   className?: string;
+  overlayInsetClassName?: string;
+  viewportRightInset?: number;
 }
 
 interface CameraTarget {
@@ -59,6 +79,43 @@ interface CameraTarget {
   y: number;
   z: number;
 }
+
+interface CameraView {
+  yaw: number;
+  tilt: number;
+  radius: number;
+  target: CameraTarget;
+}
+
+/**
+ * Below this tilt the camera is effectively level with the room, so pin drags
+ * edit left/right + height on a wall-parallel plane — a floor raycast at such
+ * a grazing angle would fling lights across the room's depth.
+ */
+const FRONTAL_TILT = 0.12;
+
+const CAMERA_PRESETS: Record<"default" | "front" | "top", CameraView> = {
+  default: {
+    yaw: DEFAULT_YAW,
+    tilt: DEFAULT_TILT,
+    radius: DEFAULT_CAMERA_RADIUS,
+    target: DEFAULT_CAMERA_TARGET,
+  },
+  // Head-on elevation (the old "front view"): drags set left/right + height.
+  front: {
+    yaw: 0,
+    tilt: 0.02,
+    radius: DEFAULT_CAMERA_RADIUS,
+    target: DEFAULT_CAMERA_TARGET,
+  },
+  // Overhead floor plan: left/right + depth at a glance.
+  top: {
+    yaw: 0,
+    tilt: MAX_TILT,
+    radius: DEFAULT_CAMERA_RADIUS,
+    target: DEFAULT_CAMERA_TARGET,
+  },
+};
 
 const clampAxis = (value: number) =>
   Math.max(-1, Math.min(1, Math.round(value * 100) / 100));
@@ -102,28 +159,103 @@ const projectToCanvas = (world: Vector3, camera: PerspectiveCamera) => {
 
 export const RoomCanvas3D = ({
   configurationType,
+  displays,
   pins,
   activeKey,
   onActivate,
   onMove,
   className,
+  overlayInsetClassName,
+  viewportRightInset = 0,
 }: RoomCanvas3DProps) => {
+  const { resolvedThemeMode } = useTheme();
   const [yaw, setYaw] = useState(DEFAULT_YAW);
   const [tilt, setTilt] = useState(DEFAULT_TILT);
   const [radius, setRadius] = useState(DEFAULT_CAMERA_RADIUS);
   const [target, setTarget] = useState<CameraTarget>(DEFAULT_CAMERA_TARGET);
+  // The HTML pin overlays project through this camera outside the R3F frame
+  // loop, so camera projection and overlay positions share the measured size.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [viewportSize, setViewportSize] = useState({
+    width: CAMERA_ASPECT,
+    height: 1,
+  });
+  useLayoutEffect(() => {
+    const element = containerRef.current;
+    if (!element) return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) {
+        setViewportSize((current) =>
+          current.width === width && current.height === height
+            ? current
+            : { width, height },
+        );
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
+  // While a pin drag is in flight its latest position lives here, so every
+  // pointer move re-renders only this canvas; whoever owns the pins gets a
+  // single onMove commit when the drag ends. The ref mirrors the state so the
+  // finishing pointer-up can commit a move rendered in the same frame.
+  const [liveDrag, setLiveDrag] = useState<{
+    key: string;
+    update: Partial<HuePosition>;
+  } | null>(null);
+  const liveDragRef = useRef<{
+    key: string;
+    update: Partial<HuePosition>;
+  } | null>(null);
+  const gestureBounds = useRef<DOMRect | null>(null);
   const [isNavigating, setIsNavigating] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
   const navigationFrom = useRef<{ u: number; v: number } | null>(null);
   const navigationMode = useRef<"orbit" | "pan" | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
+  // Which plane the current pin drag moves on, and — for wall drags — the
+  // depth the wall plane sits at (the pin's y when it was grabbed).
+  const dragPlaneMode = useRef<"floor" | "frontal">("floor");
+  const dragDepth = useRef(0);
+  const animationFrame = useRef<number | null>(null);
   const raycaster = useMemo(() => new Raycaster(), []);
   const floorHit = useMemo(() => new Vector3(), []);
+  const wallPlane = useMemo(() => new Plane(new Vector3(0, 0, 1), 0), []);
   const camera = useMemo(
-    () => new PerspectiveCamera(CAMERA_FOV, CAMERA_ASPECT, 0.1, 100),
+    () =>
+      Object.assign(
+        new PerspectiveCamera(CAMERA_FOV, CAMERA_ASPECT, 0.1, 100),
+        { manual: true },
+      ),
     [],
   );
+  const visibleWidth = Math.max(
+    1,
+    viewportSize.width -
+      MathUtils.clamp(viewportRightInset, 0, viewportSize.width - 1),
+  );
+  // Render across the full canvas while keeping the camera's optical axis in
+  // the center of the workspace that is not covered by the side panel.
+  camera.setViewOffset(
+    visibleWidth,
+    viewportSize.height,
+    0,
+    0,
+    viewportSize.width,
+    viewportSize.height,
+  );
   updateCamera(camera, yaw, tilt, radius, target);
+  // Everything rendered reads pins through this: committed positions with the
+  // in-flight drag layered on top.
+  const displayPins = liveDrag
+    ? pins.map((pin) =>
+        pin.key === liveDrag.key
+          ? { ...pin, position: { ...pin.position, ...liveDrag.update } }
+          : pin,
+      )
+    : pins;
   const cameraMoved =
     yaw !== DEFAULT_YAW ||
     tilt !== DEFAULT_TILT ||
@@ -133,7 +265,10 @@ export const RoomCanvas3D = ({
     target.z !== DEFAULT_CAMERA_TARGET.z;
 
   const pointerUV = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
+    // Measured once per gesture: getBoundingClientRect on every move forces a
+    // synchronous layout right after the previous move dirtied it.
+    const bounds =
+      gestureBounds.current ?? event.currentTarget.getBoundingClientRect();
     return {
       u: (event.clientX - bounds.left) / bounds.width,
       v: (event.clientY - bounds.top) / bounds.height,
@@ -146,14 +281,83 @@ export const RoomCanvas3D = ({
     return point ? { x: -point.x, y: point.z } : null;
   };
 
+  /** Pointer hit on a wall-parallel plane at Hue depth `depthY`. */
+  const frontalPoint = (u: number, v: number, depthY: number) => {
+    raycaster.setFromCamera(new Vector2(u * 2 - 1, 1 - v * 2), camera);
+    wallPlane.constant = -depthY;
+    const point = raycaster.ray.intersectPlane(wallPlane, floorHit);
+    return point ? { x: -point.x, z: point.y } : null;
+  };
+
+  const cancelCameraAnimation = () => {
+    if (animationFrame.current == null) return;
+    cancelAnimationFrame(animationFrame.current);
+    animationFrame.current = null;
+    setIsAnimating(false);
+  };
+
+  /** Glides the camera to a preset instead of snapping. */
+  const flyTo = (view: CameraView) => {
+    cancelCameraAnimation();
+    const from = { yaw, tilt, radius, target };
+    // Head for the closest equivalent yaw so a well-orbited camera doesn't
+    // unwind through full turns.
+    const toYaw =
+      view.yaw +
+      Math.round((from.yaw - view.yaw) / (Math.PI * 2)) * Math.PI * 2;
+    const start = performance.now();
+    const duration = 320;
+    setIsAnimating(true);
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      if (t >= 1) {
+        // Land exactly on the preset so `cameraMoved` can turn back off.
+        setYaw(view.yaw);
+        setTilt(view.tilt);
+        setRadius(view.radius);
+        setTarget(view.target);
+        animationFrame.current = null;
+        setIsAnimating(false);
+        return;
+      }
+      const k = 1 - (1 - t) ** 3;
+      const mix = (a: number, b: number) => a + (b - a) * k;
+      setYaw(mix(from.yaw, toYaw));
+      setTilt(mix(from.tilt, view.tilt));
+      setRadius(mix(from.radius, view.radius));
+      setTarget({
+        x: mix(from.target.x, view.target.x),
+        y: mix(from.target.y, view.target.y),
+        z: mix(from.target.z, view.target.z),
+      });
+      animationFrame.current = requestAnimationFrame(step);
+    };
+    animationFrame.current = requestAnimationFrame(step);
+  };
+
+  useEffect(
+    () => () => {
+      if (animationFrame.current != null) {
+        cancelAnimationFrame(animationFrame.current);
+      }
+    },
+    [],
+  );
+
   const finishGesture = (event?: ReactPointerEvent<HTMLDivElement>) => {
     if (event && event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+    if (liveDragRef.current) {
+      onMove(liveDragRef.current.key, liveDragRef.current.update);
+      liveDragRef.current = null;
+    }
+    setLiveDrag(null);
     setDraggingKey(null);
     navigationFrom.current = null;
     navigationMode.current = null;
     setIsNavigating(false);
+    gestureBounds.current = null;
   };
 
   const zoomBy = (factor: number) => {
@@ -164,10 +368,11 @@ export const RoomCanvas3D = ({
 
   return (
     <div
+      ref={containerRef}
       data-placement-canvas
       className={cn(
         "relative h-auto shrink-0 touch-none self-start overflow-hidden rounded-3xl border border-foreground/15",
-        "bg-[radial-gradient(circle_at_center,var(--muted)_1px,transparent_1px)] bg-[size:24px_24px] select-none",
+        "bg-[radial-gradient(circle_at_center,var(--border)_1px,transparent_1px)] bg-[size:24px_24px] select-none",
         navigationMode.current === "pan"
           ? "cursor-move"
           : "cursor-grab active:cursor-grabbing",
@@ -177,6 +382,8 @@ export const RoomCanvas3D = ({
         if ((event.target as HTMLElement).closest("[data-camera-control]")) {
           return;
         }
+        cancelCameraAnimation();
+        gestureBounds.current = event.currentTarget.getBoundingClientRect();
 
         const pinElement = (event.target as HTMLElement).closest<HTMLElement>(
           "[data-pin-key]",
@@ -187,15 +394,35 @@ export const RoomCanvas3D = ({
 
         if (key) {
           const pin = pins.find((candidate) => candidate.key === key);
-          const hit = floorPoint(pointer.u, pointer.v);
-          if (!pin || !hit) {
+          if (!pin) {
             finishGesture(event);
             return;
           }
-          dragOffset.current = {
-            x: pin.position.x - hit.x,
-            y: pin.position.y - hit.y,
-          };
+          if (tilt < FRONTAL_TILT) {
+            const hit = frontalPoint(pointer.u, pointer.v, pin.position.y);
+            if (!hit) {
+              finishGesture(event);
+              return;
+            }
+            dragPlaneMode.current = "frontal";
+            // The offset's second component tracks height (z) in this mode.
+            dragOffset.current = {
+              x: pin.position.x - hit.x,
+              y: pin.position.z - hit.z,
+            };
+          } else {
+            const hit = floorPoint(pointer.u, pointer.v);
+            if (!hit) {
+              finishGesture(event);
+              return;
+            }
+            dragPlaneMode.current = "floor";
+            dragOffset.current = {
+              x: pin.position.x - hit.x,
+              y: pin.position.y - hit.y,
+            };
+          }
+          dragDepth.current = pin.position.y;
           onActivate(key);
           setDraggingKey(key);
           return;
@@ -211,12 +438,28 @@ export const RoomCanvas3D = ({
       onPointerMove={(event) => {
         const pointer = pointerUV(event);
         if (draggingKey) {
-          const hit = floorPoint(pointer.u, pointer.v);
-          if (!hit) return;
-          onMove(draggingKey, {
-            x: clampAxis(hit.x + dragOffset.current.x),
-            y: clampAxis(hit.y + dragOffset.current.y),
-          });
+          let update: Partial<HuePosition> | null = null;
+          if (dragPlaneMode.current === "frontal") {
+            const hit = frontalPoint(pointer.u, pointer.v, dragDepth.current);
+            if (hit) {
+              update = {
+                x: clampAxis(hit.x + dragOffset.current.x),
+                z: clampAxis(hit.z + dragOffset.current.y),
+              };
+            }
+          } else {
+            const hit = floorPoint(pointer.u, pointer.v);
+            if (hit) {
+              update = {
+                x: clampAxis(hit.x + dragOffset.current.x),
+                y: clampAxis(hit.y + dragOffset.current.y),
+              };
+            }
+          }
+          if (update) {
+            liveDragRef.current = { key: draggingKey, update };
+            setLiveDrag(liveDragRef.current);
+          }
           return;
         }
 
@@ -236,13 +479,9 @@ export const RoomCanvas3D = ({
             .multiplyScalar(-du * panScale)
             .add(up.multiplyScalar(dv * panScale));
           setTarget((current) => ({
-            x: MathUtils.clamp(current.x + movement.x, -MAX_PAN.x, MAX_PAN.x),
-            y: MathUtils.clamp(
-              current.y + movement.y,
-              DEFAULT_CAMERA_TARGET.y - MAX_PAN.y,
-              DEFAULT_CAMERA_TARGET.y + MAX_PAN.y,
-            ),
-            z: MathUtils.clamp(current.z + movement.z, -MAX_PAN.z, MAX_PAN.z),
+            x: current.x + movement.x,
+            y: current.y + movement.y,
+            z: current.z + movement.z,
           }));
           return;
         }
@@ -257,6 +496,7 @@ export const RoomCanvas3D = ({
       onContextMenu={(event) => event.preventDefault()}
       onWheel={(event: ReactWheelEvent<HTMLDivElement>) => {
         event.preventDefault();
+        cancelCameraAnimation();
         zoomBy(Math.exp(event.deltaY * WHEEL_ZOOM_RATE));
       }}
     >
@@ -272,18 +512,64 @@ export const RoomCanvas3D = ({
             tilt={tilt}
             radius={radius}
             target={target}
+            viewportHeight={viewportSize.height}
+            viewportRightInset={viewportRightInset}
+            viewportWidth={viewportSize.width}
           />
-          <RoomScene configurationType={configurationType} pins={pins} />
+          <RoomScene
+            configurationType={configurationType}
+            displays={displays}
+            pins={displayPins}
+            surfaceColor={ROOM_SURFACE_COLOR[resolvedThemeMode]}
+            tilt={tilt}
+            yaw={yaw}
+          />
         </Canvas>
       </div>
 
-      <p className="pointer-events-none absolute right-3 bottom-2 text-[10px] font-medium tracking-wide text-muted-foreground/60 uppercase">
-        Drag to rotate · Shift-drag to pan · Scroll to zoom
+      <p
+        className={cn(
+          "pointer-events-none absolute right-3 bottom-2 text-[10px] font-medium tracking-wide text-muted-foreground/60 uppercase",
+          overlayInsetClassName,
+        )}
+      >
+        {tilt < FRONTAL_TILT
+          ? "Facing the screen · drags set left/right + height"
+          : "Drag to rotate · Shift-drag to pan · Scroll to zoom"}
       </p>
       <div
         data-camera-control
-        className="absolute top-3 right-3 z-50 flex items-center gap-1"
+        className={cn(
+          "absolute top-3 right-3 z-50 flex items-center gap-1",
+          overlayInsetClassName,
+        )}
       >
+        <button
+          type="button"
+          title="Face the screen wall — drags set left/right and height"
+          onClick={() => flyTo(CAMERA_PRESETS.front)}
+          className={cn(
+            "flex cursor-pointer items-center gap-1.5 rounded-full border border-foreground/15 bg-background/80 px-3 py-1.5 text-xs font-medium backdrop-blur",
+            tilt < FRONTAL_TILT
+              ? "text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <RectangleHorizontal className="size-3.5" /> Front
+        </button>
+        <button
+          type="button"
+          title="Overhead floor plan — drags set left/right and depth"
+          onClick={() => flyTo(CAMERA_PRESETS.top)}
+          className={cn(
+            "flex cursor-pointer items-center gap-1.5 rounded-full border border-foreground/15 bg-background/80 px-3 py-1.5 text-xs font-medium backdrop-blur",
+            tilt > MAX_TILT - 0.05
+              ? "text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Grid2x2 className="size-3.5" /> Top
+        </button>
         <button
           type="button"
           aria-label="Zoom out"
@@ -307,12 +593,7 @@ export const RoomCanvas3D = ({
         {cameraMoved && (
           <button
             type="button"
-            onClick={() => {
-              setYaw(DEFAULT_YAW);
-              setTilt(DEFAULT_TILT);
-              setRadius(DEFAULT_CAMERA_RADIUS);
-              setTarget(DEFAULT_CAMERA_TARGET);
-            }}
+            onClick={() => flyTo(CAMERA_PRESETS.default)}
             className="flex cursor-pointer items-center gap-1.5 rounded-full border border-foreground/15 bg-background/80 px-3 py-1.5 text-xs font-medium text-muted-foreground backdrop-blur hover:text-foreground"
           >
             <RotateCcw className="size-3.5" /> Reset view
@@ -333,7 +614,7 @@ export const RoomCanvas3D = ({
         </span>
       ))}
 
-      {pins.map((pin) => {
+      {displayPins.map((pin) => {
         const world = positionToWorld(pin.position);
         const distance = camera.position.distanceTo(world);
         const scale = MathUtils.clamp(
@@ -359,6 +640,7 @@ export const RoomCanvas3D = ({
               "absolute flex size-11 cursor-grab items-center justify-center rounded-full border-2 font-semibold shadow-md active:cursor-grabbing",
               draggingKey !== pin.key &&
                 !isNavigating &&
+                !isAnimating &&
                 "transition-[left,top,transform] duration-300 ease-out",
               pin.color
                 ? "border-white/80 text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.45)]"
@@ -382,37 +664,136 @@ const InvalidateCameraFrame = ({
   tilt,
   radius,
   target,
+  viewportHeight,
+  viewportRightInset,
+  viewportWidth,
 }: {
   yaw: number;
   tilt: number;
   radius: number;
   target: CameraTarget;
+  viewportHeight: number;
+  viewportRightInset: number;
+  viewportWidth: number;
 }) => {
   const invalidate = useThree((state) => state.invalidate);
   useLayoutEffect(() => {
     invalidate();
-  }, [invalidate, radius, target.x, target.y, target.z, tilt, yaw]);
+  }, [
+    invalidate,
+    radius,
+    target.x,
+    target.y,
+    target.z,
+    tilt,
+    viewportHeight,
+    viewportRightInset,
+    viewportWidth,
+    yaw,
+  ]);
   return null;
 };
 
 const RoomScene = ({
   configurationType,
+  displays,
   pins,
+  surfaceColor,
+  tilt,
+  yaw,
 }: {
   configurationType: string | null;
+  displays?: HostSyncDisplay[];
   pins: RoomPin[];
+  surfaceColor: string;
+  tilt: number;
+  yaw: number;
 }) => {
+  const hideNearRoofCorner =
+    tilt < MAX_TILT - 0.08 && Math.abs(Math.sin(yaw * 2)) > 0.08;
+  const hiddenRoofCorner = hideNearRoofCorner
+    ? `${Math.sin(yaw) > 0 ? 1 : -1},${-Math.cos(yaw) > 0 ? 1 : -1}`
+    : null;
+  const hiddenRoofSide = !hideNearRoofCorner
+    ? Math.abs(Math.sin(yaw)) > Math.abs(Math.cos(yaw))
+      ? `x,${Math.sin(yaw) > 0 ? 1 : -1}`
+      : `z,${-Math.cos(yaw) > 0 ? 1 : -1}`
+    : null;
+
   const roomEdges = useMemo(() => {
-    const room = new BoxGeometry(2, 2, 2);
+    // Keep the seams just inside the wall surfaces so they do not disappear
+    // into coplanar depth precision at oblique camera angles.
+    const room = new BoxGeometry(
+      ROOM_EDGE_SIZE,
+      ROOM_EDGE_SIZE,
+      ROOM_EDGE_SIZE,
+    );
     const edges = new EdgesGeometry(room);
     room.dispose();
-    return edges;
-  }, []);
+
+    const [hiddenX, hiddenZ] = hiddenRoofCorner?.split(",").map(Number) ?? [];
+    const [hiddenAxis, hiddenSide] = hiddenRoofSide?.split(",") ?? [];
+    const positions = edges.getAttribute("position");
+    const visiblePositions: number[] = [];
+
+    for (let vertex = 0; vertex < positions.count; vertex += 2) {
+      const x1 = positions.getX(vertex);
+      const y1 = positions.getY(vertex);
+      const z1 = positions.getZ(vertex);
+      const x2 = positions.getX(vertex + 1);
+      const y2 = positions.getY(vertex + 1);
+      const z2 = positions.getZ(vertex + 1);
+      const startsAtHiddenRoofCorner =
+        hiddenRoofCorner !== null &&
+        y1 > 0 &&
+        Math.sign(x1) === hiddenX &&
+        Math.sign(z1) === hiddenZ;
+      const endsAtHiddenRoofCorner =
+        hiddenRoofCorner !== null &&
+        y2 > 0 &&
+        Math.sign(x2) === hiddenX &&
+        Math.sign(z2) === hiddenZ;
+      const isHiddenRoofSide =
+        hiddenRoofSide !== null &&
+        y1 > 0 &&
+        y2 > 0 &&
+        (hiddenAxis === "x"
+          ? Math.sign(x1) === Number(hiddenSide) &&
+            Math.sign(x2) === Number(hiddenSide)
+          : Math.sign(z1) === Number(hiddenSide) &&
+            Math.sign(z2) === Number(hiddenSide));
+
+      if (
+        !startsAtHiddenRoofCorner &&
+        !endsAtHiddenRoofCorner &&
+        !isHiddenRoofSide
+      ) {
+        visiblePositions.push(x1, y1, z1, x2, y2, z2);
+      }
+    }
+
+    edges.dispose();
+    const visibleEdges = new BufferGeometry();
+    visibleEdges.setAttribute(
+      "position",
+      new Float32BufferAttribute(visiblePositions, 3),
+    );
+    return visibleEdges;
+  }, [hiddenRoofCorner, hiddenRoofSide]);
+
+  useEffect(() => () => roomEdges.dispose(), [roomEdges]);
 
   return (
     <>
       <ambientLight intensity={1.25} />
       <directionalLight position={[-3, 5, -4]} intensity={1.5} />
+
+      {/* Back-side faces make a camera-facing cutaway: the near walls stay open,
+          while the far walls mask the flat dotted backdrop and establish depth. */}
+      <mesh>
+        <boxGeometry args={[2, 2, 2]} />
+        <meshBasicMaterial color={surfaceColor} side={BackSide} />
+      </mesh>
 
       <mesh position={[0, -1, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <planeGeometry args={[2, 2]} />
@@ -431,10 +812,10 @@ const RoomScene = ({
         material-opacity={0.18}
       />
       <lineSegments geometry={roomEdges}>
-        <lineBasicMaterial color={STRUCTURE_COLOR} transparent opacity={0.35} />
+        <lineBasicMaterial color={STRUCTURE_COLOR} transparent opacity={0.55} />
       </lineSegments>
 
-      <SceneProps3D configurationType={configurationType} />
+      <SceneProps3D configurationType={configurationType} displays={displays} />
 
       {pins.map((pin) => (
         <PinMarker3D key={pin.key} pin={pin} />
@@ -490,14 +871,16 @@ const BoxProp = ({
 
 const SceneProps3D = ({
   configurationType,
+  displays,
 }: {
   configurationType: string | null;
+  displays?: HostSyncDisplay[];
 }) => {
   switch (configurationType) {
     case "monitor":
-      return <DeskSetup3D />;
+      return <DeskSetup3D displays={displays} />;
     case "screen":
-      return <TvSetup3D />;
+      return <TvSetup3D displays={displays} />;
     case "music":
       return <MusicSetup3D />;
     case "3dspace":
@@ -507,33 +890,78 @@ const SceneProps3D = ({
   }
 };
 
-const DeskSetup3D = () => (
-  <group>
-    <BoxProp position={[0, -0.42, 0.55]} scale={[1.25, 0.08, 0.52]} />
-    <BoxProp position={[-0.52, -0.7, 0.55]} scale={[0.07, 0.55, 0.42]} />
-    <BoxProp position={[0.52, -0.7, 0.55]} scale={[0.07, 0.55, 0.42]} />
-    <BoxProp
-      position={[0, 0.02, 0.76]}
-      scale={[0.82, 0.48, 0.05]}
-      color={ACCENT_COLOR}
-      opacity={0.22}
-    />
-    <BoxProp position={[0, -0.25, 0.69]} scale={[0.06, 0.3, 0.06]} />
-  </group>
-);
+const DeskSetup3D = ({ displays = [] }: { displays?: HostSyncDisplay[] }) => {
+  const displayFrames = roomDisplayFrames(
+    displays,
+    roomFrameOptionsFor("monitor"),
+  );
+  const screens =
+    displayFrames.length > 0
+      ? displayFrames
+      : [
+          {
+            id: "default",
+            name: "Monitor",
+            x: 0,
+            z: 0.07,
+            width: 0.82,
+            height: 0.48,
+          },
+        ];
 
-const TvSetup3D = () => (
-  <group>
-    <BoxProp
-      position={[0, 0.22, 0.93]}
-      scale={[1.35, 0.76, 0.06]}
-      color={ACCENT_COLOR}
-      opacity={0.2}
-    />
-    <BoxProp position={[0, -0.67, 0.72]} scale={[1.45, 0.34, 0.42]} />
-    <SofaProp />
-  </group>
-);
+  return (
+    <group>
+      <BoxProp position={[0, -0.42, 0.55]} scale={[1.25, 0.08, 0.52]} />
+      <BoxProp position={[-0.52, -0.7, 0.55]} scale={[0.07, 0.55, 0.42]} />
+      <BoxProp position={[0.52, -0.7, 0.55]} scale={[0.07, 0.55, 0.42]} />
+      {screens.map((screen) => (
+        <group key={screen.id}>
+          <BoxProp
+            position={[-screen.x, screen.z, 0.76]}
+            scale={[screen.width, screen.height, 0.05]}
+            color={ACCENT_COLOR}
+            opacity={0.22}
+          />
+          <BoxProp
+            position={[
+              -screen.x,
+              (-0.25 + screen.z - screen.height / 2) / 2,
+              0.69,
+            ]}
+            scale={[
+              0.04,
+              Math.max(0.04, screen.z - screen.height / 2 + 0.25),
+              0.04,
+            ]}
+          />
+        </group>
+      ))}
+    </group>
+  );
+};
+
+const TvSetup3D = ({ displays = [] }: { displays?: HostSyncDisplay[] }) => {
+  const [screen] = roomDisplayFrames(displays, roomFrameOptionsFor("screen"));
+  const frame = screen ?? {
+    x: 0,
+    z: 0.22,
+    width: 1.35,
+    height: 0.76,
+  };
+
+  return (
+    <group>
+      <BoxProp
+        position={[-frame.x, frame.z, 0.93]}
+        scale={[frame.width, frame.height, 0.06]}
+        color={ACCENT_COLOR}
+        opacity={0.2}
+      />
+      <BoxProp position={[0, -0.67, 0.72]} scale={[1.45, 0.34, 0.42]} />
+      <SofaProp />
+    </group>
+  );
+};
 
 const SofaProp = () => {
   const profile = useMemo(() => {
@@ -552,10 +980,7 @@ const SofaProp = () => {
   return (
     <mesh position={[0.675, 0, 0]} rotation={[0, -Math.PI / 2, 0]}>
       <extrudeGeometry
-        args={[
-          profile,
-          { depth: 1.35, bevelEnabled: false, curveSegments: 1 },
-        ]}
+        args={[profile, { depth: 1.35, bevelEnabled: false, curveSegments: 1 }]}
       />
       <meshStandardMaterial color={PROP_COLOR} transparent opacity={0.28} />
     </mesh>

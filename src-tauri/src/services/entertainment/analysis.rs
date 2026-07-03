@@ -20,6 +20,39 @@ const SCREEN_TILE_FRACTION: f32 = 0.18;
 /// Broadest region sampled by a light at the back of the room.
 const BACK_TILE_FRACTION: f32 = 0.72;
 
+/// Room-space footprint of the screen wall: the display arrangement is fitted
+/// into this box (room units, all axes -1..1) and channel positions project
+/// through it onto the screen. Must match the placement editor's
+/// `display-geometry.ts`, which draws the same frame in the 3D room.
+const FRAME_MAX_WIDTH: f32 = 1.1;
+const FRAME_MAX_HEIGHT: f32 = 0.64;
+
+/// Where the screen frame's bottom edge sits in the room, per the area's
+/// configuration type. Mirrors `roomFrameOptionsFor` in `display-geometry.ts`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenFrame {
+    /// Desk monitor; the frame floats just above desk height.
+    Monitor,
+    /// TV on a stand; the frame hangs at seated eye level.
+    Tv,
+}
+
+impl ScreenFrame {
+    pub fn from_configuration_type(configuration_type: Option<&str>) -> Self {
+        match configuration_type {
+            Some("screen") => Self::Tv,
+            _ => Self::Monitor,
+        }
+    }
+
+    fn bottom_z(self) -> f32 {
+        match self {
+            Self::Monitor => -0.14,
+            Self::Tv => 0.0,
+        }
+    }
+}
+
 /// Effect-strength floor for a light at the back of the room. Depth is not a
 /// physical inverse-square correction; this keeps remote room lighting from
 /// competing with screen-adjacent lights while preserving visible ambience.
@@ -149,14 +182,20 @@ pub struct ChannelTile {
 }
 
 /// Maps channel positions onto the combined bounding box of the selected
-/// displays. Hue coordinates: `x` is left(-1)→right(+1) and `z` is
-/// floor(-1)→ceiling(+1), so `z` maps inverted onto screen rows. `y` runs from
-/// the back of the room (-1) to the screen wall (+1): increasing distance
-/// broadens the sample and reduces its effect strength. Each tile is clamped
-/// to the single display that owns the channel's mapped point.
+/// displays by projecting them through the room's screen frame: the
+/// arrangement is fitted into the frame's room-space rectangle, a channel
+/// inside the rectangle samples the proportional spot on the screen, and a
+/// channel outside it clamps to the nearest screen edge (a desk light below
+/// the monitor follows the bottom of the picture). Hue coordinates: `x` is
+/// left(-1)→right(+1) and `z` is floor(-1)→ceiling(+1), so `z` maps inverted
+/// onto screen rows. `y` runs from the back of the room (-1) to the screen
+/// wall (+1): increasing distance broadens the sample and reduces its effect
+/// strength. Each tile is clamped to the single display that owns the
+/// channel's mapped point.
 pub fn map_channels_to_tiles(
     channels: &[HueEntertainmentChannel],
     displays: &[Bounds],
+    frame: ScreenFrame,
 ) -> Vec<ChannelTile> {
     if displays.is_empty() {
         return Vec::new();
@@ -168,6 +207,12 @@ pub fn map_channels_to_tiles(
     let combined_w = max_x - min_x;
     let combined_h = max_y - min_y;
 
+    let frame_scale = (FRAME_MAX_WIDTH / combined_w).min(FRAME_MAX_HEIGHT / combined_h);
+    let frame_w = combined_w * frame_scale;
+    let frame_h = combined_h * frame_scale;
+    let frame_left = -frame_w / 2.0;
+    let frame_top = frame.bottom_z() + frame_h;
+
     channels
         .iter()
         .enumerate()
@@ -177,8 +222,8 @@ pub fn map_channels_to_tiles(
                 SCREEN_TILE_FRACTION + (BACK_TILE_FRACTION - SCREEN_TILE_FRACTION) * depth;
             let half_tile_w = combined_w * tile_fraction / 2.0;
             let half_tile_h = combined_h * tile_fraction / 2.0;
-            let u = ((channel.x as f32) + 1.0).clamp(0.0, 2.0) / 2.0;
-            let v = (1.0 - channel.z as f32).clamp(0.0, 2.0) / 2.0;
+            let u = ((channel.x as f32 - frame_left) / frame_w).clamp(0.0, 1.0);
+            let v = ((frame_top - channel.z as f32) / frame_h).clamp(0.0, 1.0);
             let px = min_x + u * combined_w;
             let py = min_y + v * combined_h;
 
@@ -549,7 +594,7 @@ mod tests {
         // Second display to the right of a 1920x1080 primary.
         let displays = [display(0, 0, 1920, 1080), display(1920, 0, 1920, 1080)];
         let channels = [channel(0, -1.0, 0.0), channel(1, 1.0, 0.0)];
-        let tiles = map_channels_to_tiles(&channels, &displays);
+        let tiles = map_channels_to_tiles(&channels, &displays, ScreenFrame::Monitor);
 
         assert_eq!(tiles[0].display_index, 0);
         assert!(tiles[0].left.abs() < f32::EPSILON, "left edge tile");
@@ -563,11 +608,60 @@ mod tests {
     #[test]
     fn z_axis_maps_inverted_onto_screen_rows() {
         let displays = [display(0, 0, 1920, 1080)];
-        let top = map_channels_to_tiles(&[channel(0, 0.0, 1.0)], &displays)[0];
-        let bottom = map_channels_to_tiles(&[channel(0, 0.0, -1.0)], &displays)[0];
+        let top = map_channels_to_tiles(&[channel(0, 0.0, 1.0)], &displays, ScreenFrame::Monitor)[0];
+        let bottom = map_channels_to_tiles(&[channel(0, 0.0, -1.0)], &displays, ScreenFrame::Monitor)[0];
         assert!(top.top < 0.01, "z=+1 is the top of the screen");
         assert!(bottom.bottom > 0.99, "z=-1 is the bottom of the screen");
         assert!(top.bottom < bottom.top);
+    }
+
+    #[test]
+    fn positions_outside_the_screen_frame_clamp_to_its_edges() {
+        // Monitor frame on a 16:9 display: height = 1080 * (1.1 / 1920) ≈ 0.62
+        // room units, bottom edge at z = -0.14.
+        let displays = [display(0, 0, 1920, 1080)];
+        let desk = map_channels_to_tiles(&[channel(0, 0.0, -0.4)], &displays, ScreenFrame::Monitor)
+            [0];
+        assert!(
+            desk.bottom > 0.99,
+            "a desk light below the frame follows the bottom of the picture"
+        );
+        let side = map_channels_to_tiles(&[channel(0, -0.9, 0.2)], &displays, ScreenFrame::Monitor)
+            [0];
+        assert!(
+            side.left.abs() < f32::EPSILON,
+            "a lamp left of the frame follows the left edge"
+        );
+    }
+
+    #[test]
+    fn positions_inside_the_screen_frame_map_proportionally() {
+        let displays = [display(0, 0, 1920, 1080)];
+        let frame_h = 1080.0 / 1920.0 * 1.1;
+        let mid_z = -0.14 + frame_h / 2.0;
+        let tile = map_channels_to_tiles(
+            &[channel(0, 0.0, mid_z as f64)],
+            &displays,
+            ScreenFrame::Monitor,
+        )[0];
+        let center_v = (tile.top + tile.bottom) / 2.0;
+        assert!(
+            (center_v - 0.5).abs() < 0.01,
+            "the frame's vertical center samples mid-screen, got {center_v}"
+        );
+    }
+
+    #[test]
+    fn the_tv_frame_sits_higher_in_the_room_than_the_monitor_frame() {
+        let displays = [display(0, 0, 1920, 1080)];
+        let channels = [channel(0, 0.0, 0.1)];
+        let monitor = map_channels_to_tiles(&channels, &displays, ScreenFrame::Monitor)[0];
+        let tv = map_channels_to_tiles(&channels, &displays, ScreenFrame::Tv)[0];
+        // The same room height lands lower on the TV picture because the TV
+        // frame's bottom edge sits higher.
+        let monitor_v = (monitor.top + monitor.bottom) / 2.0;
+        let tv_v = (tv.top + tv.bottom) / 2.0;
+        assert!(tv_v > monitor_v, "{tv_v} vs {monitor_v}");
     }
 
     #[test]
@@ -578,7 +672,7 @@ mod tests {
             channel(1, 0.0, 0.0),
             channel(2, 1.0, -1.0),
         ];
-        for tile in map_channels_to_tiles(&channels, &displays) {
+        for tile in map_channels_to_tiles(&channels, &displays, ScreenFrame::Monitor) {
             assert!(tile.left >= 0.0 && tile.right <= 1.0);
             assert!(tile.top >= 0.0 && tile.bottom <= 1.0);
             assert!(tile.right - tile.left >= 0.04);
@@ -589,7 +683,7 @@ mod tests {
     #[test]
     fn center_channel_between_displays_lands_on_exactly_one() {
         let displays = [display(0, 0, 1920, 1080), display(1920, 0, 1920, 1080)];
-        let tiles = map_channels_to_tiles(&[channel(0, 0.0, 0.0)], &displays);
+        let tiles = map_channels_to_tiles(&[channel(0, 0.0, 0.0)], &displays, ScreenFrame::Monitor);
         // x=0 maps to the seam; the tile must belong to one display and stay
         // inside it.
         let tile = tiles[0];
@@ -600,9 +694,9 @@ mod tests {
     #[test]
     fn depth_broadens_sampling_and_reduces_effect_strength() {
         let displays = [display(0, 0, 1920, 1080)];
-        let screen = map_channels_to_tiles(&[channel_at_depth(0, 0.0, 1.0, 0.0)], &displays)[0];
-        let middle = map_channels_to_tiles(&[channel_at_depth(0, 0.0, 0.0, 0.0)], &displays)[0];
-        let back = map_channels_to_tiles(&[channel_at_depth(0, 0.0, -1.0, 0.0)], &displays)[0];
+        let screen = map_channels_to_tiles(&[channel_at_depth(0, 0.0, 1.0, 0.0)], &displays, ScreenFrame::Monitor)[0];
+        let middle = map_channels_to_tiles(&[channel_at_depth(0, 0.0, 0.0, 0.0)], &displays, ScreenFrame::Monitor)[0];
+        let back = map_channels_to_tiles(&[channel_at_depth(0, 0.0, -1.0, 0.0)], &displays, ScreenFrame::Monitor)[0];
 
         let screen_width = screen.right - screen.left;
         let middle_width = middle.right - middle.left;
@@ -620,9 +714,9 @@ mod tests {
     fn out_of_range_depth_is_clamped() {
         let displays = [display(0, 0, 1920, 1080)];
         let beyond_screen =
-            map_channels_to_tiles(&[channel_at_depth(0, 0.0, 4.0, 0.0)], &displays)[0];
+            map_channels_to_tiles(&[channel_at_depth(0, 0.0, 4.0, 0.0)], &displays, ScreenFrame::Monitor)[0];
         let beyond_back =
-            map_channels_to_tiles(&[channel_at_depth(0, 0.0, -4.0, 0.0)], &displays)[0];
+            map_channels_to_tiles(&[channel_at_depth(0, 0.0, -4.0, 0.0)], &displays, ScreenFrame::Monitor)[0];
 
         assert!((beyond_screen.depth_gain - 1.0).abs() < f32::EPSILON);
         assert!((beyond_back.depth_gain - BACK_DEPTH_GAIN).abs() < f32::EPSILON);

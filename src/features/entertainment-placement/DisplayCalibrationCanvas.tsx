@@ -3,16 +3,20 @@ import type { HostSyncDisplay } from "@/types/host-sync";
 import type { HuePosition } from "@/types/hue";
 import { useMemo, useRef, useState, type PointerEvent } from "react";
 import {
+  combinedRoomFrame,
   displayBounds,
   displayPointToPosition,
   nearestDisplay,
   positionToDisplayPoint,
+  roomFrameOptionsFor,
   sampleRegionForPosition,
 } from "./display-geometry";
 import type { RoomPin } from "./RoomCanvas";
 
 interface DisplayCalibrationCanvasProps {
+  configurationType: string | null;
   displays: HostSyncDisplay[];
+  displayDetails?: string;
   pins: RoomPin[];
   activeKey: string | null;
   onActivate: (key: string) => void;
@@ -27,8 +31,28 @@ const svgPoint = (svg: SVGSVGElement, event: PointerEvent<SVGSVGElement>) => {
   return point.matrixTransform(svg.getScreenCTM()?.inverse());
 };
 
+/**
+ * A light outside the screen frame projects onto the nearest screen edge.
+ * While a drag stays on that edge, keep the out-of-frame axis so sliding a
+ * desk light along the bottom of the picture doesn't lift it into the frame.
+ */
+const holdOutsideFrame = (
+  current: number,
+  next: number,
+  min: number,
+  max: number,
+) => {
+  const epsilon = 1e-5;
+  return (current < min && next <= min + epsilon) ||
+    (current > max && next >= max - epsilon)
+    ? current
+    : next;
+};
+
 export const DisplayCalibrationCanvas = ({
+  configurationType,
   displays,
+  displayDetails,
   pins,
   activeKey,
   onActivate,
@@ -36,10 +60,17 @@ export const DisplayCalibrationCanvas = ({
   className,
 }: DisplayCalibrationCanvasProps) => {
   const bounds = useMemo(() => displayBounds(displays), [displays]);
+  const frame = useMemo(
+    () =>
+      bounds
+        ? combinedRoomFrame(bounds, roomFrameOptionsFor(configurationType))
+        : null,
+    [bounds, configurationType],
+  );
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
 
-  if (!bounds) return null;
+  if (!bounds || !frame) return null;
 
   const unit = Math.max(bounds.width, bounds.height);
   const padding = unit * 0.045;
@@ -47,13 +78,19 @@ export const DisplayCalibrationCanvas = ({
   const labelSize = unit * 0.022;
 
   const movePin = (event: PointerEvent<SVGSVGElement>, key: string) => {
+    const pin = pins.find((candidate) => candidate.key === key);
+    if (!pin) return;
     const pointer = svgPoint(event.currentTarget, event);
     const rawX = pointer.x + dragOffset.current.x;
     const rawY = pointer.y + dragOffset.current.y;
     const display = nearestDisplay(displays, rawX, rawY);
     const x = Math.max(display.x, Math.min(display.x + display.width, rawX));
     const y = Math.max(display.y, Math.min(display.y + display.height, rawY));
-    onMove(key, displayPointToPosition(x, y, bounds));
+    const next = displayPointToPosition(x, y, bounds, frame);
+    onMove(key, {
+      x: holdOutsideFrame(pin.position.x, next.x, frame.left, frame.right),
+      z: holdOutsideFrame(pin.position.z, next.z, frame.bottom, frame.top),
+    });
   };
 
   return (
@@ -78,7 +115,7 @@ export const DisplayCalibrationCanvas = ({
           const pin = pins.find((candidate) => candidate.key === key);
           if (!pin) return;
           const pointer = svgPoint(event.currentTarget, event);
-          const anchor = positionToDisplayPoint(pin.position, bounds);
+          const anchor = positionToDisplayPoint(pin.position, bounds, frame);
           dragOffset.current = {
             x: anchor.x - pointer.x,
             y: anchor.y - pointer.y,
@@ -125,17 +162,18 @@ export const DisplayCalibrationCanvas = ({
               className="pointer-events-none fill-muted-foreground/70"
               fontSize={labelSize * 0.72}
             >
-              {display.width} × {display.height}
+              {displayDetails ?? `${display.width} × ${display.height}`}
             </text>
           </g>
         ))}
 
         {pins.map((pin) => {
-          const point = positionToDisplayPoint(pin.position, bounds);
+          const point = positionToDisplayPoint(pin.position, bounds, frame);
           const region = sampleRegionForPosition(
             pin.position,
             displays,
             bounds,
+            frame,
           );
           const active = pin.key === activeKey;
           return (
@@ -179,7 +217,7 @@ export const DisplayCalibrationCanvas = ({
         })}
       </svg>
       <div className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-background/90 px-3 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur">
-        Drag a light to change the screen region it samples
+        Drag a light to choose the screen area it follows
       </div>
     </div>
   );

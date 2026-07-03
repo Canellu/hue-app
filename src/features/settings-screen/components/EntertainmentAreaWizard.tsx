@@ -6,8 +6,13 @@ import {
 } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import type { RoomView } from "@/features/entertainment-placement/geometry";
 import { RoomCanvas } from "@/features/entertainment-placement/RoomCanvas";
+import {
+  createVirtualTvDisplay,
+  DEFAULT_TV_ASPECT_RATIO,
+  type TvAspectRatio,
+} from "@/features/entertainment-placement/tv-display";
+import { TvAspectRatioControl } from "@/features/entertainment-placement/TvAspectRatioControl";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
 import { useBlinkLights } from "@/hooks/useBlinkLights";
 import { cn } from "@/lib/utils";
@@ -26,7 +31,6 @@ import {
   Minus,
   Monitor,
   Music,
-  RectangleHorizontal,
   Search,
   Sparkles,
   Tv,
@@ -90,6 +94,7 @@ export interface CreateEntertainmentAreaOptions {
   configurationType: HueEntertainmentConfiguration["configuration_type"];
   capabilities: EntertainmentLightCapability[];
   placements: Record<string, HuePosition>;
+  tvAspectRatio: TvAspectRatio;
 }
 
 export const EntertainmentAreaWizard = ({
@@ -122,7 +127,9 @@ export const EntertainmentAreaWizard = ({
   const [placements, setPlacements] = useState<Record<string, HuePosition>>({});
   const [query, setQuery] = useState("");
   const [activeLightId, setActiveLightId] = useState<string | null>(null);
-  const [view, setView] = useState<RoomView>("flat");
+  const [tvAspectRatio, setTvAspectRatio] = useState<TvAspectRatio>(
+    DEFAULT_TV_ASPECT_RATIO,
+  );
   const [openLightGroups, setOpenLightGroups] = useState<Set<string>>(
     () => new Set(),
   );
@@ -337,6 +344,7 @@ export const EntertainmentAreaWizard = ({
       configurationType,
       capabilities: selectedCapabilities,
       placements,
+      tvAspectRatio,
     });
   };
 
@@ -508,39 +516,25 @@ export const EntertainmentAreaWizard = ({
                 Place your lights
               </h1>
               <p className="text-sm text-muted-foreground">
-                Drag each light into place. Switch to the 3D room to set
-                front-to-back depth.
+                Drag each light to where it sits in the room. Use the Front
+                preset to line up heights, and Top for a floor plan.
               </p>
             </div>
-            <div className="flex shrink-0 justify-center">
-              <div className="flex rounded-full border border-foreground/12 p-1">
-                {(
-                  [
-                    { value: "flat", label: "Flat", icon: RectangleHorizontal },
-                    { value: "room", label: "3D room", icon: Cuboid },
-                  ] as const
-                ).map(({ value, label, icon: Icon }) => (
-                  <button
-                    key={value}
-                    type="button"
-                    aria-pressed={view === value}
-                    onClick={() => setView(value)}
-                    className={cn(
-                      "flex items-center gap-1.5 rounded-full px-4 py-1 text-sm font-medium transition-colors",
-                      view === value
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    <Icon className="size-4" />
-                    {label}
-                  </button>
-                ))}
+            {configurationType === "screen" && (
+              <div className="flex shrink-0 items-center justify-center">
+                <TvAspectRatioControl
+                  value={tvAspectRatio}
+                  onChange={setTvAspectRatio}
+                />
               </div>
-            </div>
+            )}
             <RoomCanvas
-              view={view}
               configurationType={configurationType}
+              displays={
+                configurationType === "screen"
+                  ? [createVirtualTvDisplay(tvAspectRatio)]
+                  : undefined
+              }
               pins={selectedCapabilities.map(({ light }, index) => ({
                 key: light.id,
                 label: `${index + 1}`,
@@ -593,7 +587,6 @@ export const EntertainmentAreaWizard = ({
                     step={0.05}
                     value={activePlacement.y}
                     aria-label={`${activeLight.name} depth`}
-                    onPointerDown={() => setView("room")}
                     onChange={(event) =>
                       updatePlacement(activeLight.id, {
                         y: Number(event.target.value),

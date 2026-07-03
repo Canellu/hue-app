@@ -1,5 +1,6 @@
 import { EntertainmentAreaWizard } from "@/features/settings-screen/components/EntertainmentAreaWizard";
 import { createEntertainmentConfigurationBody } from "@/features/settings-screen/entertainment";
+import { saveTvAspectRatio } from "@/features/entertainment-placement/tv-display";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HueEntertainmentService } from "@/types/hue";
 import { useNavigate, useSearch } from "@tanstack/react-router";
@@ -50,7 +51,13 @@ export const EntertainmentAreaWizardRoute: React.FC = () => {
       isLoadingCapabilities={isLoadingCapabilities || resourcesLoading}
       capabilityError={capabilityError}
       isCreating={isCreating}
-      onCreate={({ name, configurationType, capabilities, placements }) => {
+      onCreate={({
+        name,
+        configurationType,
+        capabilities,
+        placements,
+        tvAspectRatio,
+      }) => {
         if (isCreating) return;
         setIsCreating(true);
         const body = createEntertainmentConfigurationBody({
@@ -59,11 +66,14 @@ export const EntertainmentAreaWizardRoute: React.FC = () => {
           capabilities,
           placements,
         });
-        void invoke("create-hue-resource", {
+        void invoke<string>("create-hue-resource", {
           resourceType: "entertainment_configuration",
           body,
         })
-          .then(() => {
+          .then((areaId) => {
+            if (configurationType === "screen") {
+              saveTvAspectRatio(areaId, tvAspectRatio);
+            }
             toast.success("Entertainment area created");
             void navigate(
               from === "sync"

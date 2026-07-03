@@ -345,7 +345,9 @@ async fn video(args: &[String]) -> Result<(), String> {
     );
 
     let bounds: Vec<_> = selected.iter().map(|d| d.bounds()).collect();
-    let tiles = analysis::map_channels_to_tiles(&area.channels, &bounds);
+    let frame =
+        analysis::ScreenFrame::from_configuration_type(area.configuration_type.as_deref());
+    let tiles = analysis::map_channels_to_tiles(&area.channels, &bounds, frame);
     for tile in &tiles {
         println!(
             "  channel {} -> display {} tile [{:.2},{:.2}]x[{:.2},{:.2}]",

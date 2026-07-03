@@ -1,8 +1,9 @@
 import type { HostSyncDisplay } from "@/types/host-sync";
 import type { HuePosition } from "@/types/hue";
 
-/** Must match the capture engine's `TILE_FRACTION`. */
-const TILE_FRACTION = 0.18;
+/** Must match the capture engine's depth-dependent tile fractions. */
+const SCREEN_TILE_FRACTION = 0.18;
+const BACK_TILE_FRACTION = 0.72;
 
 export interface DisplayBounds {
   minX: number;
@@ -20,6 +21,44 @@ export interface DisplaySampleRegion {
   right: number;
   bottom: number;
 }
+
+export interface RoomDisplayFrame {
+  id: string;
+  name: string;
+  x: number;
+  z: number;
+  width: number;
+  height: number;
+}
+
+export interface RoomFrameOptions {
+  maxWidth: number;
+  maxHeight: number;
+  bottomZ: number;
+}
+
+/**
+ * The screen wall's footprint in room coordinates: the rectangle the 3D room
+ * draws the displays inside, and the window that positions project through
+ * onto the screen. A light outside it samples the nearest screen edge.
+ * Mirrored by the capture engine (`analysis.rs`) — keep the three in sync.
+ */
+export interface RoomFrame {
+  left: number;
+  right: number;
+  bottom: number;
+  top: number;
+}
+
+/** Where the screen sits in the room, per configuration type. */
+export const roomFrameOptionsFor = (
+  configurationType: string | null,
+): RoomFrameOptions => ({
+  maxWidth: 1.1,
+  maxHeight: 0.64,
+  // A TV hangs at seated eye level; a desk monitor sits lower.
+  bottomZ: configurationType === "screen" ? 0 : -0.14,
+});
 
 export const displayBounds = (
   displays: HostSyncDisplay[],
@@ -66,35 +105,106 @@ export const nearestDisplay = (
       : nearest,
   );
 
+const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+
+/** The combined display arrangement fitted into the room's screen frame. */
+export const combinedRoomFrame = (
+  bounds: DisplayBounds,
+  { maxWidth, maxHeight, bottomZ }: RoomFrameOptions,
+): RoomFrame => {
+  const scale = Math.min(maxWidth / bounds.width, maxHeight / bounds.height);
+  const width = bounds.width * scale;
+  const height = bounds.height * scale;
+  return {
+    left: -width / 2,
+    right: width / 2,
+    bottom: bottomZ,
+    top: bottomZ + height,
+  };
+};
+
+/**
+ * Projects a room position through the screen frame onto the displays.
+ * Positions outside the frame clamp to the nearest screen edge, so a lamp
+ * beside the monitor follows that edge of the picture.
+ */
 export const positionToDisplayPoint = (
   position: HuePosition,
   bounds: DisplayBounds,
+  frame: RoomFrame,
 ) => ({
-  x: bounds.minX + ((position.x + 1) / 2) * bounds.width,
-  y: bounds.minY + ((1 - position.z) / 2) * bounds.height,
+  x:
+    bounds.minX +
+    clamp01((position.x - frame.left) / (frame.right - frame.left)) *
+      bounds.width,
+  y:
+    bounds.minY +
+    clamp01((frame.top - position.z) / (frame.top - frame.bottom)) *
+      bounds.height,
 });
 
+/** Inverse of `positionToDisplayPoint`; results land inside the frame. */
 export const displayPointToPosition = (
   x: number,
   y: number,
   bounds: DisplayBounds,
+  frame: RoomFrame,
 ) => ({
-  x: Math.max(-1, Math.min(1, ((x - bounds.minX) / bounds.width) * 2 - 1)),
-  z: Math.max(-1, Math.min(1, 1 - ((y - bounds.minY) / bounds.height) * 2)),
+  x:
+    frame.left +
+    clamp01((x - bounds.minX) / bounds.width) * (frame.right - frame.left),
+  z:
+    frame.top -
+    clamp01((y - bounds.minY) / bounds.height) * (frame.top - frame.bottom),
 });
+
+/**
+ * Fits the selected Windows display arrangement into the room's screen frame.
+ * Desktop Y grows downward; room Z grows upward.
+ */
+export const roomDisplayFrames = (
+  displays: HostSyncDisplay[],
+  { maxWidth, maxHeight, bottomZ }: RoomFrameOptions,
+): RoomDisplayFrame[] => {
+  const bounds = displayBounds(displays);
+  if (!bounds) return [];
+
+  const scale = Math.min(maxWidth / bounds.width, maxHeight / bounds.height);
+  const centerX = bounds.minX + bounds.width / 2;
+
+  return displays.map((display) => {
+    const width = display.width * scale;
+    const height = display.height * scale;
+    return {
+      id: display.id,
+      name: display.name,
+      x: (display.x + display.width / 2 - centerX) * scale,
+      z:
+        bottomZ +
+        (bounds.maxY - display.y - display.height) * scale +
+        height / 2,
+      width,
+      height,
+    };
+  });
+};
 
 /** Mirrors `analysis::map_channels_to_tiles` for placement previews. */
 export const sampleRegionForPosition = (
   position: HuePosition,
   displays: HostSyncDisplay[],
   bounds: DisplayBounds,
+  frame: RoomFrame,
 ): DisplaySampleRegion => {
-  const point = positionToDisplayPoint(position, bounds);
+  const point = positionToDisplayPoint(position, bounds, frame);
   const display =
     displays.find((candidate) => contains(candidate, point.x, point.y)) ??
     nearestDisplay(displays, point.x, point.y);
-  const halfWidth = (bounds.width * TILE_FRACTION) / 2;
-  const halfHeight = (bounds.height * TILE_FRACTION) / 2;
+  const depth = Math.max(0, Math.min(1, (1 - position.y) / 2));
+  const tileFraction =
+    SCREEN_TILE_FRACTION + (BACK_TILE_FRACTION - SCREEN_TILE_FRACTION) * depth;
+  const halfWidth = (bounds.width * tileFraction) / 2;
+  const halfHeight = (bounds.height * tileFraction) / 2;
   const minWidth = Math.max(display.width * 0.05, 2);
   const minHeight = Math.max(display.height * 0.05, 2);
 

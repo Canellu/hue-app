@@ -6,12 +6,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { EntertainmentStoreEffects } from "@/stores/EntertainmentStore";
 import {
   HueResourcesStoreEffects,
   useHueResourcesStore,
 } from "@/stores/HueResourcesStore";
-import { useSyncBoxStore } from "@/stores/SyncBoxStore";
-import type { SyncBoxSession } from "@/types/sync-box";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -318,25 +317,8 @@ export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
     };
   }, [widgetId]);
 
-  // Widgets respect sync-locked lights too, so poll the Sync Box state — at a
-  // slower cadence than the main window since several widgets may be open.
-  useEffect(() => {
-    let interval: number | undefined;
-    void invoke<SyncBoxSession>("get-sync-box-session")
-      .then((session) => {
-        if (!session.configured) return;
-        const syncStore = useSyncBoxStore.getState();
-        void syncStore.refresh().then(syncStore.loadAreaLights);
-        interval = window.setInterval(
-          () => void useSyncBoxStore.getState().refresh(),
-          5000,
-        );
-      })
-      .catch(() => undefined);
-    return () => {
-      if (interval) window.clearInterval(interval);
-    };
-  }, []);
+  // Widgets respect sync-locked lights too; the entertainment store keeps
+  // itself fresh from the bridge event stream, no polling needed.
 
   // If the first load stalls, surface a retry instead of shimmering forever.
   const [connectStalled, setConnectStalled] = useState(false);
@@ -503,6 +485,7 @@ export const WidgetScreen = ({ widgetId }: { widgetId: string }) => {
       }
     >
       <HueResourcesStoreEffects />
+      <EntertainmentStoreEffects />
       <WidgetTitleBar
         widgetId={widgetId}
         onOpenSettings={openSettings}

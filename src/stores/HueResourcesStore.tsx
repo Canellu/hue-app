@@ -18,7 +18,7 @@ import {
   hueDynamicSpeedValueToStep,
 } from "@/lib/hue-speed";
 import { TRANSITION_MS } from "@/lib/transitions";
-import { useSyncBoxStore } from "@/stores/SyncBoxStore";
+import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 import type { HomeGroupingMode, HomeLayout } from "@/types/app-layout";
 import type {
   HueEventUpdate,
@@ -30,7 +30,7 @@ import type {
 } from "@/types/hue";
 
 const activeSyncedLightIds = (): Set<string> =>
-  new Set(useSyncBoxStore.getState().syncedLightIds);
+  new Set(useEntertainmentStore.getState().syncedLightIds);
 
 const isSyncLocked = (lightIds: string[]): boolean => {
   const syncedIds = activeSyncedLightIds();
@@ -613,6 +613,9 @@ const coalesceHueEvents = (updates: HueEventUpdate[]): HueEventUpdate[] => {
       effectV2: update.effectV2 ?? previous.effectV2,
       speed: update.speed ?? previous.speed,
       autoDynamic: update.autoDynamic ?? previous.autoDynamic,
+      status: update.status ?? previous.status,
+      activeStreamerId:
+        update.activeStreamerId ?? previous.activeStreamerId,
       value: update.value ?? previous.value,
     });
   }

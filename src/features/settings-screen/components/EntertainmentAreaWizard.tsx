@@ -1,27 +1,42 @@
+import { Card } from "@/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import type { RoomView } from "@/features/entertainment-placement/geometry";
+import { RoomCanvas } from "@/features/entertainment-placement/RoomCanvas";
+import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
+import { useBlinkLights } from "@/hooks/useBlinkLights";
 import { cn } from "@/lib/utils";
 import type {
   HueEntertainmentConfiguration,
   HueEntertainmentService,
   HueLight,
   HuePosition,
+  HueRoomZone,
 } from "@/types/hue";
 import {
   Check,
+  ChevronDown,
   Cuboid,
   Lightbulb,
+  Minus,
   Monitor,
   Music,
+  RectangleHorizontal,
   Search,
   Sparkles,
   Tv,
 } from "lucide-react";
+import { useMemo, useState } from "react";
 import {
-  useMemo,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-} from "react";
+  SETTINGS_EXPANDABLE_CARD,
+  SETTINGS_EXPANDABLE_TRIGGER,
+  SETTINGS_EXPANDABLE_TRIGGER_OPEN,
+} from "../constants";
 import {
   entertainmentCapabilities,
   type EntertainmentLightCapability,
@@ -34,6 +49,8 @@ import {
 
 const MAX_CHANNELS = 20;
 const STEPS = ["Details", "Lights", "Placement"];
+const UNGROUPED_LABEL = "Other lights";
+const UNGROUPED_KEY = "other";
 
 const CONFIGURATION_TYPES = [
   {
@@ -78,6 +95,7 @@ export interface CreateEntertainmentAreaOptions {
 export const EntertainmentAreaWizard = ({
   lights,
   services,
+  roomZones,
   isLoadingCapabilities,
   capabilityError,
   isCreating,
@@ -85,6 +103,7 @@ export const EntertainmentAreaWizard = ({
 }: {
   lights: HueLight[];
   services: HueEntertainmentService[];
+  roomZones: HueRoomZone[];
   isLoadingCapabilities: boolean;
   capabilityError: string | null;
   isCreating: boolean;
@@ -103,7 +122,10 @@ export const EntertainmentAreaWizard = ({
   const [placements, setPlacements] = useState<Record<string, HuePosition>>({});
   const [query, setQuery] = useState("");
   const [activeLightId, setActiveLightId] = useState<string | null>(null);
-  const [draggingLightId, setDraggingLightId] = useState<string | null>(null);
+  const [view, setView] = useState<RoomView>("flat");
+  const [openLightGroups, setOpenLightGroups] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const capabilityByLightId = useMemo(
     () =>
@@ -128,6 +150,64 @@ export const EntertainmentAreaWizard = ({
           value?.toLowerCase().includes(normalizedQuery),
         ),
   );
+  // Rooms claim lights first (a light lives in exactly one room); zones only
+  // label lights that no room owns.
+  const groupByLightId = useMemo(() => {
+    const groups = new Map<
+      string,
+      Pick<HueRoomZone, "id" | "name" | "class" | "resourceType">
+    >();
+    [...roomZones]
+      .sort((a, b) =>
+        a.resourceType === b.resourceType
+          ? a.name.localeCompare(b.name)
+          : a.resourceType === "room"
+            ? -1
+            : 1,
+      )
+      .forEach((group) => {
+        group.lightIds.forEach((lightId) => {
+          if (!groups.has(lightId)) groups.set(lightId, group);
+        });
+      });
+    return groups;
+  }, [roomZones]);
+  const groupedCapabilities = [
+    ...filteredCapabilities
+      .reduce((groups, capability) => {
+        const roomZone = groupByLightId.get(capability.light.id);
+        const key = roomZone
+          ? `${roomZone.resourceType}:${roomZone.id}`
+          : UNGROUPED_KEY;
+        const existing = groups.get(key);
+        if (existing) {
+          existing.capabilities.push(capability);
+        } else {
+          groups.set(key, {
+            key,
+            name: roomZone?.name ?? UNGROUPED_LABEL,
+            class: roomZone?.class,
+            resourceType: roomZone?.resourceType,
+            capabilities: [capability],
+          });
+        }
+        return groups;
+      }, new Map<string, LightCapabilityGroup>())
+      .entries(),
+  ]
+    .map(([, group]) => ({
+      ...group,
+      capabilities: [...group.capabilities].sort((a, b) =>
+        a.light.name.localeCompare(b.light.name),
+      ),
+    }))
+    .sort((a, b) =>
+      a.key === UNGROUPED_KEY
+        ? 1
+        : b.key === UNGROUPED_KEY
+          ? -1
+          : a.name.localeCompare(b.name),
+    );
 
   const initializePlacements = () => {
     setPlacements((current) => {
@@ -170,8 +250,15 @@ export const EntertainmentAreaWizard = ({
     });
   };
 
+  const { blink } = useBlinkLights();
+
+  // Blinks a light when it is added to the area. Placement interactions do not
+  // blink because selecting and dragging pins would repeatedly distract.
+  const blinkLight = (id: string) => void blink(id, [id]);
+
   const toggleLight = (capability: EntertainmentLightCapability) => {
     const id = capability.light.id;
+    if (!selectedIds.includes(id)) blinkLight(id);
     setSelectedIds((current) => {
       if (current.includes(id)) return current.filter((value) => value !== id);
       const channels = current.reduce(
@@ -185,19 +272,56 @@ export const EntertainmentAreaWizard = ({
     });
   };
 
+  const toggleLightGroup = (group: LightCapabilityGroup) => {
+    const groupIds = new Set(
+      group.capabilities.map((capability) => capability.light.id),
+    );
+    const allSelected = group.capabilities.every((capability) =>
+      selectedIds.includes(capability.light.id),
+    );
+
+    if (allSelected) {
+      setSelectedIds((current) => current.filter((id) => !groupIds.has(id)));
+      return;
+    }
+
+    const outsideChannels = selectedCapabilities.reduce(
+      (total, capability) =>
+        groupIds.has(capability.light.id)
+          ? total
+          : total + capability.channelCount,
+      0,
+    );
+    const groupChannels = group.capabilities.reduce(
+      (total, capability) => total + capability.channelCount,
+      0,
+    );
+    if (outsideChannels + groupChannels > MAX_CHANNELS) return;
+
+    const newlySelectedIds = group.capabilities
+      .map((capability) => capability.light.id)
+      .filter((id) => !selectedIds.includes(id));
+    void blink(group.key, newlySelectedIds);
+    setSelectedIds((current) => [
+      ...current.filter((id) => !groupIds.has(id)),
+      ...groupIds,
+    ]);
+  };
+
+  const toggleLightGroupOpen = (key: string) => {
+    setOpenLightGroups((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const updatePlacement = (id: string, update: Partial<HuePosition>) => {
     setPlacements((current) => ({
       ...current,
       [id]: { ...(current[id] ?? { x: 0, y: 0.8, z: 0 }), ...update },
     }));
-  };
-
-  const movePin = (id: string, event: ReactPointerEvent<HTMLDivElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
-    updatePlacement(id, {
-      x: round(clamp(((event.clientX - bounds.left) / bounds.width) * 2 - 1)),
-      z: round(clamp(1 - ((event.clientY - bounds.top) / bounds.height) * 2)),
-    });
   };
 
   const submit = () => {
@@ -342,68 +466,25 @@ export const EntertainmentAreaWizard = ({
                 fade="bottom"
                 className="min-h-0 flex-1 overflow-hidden"
               >
-                <div className="divide-y divide-foreground/10 overflow-hidden rounded-2xl border border-foreground/12 bg-input/40">
-                  {filteredCapabilities.length > 0 ? (
-                    filteredCapabilities.map((capability) => {
-                      const checked = selectedIds.includes(capability.light.id);
-                      const wouldExceed =
-                        !checked &&
-                        selectedChannelCount + capability.channelCount >
-                          MAX_CHANNELS;
-                      return (
-                        <label
-                          key={capability.light.id}
-                          className={cn(
-                            "flex items-center gap-3 px-4 py-3 transition-colors",
-                            wouldExceed
-                              ? "cursor-not-allowed opacity-45"
-                              : "cursor-pointer hover:bg-foreground/3",
-                            checked && "bg-primary/5",
-                          )}
-                        >
-                          <input
-                            type="checkbox"
-                            className="sr-only"
-                            checked={checked}
-                            disabled={wouldExceed}
-                            onChange={() => toggleLight(capability)}
-                          />
-                          <span
-                            className={cn(
-                              "flex size-5 shrink-0 items-center justify-center rounded-md border",
-                              checked
-                                ? "border-primary bg-primary text-primary-foreground"
-                                : "border-foreground/30",
-                            )}
-                          >
-                            {checked ? <Check size={14} /> : null}
-                          </span>
-                          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-muted-foreground">
-                            <Lightbulb size={18} />
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium">
-                              {capability.light.name}
-                            </span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              {[
-                                capability.light.productName,
-                                capability.light.reachable
-                                  ? "Reachable"
-                                  : "Offline",
-                                capability.channelCount > 1
-                                  ? `${capability.channelCount} channels`
-                                  : null,
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </span>
-                          </span>
-                        </label>
-                      );
-                    })
+                <div className="space-y-3 pr-1 pb-1">
+                  {groupedCapabilities.length > 0 ? (
+                    groupedCapabilities.map((group) => (
+                      <LightGroupCard
+                        key={group.key}
+                        group={group}
+                        open={
+                          normalizedQuery.length > 0 ||
+                          openLightGroups.has(group.key)
+                        }
+                        selectedIds={selectedIds}
+                        selectedCapabilities={selectedCapabilities}
+                        onToggleOpen={() => toggleLightGroupOpen(group.key)}
+                        onToggleGroup={() => toggleLightGroup(group)}
+                        onToggleLight={toggleLight}
+                      />
+                    ))
                   ) : (
-                    <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    <p className="rounded-2xl border border-foreground/12 bg-input/40 px-4 py-8 text-center text-sm text-muted-foreground">
                       No compatible lights match your search.
                     </p>
                   )}
@@ -427,68 +508,50 @@ export const EntertainmentAreaWizard = ({
                 Place your lights
               </h1>
               <p className="text-sm text-muted-foreground">
-                Drag each light horizontally and vertically. Select it to adjust
+                Drag each light into place. Switch to the 3D room to set
                 front-to-back depth.
               </p>
             </div>
-            <div
-              data-placement-canvas
-              className="relative min-h-64 flex-1 touch-none overflow-hidden rounded-3xl border border-foreground/15 bg-[radial-gradient(circle_at_center,var(--muted)_1px,transparent_1px)] bg-[size:24px_24px] select-none"
-              onPointerDown={(event) => {
-                const pin = (event.target as HTMLElement).closest<HTMLElement>(
-                  "[data-light-id]",
-                );
-                const id = pin?.dataset.lightId;
-                if (!id) return;
-                event.currentTarget.setPointerCapture(event.pointerId);
-                setActiveLightId(id);
-                setDraggingLightId(id);
-                movePin(id, event);
-              }}
-              onPointerMove={(event) => {
-                if (draggingLightId) movePin(draggingLightId, event);
-              }}
-              onPointerUp={(event) => {
-                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                  event.currentTarget.releasePointerCapture(event.pointerId);
-                }
-                setDraggingLightId(null);
-              }}
-              onPointerCancel={() => setDraggingLightId(null)}
-            >
-              <div className="pointer-events-none absolute inset-x-0 top-1/2 border-t border-foreground/10" />
-              <div className="pointer-events-none absolute inset-y-0 left-1/2 border-l border-foreground/10" />
-              <span className="pointer-events-none absolute top-3 left-1/2 -translate-x-1/2 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                High
-              </span>
-              <span className="pointer-events-none absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] font-medium tracking-wide text-muted-foreground uppercase">
-                Low
-              </span>
-              {selectedCapabilities.map(({ light }, index) => {
-                const position = placements[light.id] ?? { x: 0, y: 0.8, z: 0 };
-                return (
+            <div className="flex shrink-0 justify-center">
+              <div className="flex rounded-full border border-foreground/12 p-1">
+                {(
+                  [
+                    { value: "flat", label: "Flat", icon: RectangleHorizontal },
+                    { value: "room", label: "3D room", icon: Cuboid },
+                  ] as const
+                ).map(({ value, label, icon: Icon }) => (
                   <button
-                    key={light.id}
+                    key={value}
                     type="button"
-                    data-light-id={light.id}
-                    aria-label={`Place ${light.name}`}
-                    title={light.name}
-                    style={{
-                      left: `${((position.x + 1) / 2) * 100}%`,
-                      top: `${((1 - position.z) / 2) * 100}%`,
-                    }}
+                    aria-pressed={view === value}
+                    onClick={() => setView(value)}
                     className={cn(
-                      "absolute flex size-11 -translate-1/2 cursor-grab items-center justify-center rounded-full border-2 bg-background font-semibold shadow-md active:cursor-grabbing",
-                      activeLightId === light.id
-                        ? "z-10 border-primary ring-4 ring-primary/15"
-                        : "border-foreground/20",
+                      "flex items-center gap-1.5 rounded-full px-4 py-1 text-sm font-medium transition-colors",
+                      view === value
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    {index + 1}
+                    <Icon className="size-4" />
+                    {label}
                   </button>
-                );
-              })}
+                ))}
+              </div>
             </div>
+            <RoomCanvas
+              view={view}
+              configurationType={configurationType}
+              pins={selectedCapabilities.map(({ light }, index) => ({
+                key: light.id,
+                label: `${index + 1}`,
+                name: light.name,
+                position: placements[light.id] ?? { x: 0, y: 0.8, z: 0 },
+              }))}
+              activeKey={activeLightId}
+              onActivate={setActiveLightId}
+              onMove={updatePlacement}
+              className="min-h-64 w-full flex-1"
+            />
             <ScrollArea className="max-h-32 shrink-0">
               <div className="flex gap-2 pb-2">
                 {selectedCapabilities.map(({ light }, index) => (
@@ -514,31 +577,53 @@ export const EntertainmentAreaWizard = ({
               </div>
             </ScrollArea>
             {activeLight && activePlacement ? (
-              <div className="flex shrink-0 items-center gap-4 rounded-2xl bg-foreground/4 px-4 py-3">
-                <div className="min-w-32">
-                  <p className="truncate text-sm font-medium">
-                    {activeLight.name}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Front-to-back depth
-                  </p>
+              <div className="grid shrink-0 gap-3 rounded-2xl bg-foreground/4 px-4 py-3 sm:grid-cols-2">
+                <div className="flex items-center gap-3">
+                  <div className="min-w-24">
+                    <p className="truncate text-sm font-medium">
+                      {activeLight.name}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Depth</p>
+                  </div>
+                  <span className="text-xs text-muted-foreground">Front</span>
+                  <input
+                    type="range"
+                    min={-1}
+                    max={1}
+                    step={0.05}
+                    value={activePlacement.y}
+                    aria-label={`${activeLight.name} depth`}
+                    onPointerDown={() => setView("room")}
+                    onChange={(event) =>
+                      updatePlacement(activeLight.id, {
+                        y: Number(event.target.value),
+                      })
+                    }
+                    className="min-w-0 flex-1 accent-primary"
+                  />
+                  <span className="text-xs text-muted-foreground">Back</span>
                 </div>
-                <span className="text-xs text-muted-foreground">Front</span>
-                <input
-                  type="range"
-                  min={-1}
-                  max={1}
-                  step={0.05}
-                  value={activePlacement.y}
-                  aria-label={`${activeLight.name} depth`}
-                  onChange={(event) =>
-                    updatePlacement(activeLight.id, {
-                      y: Number(event.target.value),
-                    })
-                  }
-                  className="min-w-0 flex-1 accent-primary"
-                />
-                <span className="text-xs text-muted-foreground">Back</span>
+                <div className="flex items-center gap-3">
+                  <div className="min-w-24 text-xs text-muted-foreground sm:text-right">
+                    Height
+                  </div>
+                  <span className="text-xs text-muted-foreground">Low</span>
+                  <input
+                    type="range"
+                    min={-1}
+                    max={1}
+                    step={0.05}
+                    value={activePlacement.z}
+                    aria-label={`${activeLight.name} height`}
+                    onChange={(event) =>
+                      updatePlacement(activeLight.id, {
+                        z: Number(event.target.value),
+                      })
+                    }
+                    className="min-w-0 flex-1 accent-primary"
+                  />
+                  <span className="text-xs text-muted-foreground">High</span>
+                </div>
               </div>
             ) : null}
           </SettingsWizardContainedStep>
@@ -548,5 +633,182 @@ export const EntertainmentAreaWizard = ({
   );
 };
 
-const clamp = (value: number) => Math.max(-1, Math.min(1, value));
+interface LightCapabilityGroup {
+  key: string;
+  name: string;
+  class?: string;
+  resourceType?: HueRoomZone["resourceType"];
+  capabilities: EntertainmentLightCapability[];
+}
+
+const LightGroupCard = ({
+  group,
+  open,
+  selectedIds,
+  selectedCapabilities,
+  onToggleOpen,
+  onToggleGroup,
+  onToggleLight,
+}: {
+  group: LightCapabilityGroup;
+  open: boolean;
+  selectedIds: string[];
+  selectedCapabilities: EntertainmentLightCapability[];
+  onToggleOpen: () => void;
+  onToggleGroup: () => void;
+  onToggleLight: (capability: EntertainmentLightCapability) => void;
+}) => {
+  const GroupIcon = group.class ? getRoomZoneIcon(group.class) : Lightbulb;
+  const selectedCount = group.capabilities.filter((capability) =>
+    selectedIds.includes(capability.light.id),
+  ).length;
+  const allSelected = selectedCount === group.capabilities.length;
+  const partiallySelected = selectedCount > 0 && !allSelected;
+  const groupIds = new Set(
+    group.capabilities.map((capability) => capability.light.id),
+  );
+  const outsideChannelCount = selectedCapabilities.reduce(
+    (total, capability) =>
+      groupIds.has(capability.light.id)
+        ? total
+        : total + capability.channelCount,
+    0,
+  );
+  const groupChannelCount = group.capabilities.reduce(
+    (total, capability) => total + capability.channelCount,
+    0,
+  );
+  const cannotSelectAll =
+    !allSelected && outsideChannelCount + groupChannelCount > MAX_CHANNELS;
+
+  return (
+    <Collapsible open={open} onOpenChange={onToggleOpen}>
+      <Card className={cn("gap-0 py-0", SETTINGS_EXPANDABLE_CARD)}>
+        <div
+          className={cn(
+            "relative flex min-w-0 items-stretch",
+            SETTINGS_EXPANDABLE_TRIGGER,
+            open && SETTINGS_EXPANDABLE_TRIGGER_OPEN,
+          )}
+        >
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={partiallySelected ? "mixed" : allSelected}
+            aria-label={`${allSelected ? "Clear" : "Select"} all lights in ${group.name}`}
+            disabled={cannotSelectAll}
+            onClick={onToggleGroup}
+            className="absolute top-1/2 left-3 z-10 flex size-12 -translate-y-1/2 items-center justify-center rounded-xl transition-colors hover:bg-foreground/8 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <span
+              aria-hidden="true"
+              className={cn(
+                "flex size-5 items-center justify-center rounded-md border transition-colors",
+                selectedCount > 0
+                  ? "border-primary bg-primary text-primary-foreground"
+                  : "border-foreground/30",
+              )}
+            >
+              {allSelected ? (
+                <Check size={14} />
+              ) : partiallySelected ? (
+                <Minus size={14} />
+              ) : null}
+            </span>
+          </button>
+          <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-3 py-4 pr-5 pl-[72px] text-left">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-muted-foreground">
+              <GroupIcon size={19} />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-semibold">
+                {group.name}
+              </span>
+              <span className="block truncate text-xs text-muted-foreground">
+                {selectedCount > 0 ? `${selectedCount} selected · ` : ""}
+                {group.capabilities.length}{" "}
+                {group.capabilities.length === 1 ? "light" : "lights"}
+                {group.resourceType ? ` · ${group.resourceType}` : ""}
+              </span>
+            </span>
+            <ChevronDown
+              size={17}
+              className={cn(
+                "shrink-0 text-muted-foreground transition-transform",
+                open && "rotate-180",
+              )}
+            />
+          </CollapsibleTrigger>
+        </div>
+        <CollapsibleContent>
+          <div className="divide-y divide-foreground/10 border-t border-border/60">
+            {group.capabilities.map((capability) => {
+              const checked = selectedIds.includes(capability.light.id);
+              const wouldExceed =
+                !checked &&
+                selectedCapabilities.reduce(
+                  (total, selected) => total + selected.channelCount,
+                  0,
+                ) +
+                  capability.channelCount >
+                  MAX_CHANNELS;
+              return (
+                <label
+                  key={capability.light.id}
+                  className={cn(
+                    "relative flex items-center gap-3 px-3 py-3 transition-colors",
+                    wouldExceed
+                      ? "cursor-not-allowed opacity-45"
+                      : "cursor-pointer hover:bg-foreground/3",
+                    checked && "bg-primary/5",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    className="sr-only"
+                    checked={checked}
+                    disabled={wouldExceed}
+                    onChange={() => onToggleLight(capability)}
+                  />
+                  <span className="flex w-12 shrink-0 items-center justify-center">
+                    <span
+                      className={cn(
+                        "flex size-5 items-center justify-center rounded-md border",
+                        checked
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-foreground/30",
+                      )}
+                    >
+                      {checked ? <Check size={14} /> : null}
+                    </span>
+                  </span>
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-muted-foreground">
+                    <Lightbulb size={18} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">
+                      {capability.light.name}
+                    </span>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {[
+                        capability.light.productName,
+                        capability.light.reachable ? "Reachable" : "Offline",
+                        capability.channelCount > 1
+                          ? `${capability.channelCount} channels`
+                          : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
+  );
+};
+
 const round = (value: number) => Math.round(value * 100) / 100;

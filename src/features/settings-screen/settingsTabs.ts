@@ -4,6 +4,7 @@ import {
   Cable,
   Home,
   Monitor,
+  MonitorPlay,
   Palette,
   Router,
   SlidersHorizontal,
@@ -90,6 +91,13 @@ export const settingsTabs = [
     group: "connections",
     description: "Manage bridge connection and saved credentials.",
     icon: Router,
+  },
+  {
+    value: "pc-sync",
+    label: "PC Sync",
+    group: "connections",
+    description: "Set up light sync driven directly by this PC.",
+    icon: MonitorPlay,
   },
   {
     value: "sync-box",

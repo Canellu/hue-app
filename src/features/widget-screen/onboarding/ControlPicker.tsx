@@ -1,6 +1,7 @@
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
+import { useBlinkLights } from "@/hooks/useBlinkLights";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HueLight, HueRoomZone } from "@/types/hue";
 import { Lightbulb, Search } from "lucide-react";
@@ -82,6 +83,7 @@ export const ControlPicker = ({
 }) => {
   const roomZones = useHueResourcesStore((state) => state.roomZones);
   const lights = useHueResourcesStore((state) => state.lights);
+  const { blink } = useBlinkLights();
   const [query, setQuery] = useState("");
 
   const rooms = roomZones.filter((rz) => rz.resourceType === "room");
@@ -89,8 +91,12 @@ export const ControlPicker = ({
   const term = query.trim().toLowerCase();
   const match = (name: string) => name.toLowerCase().includes(term);
 
-  const pick = (resolved: ResolvedTarget) =>
+  // Blink the picked target's light(s) so the user can confirm the choice
+  // even though the picker closes immediately.
+  const pick = (resolved: ResolvedTarget, lightIds: string[]) => {
+    void blink(`${resolved.target.kind}:${resolved.target.id}`, lightIds);
     onSelect(controlFromTarget(resolved));
+  };
 
   const matchedRooms = rooms.filter((rz) => match(rz.name));
   const matchedZones = zones.filter((rz) => match(rz.name));
@@ -127,7 +133,7 @@ export const ControlPicker = ({
               <TargetRow
                 key={rz.id}
                 resolved={resolveRoomZone(rz)}
-                onSelect={() => pick(resolveRoomZone(rz))}
+                onSelect={() => pick(resolveRoomZone(rz), rz.lightIds)}
               />
             ))}
 
@@ -136,7 +142,7 @@ export const ControlPicker = ({
               <TargetRow
                 key={rz.id}
                 resolved={resolveRoomZone(rz)}
-                onSelect={() => pick(resolveRoomZone(rz))}
+                onSelect={() => pick(resolveRoomZone(rz), rz.lightIds)}
               />
             ))}
 
@@ -145,7 +151,7 @@ export const ControlPicker = ({
               <TargetRow
                 key={light.id}
                 resolved={resolveLight(light)}
-                onSelect={() => pick(resolveLight(light))}
+                onSelect={() => pick(resolveLight(light), [light.id])}
               />
             ))}
           </div>

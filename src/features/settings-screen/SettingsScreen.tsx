@@ -20,6 +20,7 @@ import { AddWidgetButton } from "./components/AddWidgetButton";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { settingsTabs } from "./settingsTabs";
 import { BridgeTab } from "./tabs/BridgeTab";
+import { PcSyncTab } from "./tabs/PcSyncTab";
 import { SyncBoxTab } from "./tabs/SyncBoxTab";
 import { DevicesTab } from "./tabs/DevicesTab";
 import { EntertainmentAreasTab } from "./tabs/EntertainmentAreasTab";
@@ -325,6 +326,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     onClick={() =>
                       void navigate({
                         to: "/settings/entertainment-wizard",
+                        search: { from: undefined },
                       })
                     }
                   />
@@ -354,6 +356,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   applicationKey={applicationKey}
                   onResetSession={resetSession}
                 />
+              </TabsContent>
+
+              <TabsContent value="pc-sync">
+                <PcSyncTab onOpenSync={() => void navigate({ to: "/sync" })} />
               </TabsContent>
 
               <TabsContent value="sync-box">

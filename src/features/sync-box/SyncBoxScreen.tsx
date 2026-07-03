@@ -282,7 +282,7 @@ export const SyncBoxConnectedView = ({
                 tabIndex={0}
                 onClick={() =>
                   void navigate({
-                    to: "/sync/$areaId",
+                    to: "/sync/box/$areaId",
                     params: { areaId: id },
                   })
                 }
@@ -290,7 +290,7 @@ export const SyncBoxConnectedView = ({
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
                     void navigate({
-                      to: "/sync/$areaId",
+                      to: "/sync/box/$areaId",
                       params: { areaId: id },
                     });
                   }

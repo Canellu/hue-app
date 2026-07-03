@@ -44,6 +44,7 @@ interface AppHeaderProps {
   title?: string;
   description?: string;
   titleIcon?: React.ReactNode;
+  headerAction?: React.ReactNode;
   onTitleRename?: (name: string) => void;
   onTitleIconClick?: () => void;
   /** Optional placeholder action shown inline with the current page title. */
@@ -88,6 +89,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   title,
   description,
   titleIcon,
+  headerAction,
   onTitleRename,
   onTitleIconClick,
   titleActionLabel,
@@ -280,6 +282,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               exit={{ opacity: 0 }}
               transition={crossfade}
             >
+              {headerAction}
               {titleEditing ? (
                 <>
                   <Button

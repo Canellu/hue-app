@@ -1,4 +1,6 @@
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { blinkableLightIds, useBlinkLights } from "@/hooks/useBlinkLights";
+import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HueLight, HueSettingsDevice } from "@/types/hue";
 import { EmptyText } from "./EmptyText";
 
@@ -28,8 +30,19 @@ export const ResourceChecklist = ({
   emptyText: string;
   onToggle: (id: string) => void;
 }) => {
+  const lights = useHueResourcesStore((state) => state.lights);
+  const { blink } = useBlinkLights();
   const selected = new Set(selectedIds);
   if (options.length === 0) return <EmptyText>{emptyText}</EmptyText>;
+
+  // Blink the physical light(s) when a row is checked so the user can confirm
+  // they picked the right fixture. Deselecting stays silent.
+  const toggle = (option: HueSettingsDevice | HueLight) => {
+    if (!selected.has(option.id)) {
+      void blink(option.id, blinkableLightIds(option, lights));
+    }
+    onToggle(option.id);
+  };
 
   return (
     <ScrollArea
@@ -48,7 +61,7 @@ export const ResourceChecklist = ({
               type="checkbox"
               className="size-4 shrink-0 accent-primary"
               checked={selected.has(option.id)}
-              onChange={() => onToggle(option.id)}
+              onChange={() => toggle(option)}
             />
             <span className="min-w-0 flex-1">
               <span className="block truncate font-medium">{option.name}</span>

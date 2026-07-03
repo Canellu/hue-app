@@ -1,5 +1,7 @@
 mod commands;
-mod services;
+// Public so the hardware spike example (examples/pc_sync_spike.rs) can drive
+// the entertainment stack directly without the Tauri shell.
+pub mod services;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -30,6 +32,7 @@ pub fn run() {
                 .build(),
         )
         .manage(commands::events::EventStreamState::default())
+        .manage(services::entertainment::engine::HostSyncEngine::default())
         .manage(
             services::sync_box_client::SyncBoxClient::new()
                 .expect("failed to create Sync Box HTTP client"),
@@ -80,6 +83,15 @@ pub fn run() {
             commands::settings::assign_device_to_room,
             commands::settings::assign_device_to_zone,
             commands::settings::create_hue_room,
+            commands::host_sync::get_host_sync_overview,
+            commands::host_sync::get_host_sync_preferences,
+            commands::host_sync::set_host_sync_preferences,
+            commands::host_sync::provision_host_sync_credentials,
+            commands::host_sync::start_host_sync,
+            commands::host_sync::update_host_sync,
+            commands::host_sync::start_host_sync_color_test,
+            commands::host_sync::stop_host_sync,
+            commands::host_sync::get_host_sync_status,
             commands::sync_box::discover_sync_boxes,
             commands::sync_box::pair_sync_box,
             commands::sync_box::get_sync_box_session,
@@ -204,6 +216,17 @@ pub fn run() {
             }
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            if let tauri::RunEvent::Exit = event {
+                // Bounded best-effort cleanup: stop a live PC sync stream,
+                // release the entertainment area, and restore the lights.
+                if let Some(engine) =
+                    app_handle.try_state::<services::entertainment::engine::HostSyncEngine>()
+                {
+                    engine.shutdown_blocking(services::entertainment::engine::EXIT_CLEANUP_TIMEOUT);
+                }
+            }
+        });
 }

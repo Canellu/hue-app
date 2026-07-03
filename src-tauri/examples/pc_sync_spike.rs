@@ -1,0 +1,431 @@
+//! Hardware spike driver for PC-hosted entertainment sync (plan step 1).
+//!
+//! Drives the exact modules the app uses — same keyring accounts, same DTLS
+//! transport — without the Tauri shell, so streaming can be validated from a
+//! terminal. Never prints credential material.
+//!
+//! ```text
+//! cargo run --example pc_sync_spike -- status
+//! cargo run --example pc_sync_spike -- provision            # press link button first
+//! cargo run --example pc_sync_spike -- test <area-id> [r g b] [seconds]
+//! ```
+
+use std::time::Duration;
+
+use hue_app_lib::services::entertainment::credentials;
+use hue_app_lib::services::entertainment::dtls::EntertainmentTransport;
+use hue_app_lib::services::entertainment::protocol::{self, ChannelColor};
+use hue_app_lib::services::entertainment::snapshot;
+use hue_app_lib::services::hue_client::HueClient;
+
+/// How long `provision` polls for the link button before giving up.
+const LINK_BUTTON_WINDOW: Duration = Duration::from_secs(90);
+const LINK_BUTTON_POLL: Duration = Duration::from_secs(2);
+
+#[tokio::main]
+async fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let result = match args.first().map(String::as_str) {
+        Some("status") => status().await,
+        Some("provision") => provision().await,
+        Some("test") => test(&args[1..]).await,
+        Some("white") => white(&args[1..]).await,
+        Some("video") => video(&args[1..]).await,
+        _ => {
+            eprintln!(
+                "usage: pc_sync_spike status | provision | test <area-id> [r g b] [seconds] | white <area-id> | video <area-id> [seconds]"
+            );
+            std::process::exit(2);
+        }
+    };
+    if let Err(error) = result {
+        eprintln!("FAILED: {error}");
+        std::process::exit(1);
+    }
+}
+
+/// Reads the bridge IP from the app's store file.
+fn bridge_ip() -> Result<String, String> {
+    let appdata =
+        std::env::var("APPDATA").map_err(|_| "APPDATA environment variable not set".to_string())?;
+    let path = format!("{appdata}\\com.canellu.hue-desktop\\hue-store.json");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|error| format!("Failed to read {path}: {error}"))?;
+    let json: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|error| format!("Invalid store file {path}: {error}"))?;
+    json.pointer("/bridge/bridge_ip")
+        .and_then(|value| value.as_str())
+        .map(ToString::to_string)
+        .ok_or_else(|| format!("No bridge_ip in {path}; pair the bridge in the app first."))
+}
+
+/// The REST key for CLIP calls: dedicated entertainment credential when
+/// provisioned, else the main app credential (keyring, then store fallback).
+fn rest_key() -> Result<String, String> {
+    if let Some(key) = credentials::load_application_key()? {
+        return Ok(key);
+    }
+    let main = keyring::Entry::new("com.anton.hue-app", "hue-application-key")
+        .map_err(|error| format!("Keyring access failed: {error}"))
+        .and_then(|entry| {
+            entry
+                .get_password()
+                .map_err(|error| format!("Keyring read failed: {error}"))
+        });
+    if let Ok(key) = main {
+        return Ok(key);
+    }
+    // Fall back to the copy the app keeps in the store file.
+    let appdata =
+        std::env::var("APPDATA").map_err(|_| "APPDATA environment variable not set".to_string())?;
+    let path = format!("{appdata}\\com.canellu.hue-desktop\\hue-store.json");
+    let json: serde_json::Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .ok_or_else(|| "No usable Hue application key found.".to_string())?;
+    json.pointer("/bridge/application_key")
+        .and_then(|value| value.as_str())
+        .map(ToString::to_string)
+        .ok_or_else(|| "No usable Hue application key found.".to_string())
+}
+
+async fn status() -> Result<(), String> {
+    let ip = bridge_ip()?;
+    println!("bridge ip: {ip}");
+
+    let creds = credentials::credential_status();
+    println!("entertainment clientkey stored: {}", creds.has_client_key);
+    println!(
+        "dedicated entertainment application key: {}",
+        creds.has_dedicated_application_key
+    );
+
+    let key = rest_key()?;
+    let client = HueClient::new()?;
+    match client.fetch_application_id(&ip, &key).await {
+        Ok(id) => println!("hue-application-id: {id}"),
+        Err(error) => println!("hue-application-id lookup failed: {error}"),
+    }
+
+    let areas = client.get_entertainment_areas(&ip, &key).await?;
+    if areas.is_empty() {
+        println!("no entertainment areas configured (create one in the official Hue app)");
+    }
+    for area in areas {
+        println!(
+            "area {} — \"{}\" type={} status={} channels={} owner={}",
+            area.id,
+            area.name,
+            area.configuration_type.as_deref().unwrap_or("?"),
+            area.status,
+            area.channels.len(),
+            area.active_streamer_id.as_deref().unwrap_or("-"),
+        );
+    }
+    Ok(())
+}
+
+async fn provision() -> Result<(), String> {
+    let ip = bridge_ip()?;
+    let client = HueClient::new()?;
+    println!(
+        "polling link-button pairing for {}s ...",
+        LINK_BUTTON_WINDOW.as_secs()
+    );
+
+    let deadline = std::time::Instant::now() + LINK_BUTTON_WINDOW;
+    loop {
+        match client.pair_entertainment_credential(&ip).await {
+            Ok((application_key, client_key)) => {
+                credentials::save_application_key(&application_key)?;
+                credentials::save_client_key(&client_key)?;
+                println!("provisioned and saved to keyring.");
+                return Ok(());
+            }
+            Err(error) if error.contains("101") => {
+                // Link button not pressed yet.
+                if std::time::Instant::now() >= deadline {
+                    return Err("link button was not pressed in time.".to_string());
+                }
+                print!(".");
+                use std::io::Write as _;
+                let _ = std::io::stdout().flush();
+                tokio::time::sleep(LINK_BUTTON_POLL).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+async fn test(args: &[String]) -> Result<(), String> {
+    let area_id = args
+        .first()
+        .ok_or_else(|| "usage: test <area-id> [r g b] [seconds]".to_string())?;
+    let rgb: [u8; 3] = if args.len() >= 4 {
+        [parse(&args[1])?, parse(&args[2])?, parse(&args[3])?]
+    } else {
+        [255, 0, 255] // magenta: unmistakable against normal scenes
+    };
+    let seconds: u64 = args
+        .get(4)
+        .map(|s| parse(s))
+        .transpose()?
+        .map(u64::from)
+        .unwrap_or(10);
+
+    let ip = bridge_ip()?;
+    let key = rest_key()?;
+    let client = HueClient::new()?;
+
+    let client_key = credentials::load_client_key()?
+        .ok_or_else(|| "no entertainment clientkey stored; run `provision` first.".to_string())?;
+    let psk = credentials::decode_client_key(&client_key)?;
+
+    let application_id = client.fetch_application_id(&ip, &key).await?;
+    println!("hue-application-id: {application_id}");
+
+    let area = client.get_entertainment_area(&ip, &key, area_id).await?;
+    println!(
+        "area \"{}\" status={} channels={}",
+        area.name,
+        area.status,
+        area.channels.len()
+    );
+    if area.status == "active"
+        && area.active_streamer_id.as_deref() != Some(application_id.as_str())
+    {
+        return Err(format!(
+            "area is owned by another streamer ({}); stop it first.",
+            area.active_streamer_id.as_deref().unwrap_or("unknown")
+        ));
+    }
+
+    let snapshots = snapshot::capture(&client, &ip, &key, &area.light_ids).await?;
+    println!("snapshotted {} member light(s)", snapshots.len());
+
+    println!("claiming area (action: start) ...");
+    client
+        .set_entertainment_action(&ip, &key, area_id, "start")
+        .await?;
+
+    println!("DTLS handshake on {ip}:2100 ...");
+    let transport = match EntertainmentTransport::connect(&ip, &application_id, psk).await {
+        Ok(transport) => transport,
+        Err(error) => {
+            let _ = client
+                .set_entertainment_action(&ip, &key, area_id, "stop")
+                .await;
+            return Err(error);
+        }
+    };
+    println!(
+        "handshake OK — streaming rgb({},{},{}) for {seconds}s",
+        rgb[0], rgb[1], rgb[2]
+    );
+
+    let colors: Vec<ChannelColor> = area
+        .channels
+        .iter()
+        .map(|channel| ChannelColor::from_rgb8(channel.channel_id, rgb))
+        .collect();
+
+    let mut sequence: u8 = 0;
+    let started = std::time::Instant::now();
+    let mut result = Ok(());
+    while started.elapsed() < Duration::from_secs(seconds) {
+        let frame = protocol::encode_frame(&area.id, sequence, &colors)?;
+        if let Err(error) = transport.send(&frame).await {
+            result = Err(error);
+            break;
+        }
+        // Once, mid-stream: verify the bridge reports our application id as
+        // `active_streamer` — the engine's ownership monitor relies on it.
+        if sequence == 10 {
+            match client.get_entertainment_area(&ip, &key, area_id).await {
+                Ok(live) => {
+                    let owner = live.active_streamer_id.as_deref().unwrap_or("-");
+                    println!(
+                        "live ownership check: status={} owner={} matches_our_id={}",
+                        live.status,
+                        owner,
+                        owner == application_id
+                    );
+                }
+                Err(error) => println!("live ownership check failed: {error}"),
+            }
+        }
+        sequence = sequence.wrapping_add(1);
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    println!("closing stream and releasing area ...");
+    transport.close().await;
+    client
+        .set_entertainment_action(&ip, &key, area_id, "stop")
+        .await?;
+
+    println!("restoring {} light(s) from snapshot ...", snapshots.len());
+    snapshot::restore(&client, &ip, &key, &snapshots).await?;
+    result.map(|()| println!("done — lights restored to their pre-stream state."))
+}
+
+/// Recovery helper: sets every light in an area to warm white. For lights
+/// left in a streamed color by runs that predate snapshot/restore.
+async fn white(args: &[String]) -> Result<(), String> {
+    let area_id = args
+        .first()
+        .ok_or_else(|| "usage: white <area-id>".to_string())?;
+    let ip = bridge_ip()?;
+    let key = rest_key()?;
+    let client = HueClient::new()?;
+
+    let area = client.get_entertainment_area(&ip, &key, area_id).await?;
+    let warm_white: Vec<snapshot::LightSnapshot> = area
+        .light_ids
+        .iter()
+        .map(|id| snapshot::LightSnapshot {
+            id: id.clone(),
+            on: true,
+            brightness: Some(80.0),
+            color_mode: Some("ct".to_string()),
+            xy: None,
+            mirek: Some(370), // ~2700K
+        })
+        .collect();
+    snapshot::restore(&client, &ip, &key, &warm_white).await?;
+    println!("set {} light(s) to warm white.", warm_white.len());
+    Ok(())
+}
+
+fn parse(value: &str) -> Result<u8, String> {
+    value
+        .parse::<u8>()
+        .map_err(|_| format!("expected a number 0-255, got {value:?}"))
+}
+
+/// Hardware spike for capture-driven sync: samples the primary display and
+/// streams the mapped channel colors, mirroring the engine's Video mode.
+async fn video(args: &[String]) -> Result<(), String> {
+    use hue_app_lib::services::entertainment::analysis::{
+        self, ChannelSmoother, SyncIntensity, SyncMode,
+    };
+    use hue_app_lib::services::entertainment::capture::{CaptureRig, ColorBoard};
+    use hue_app_lib::services::entertainment::displays;
+
+    let area_id = args
+        .first()
+        .ok_or_else(|| "usage: video <area-id> [seconds]".to_string())?;
+    let seconds: u64 = args
+        .get(1)
+        .map(|s| parse(s))
+        .transpose()?
+        .map(u64::from)
+        .unwrap_or(15);
+    let mode = SyncMode::Video;
+    let intensity = SyncIntensity::High;
+
+    let ip = bridge_ip()?;
+    let key = rest_key()?;
+    let client = HueClient::new()?;
+
+    let client_key = credentials::load_client_key()?
+        .ok_or_else(|| "no entertainment clientkey stored; run `provision` first.".to_string())?;
+    let psk = credentials::decode_client_key(&client_key)?;
+    let application_id = client.fetch_application_id(&ip, &key).await?;
+
+    let area = client.get_entertainment_area(&ip, &key, area_id).await?;
+    let displays_all = displays::enumerate_displays()?;
+    let selected = displays::resolve_selected(&displays_all, true, &[])?;
+    println!(
+        "capturing {} ({}x{}) for {} channel(s)",
+        selected[0].name,
+        selected[0].width,
+        selected[0].height,
+        area.channels.len()
+    );
+
+    let bounds: Vec<_> = selected.iter().map(|d| d.bounds()).collect();
+    let tiles = analysis::map_channels_to_tiles(&area.channels, &bounds);
+    for tile in &tiles {
+        println!(
+            "  channel {} -> display {} tile [{:.2},{:.2}]x[{:.2},{:.2}]",
+            area.channels[tile.channel_index].channel_id,
+            tile.display_index,
+            tile.left,
+            tile.right,
+            tile.top,
+            tile.bottom
+        );
+    }
+
+    let snapshots = snapshot::capture(&client, &ip, &key, &area.light_ids).await?;
+    println!(
+        "snapshotted {} light(s); claiming area ...",
+        snapshots.len()
+    );
+    client
+        .set_entertainment_action(&ip, &key, area_id, "start")
+        .await?;
+
+    let transport = match EntertainmentTransport::connect(&ip, &application_id, psk).await {
+        Ok(transport) => transport,
+        Err(error) => {
+            let _ = client
+                .set_entertainment_action(&ip, &key, area_id, "stop")
+                .await;
+            return Err(error);
+        }
+    };
+
+    let tick = Duration::from_secs_f64(1.0 / f64::from(intensity.tick_hz()));
+    let board = ColorBoard::new(area.channels.len());
+    let mut rig = match CaptureRig::start(&selected, &tiles, &board, tick) {
+        Ok(rig) => rig,
+        Err(error) => {
+            transport.close().await;
+            let _ = client
+                .set_entertainment_action(&ip, &key, area_id, "stop")
+                .await;
+            return Err(error);
+        }
+    };
+    println!(
+        "capture running — streaming screen colors for {seconds}s (move colorful windows around!)"
+    );
+
+    let channel_ids: Vec<u8> = area.channels.iter().map(|c| c.channel_id).collect();
+    let mut smoother = ChannelSmoother::new(channel_ids.len(), intensity, mode);
+    let mut sequence: u8 = 0;
+    let started = std::time::Instant::now();
+    let mut result = Ok(());
+    while started.elapsed() < Duration::from_secs(seconds) {
+        if let Some(error) = board.error() {
+            result = Err(error);
+            break;
+        }
+        let targets = board.snapshot();
+        let smoothed = smoother.step(&targets);
+        let colors =
+            analysis::to_wire_colors(smoothed, &channel_ids, mode.saturation_boost(), 100.0);
+        let frame = protocol::encode_frame(&area.id, sequence, &colors)?;
+        if let Err(error) = transport.send(&frame).await {
+            result = Err(error);
+            break;
+        }
+        if sequence == 40 {
+            let sample: Vec<[u16; 3]> = colors.iter().map(|c| c.rgb).collect();
+            println!("live wire colors (seq 40): {sample:?}");
+        }
+        sequence = sequence.wrapping_add(1);
+        tokio::time::sleep(tick).await;
+    }
+
+    println!("stopping capture, releasing area, restoring lights ...");
+    rig.stop();
+    transport.close().await;
+    client
+        .set_entertainment_action(&ip, &key, area_id, "stop")
+        .await?;
+    snapshot::restore(&client, &ip, &key, &snapshots).await?;
+    result.map(|()| println!("done."))
+}

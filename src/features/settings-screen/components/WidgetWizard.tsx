@@ -27,6 +27,7 @@ import {
   widgetCardGridColumns,
   widgetShellStyle,
 } from "@/features/widget-screen/widgetShell";
+import { useBlinkLights } from "@/hooks/useBlinkLights";
 import { cn } from "@/lib/utils";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HueLight, HueRoomZone, HueScene } from "@/types/hue";
@@ -45,7 +46,6 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { invoke } from "@tauri-apps/api/core";
 import {
   Check,
   ChevronDown,
@@ -62,8 +62,6 @@ import {
   SettingsWizardLayout,
   SettingsWizardViewport,
 } from "./SettingsWizardLayout";
-
-const BLINK_DURATION_MS = 3_000;
 
 const steps = ["Name", "Controls", "Configure"];
 
@@ -226,9 +224,7 @@ export const WidgetWizard = ({
   // Editable list of controls, seeded from the step-1 selection. Held as state
   // (not derived) so it can be reordered and configured per-control.
   const [controls, setControls] = useState<WidgetControl[]>([]);
-  const [blinkingTargets, setBlinkingTargets] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const { blinkingKeys: blinkingTargets, blink } = useBlinkLights();
 
   // Fall back to placeholder targets in dev when the store is empty (no bridge),
   // so the selection UI is never blank to design against. Production keeps the
@@ -364,41 +360,16 @@ export const WidgetWizard = ({
         : [...current, key],
     );
 
-  const blinkLights = async (key: string, lightIds: string[]) => {
-    if (lightIds.length === 0 || blinkingTargets.has(key)) return;
-    setBlinkingTargets((current) => new Set(current).add(key));
-    try {
-      await Promise.all(
-        lightIds.map((id) =>
-          invoke("signal-light", { id, durationMs: BLINK_DURATION_MS }),
-        ),
-      );
-      await new Promise((resolve) =>
-        window.setTimeout(resolve, BLINK_DURATION_MS),
-      );
-    } catch (error) {
-      console.error("Failed to blink Hue lights", error);
-    } finally {
-      setBlinkingTargets((current) => {
-        const next = new Set(current);
-        next.delete(key);
-        return next;
-      });
-    }
-  };
-
+  // Placeholder dev targets aren't in the store; the hook drops unknown ids,
+  // so blinking them is a safe no-op.
   const flashRoomZone = (roomZone: HueRoomZone) =>
-    void blinkLights(
+    void blink(
       targetKey(roomZone.resourceType, roomZone.id),
       roomZone.lightIds,
     );
 
-  const flashLight = (light: HueLight) => {
-    // Placeholder dev lights aren't in the store; blinking them would hit the
-    // backend for a non-existent resource, so no-op unless it's a real light.
-    if (!lights.some((candidate) => candidate.id === light.id)) return;
-    void blinkLights(targetKey("light", light.id), [light.id]);
-  };
+  const flashLight = (light: HueLight) =>
+    void blink(targetKey("light", light.id), [light.id]);
 
   const create = () =>
     onCreate({
@@ -520,11 +491,18 @@ export const WidgetWizard = ({
                             })()}
                             title={target.name}
                             meta={`${target.resourceType} · ${target.lightCount} light${target.lightCount === 1 ? "" : "s"}`}
-                            onToggle={() =>
-                              toggleTarget(
-                                targetKey(target.resourceType, target.id),
-                              )
-                            }
+                            onToggle={() => {
+                              const key = targetKey(
+                                target.resourceType,
+                                target.id,
+                              );
+                              // Blink what was just selected so the user can
+                              // confirm it's the right space in the room.
+                              if (!selected.includes(key)) {
+                                flashRoomZone(target);
+                              }
+                              toggleTarget(key);
+                            }}
                             onFlash={() => flashRoomZone(target)}
                           />
                         ))
@@ -563,9 +541,11 @@ export const WidgetWizard = ({
                             ]
                               .filter(Boolean)
                               .join(" · ")}
-                            onToggle={() =>
-                              toggleTarget(targetKey("light", light.id))
-                            }
+                            onToggle={() => {
+                              const key = targetKey("light", light.id);
+                              if (!selected.includes(key)) flashLight(light);
+                              toggleTarget(key);
+                            }}
                             onFlash={() => flashLight(light)}
                           />
                         ))

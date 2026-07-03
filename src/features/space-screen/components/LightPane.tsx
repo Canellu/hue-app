@@ -35,7 +35,7 @@ import {
   type LightColorChange,
   useHueResourcesStore,
 } from "@/stores/HueResourcesStore";
-import { useSyncBoxStore } from "@/stores/SyncBoxStore";
+import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 import type { HueLight, HueRoomZone } from "@/types/hue";
 import { useNavigate } from "@tanstack/react-router";
 import { invoke } from "@tauri-apps/api/core";
@@ -110,7 +110,7 @@ export const LightPane: React.FC<LightPaneProps> = ({
   onLightBrightness,
   onLightColor,
 }) => {
-  const syncLocked = useSyncBoxStore((store) =>
+  const syncLocked = useEntertainmentStore((store) =>
     store.syncedLightIds.includes(light.id),
   );
   const hasEffects = useMemo(

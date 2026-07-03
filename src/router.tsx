@@ -1,22 +1,24 @@
 import {
-  createMemoryHistory,
+  createHashHistory,
   createRootRoute,
   createRoute,
   createRouter,
 } from "@tanstack/react-router";
 import { DeviceDiscoveryRoute } from "./routes/DeviceDiscoveryRoute";
 import { EntertainmentAreaWizardRoute } from "./routes/EntertainmentAreaWizardRoute";
+import { EntertainmentPlacementRoute } from "./routes/EntertainmentPlacementRoute";
 import { HomeRoute } from "./routes/HomeRoute";
 import { RoomZoneWizardRoute } from "./routes/RoomZoneWizardRoute";
 import { RootLayout } from "./routes/RootLayout";
+import { PcSyncRoute } from "./routes/PcSyncRoute";
 import { SettingsRoute } from "./routes/SettingsRoute";
 import { SpaceRoute } from "./routes/SpaceRoute";
-import { SyncBoxRoute } from "./routes/SyncBoxRoute";
 import { SyncBoxAreaRoute } from "./routes/SyncBoxAreaRoute";
+import { SyncHubRoute } from "./routes/SyncHubRoute";
 import { WidgetWizardRoute } from "./routes/WidgetWizardRoute";
 
-// The desktop shell has no addressable URL bar, so an in-memory history keeps
-// navigation state without touching the Tauri webview's location.
+// Hash history keeps routes reload-safe in the desktop webview while adding
+// them to its native history, so mouse Back/Forward buttons work.
 const rootRoute = createRootRoute({ component: RootLayout });
 
 const indexRoute = createRoute({
@@ -67,18 +69,37 @@ const roomZoneWizardRoute = createRoute({
 const entertainmentAreaWizardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/settings/entertainment-wizard",
+  validateSearch: (search: Record<string, unknown>) => ({
+    from: search.from === "sync" ? ("sync" as const) : undefined,
+  }),
   component: EntertainmentAreaWizardRoute,
 });
 
-const syncBoxRoute = createRoute({
+const entertainmentPlacementRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/settings/entertainment-placement/$areaId",
+  validateSearch: (search: Record<string, unknown>) => ({
+    // Where the editor was opened from, so Back can return there.
+    from: search.from === "pc" ? ("pc" as const) : undefined,
+  }),
+  component: EntertainmentPlacementRoute,
+});
+
+const syncHubRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/sync",
-  component: SyncBoxRoute,
+  component: SyncHubRoute,
+});
+
+const pcSyncRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/sync/pc/$areaId",
+  component: PcSyncRoute,
 });
 
 const syncBoxAreaRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/sync/$areaId",
+  path: "/sync/box/$areaId",
   component: SyncBoxAreaRoute,
 });
 
@@ -90,13 +111,15 @@ const routeTree = rootRoute.addChildren([
   widgetWizardRoute,
   roomZoneWizardRoute,
   entertainmentAreaWizardRoute,
-  syncBoxRoute,
+  entertainmentPlacementRoute,
+  syncHubRoute,
+  pcSyncRoute,
   syncBoxAreaRoute,
 ]);
 
 export const router = createRouter({
   routeTree,
-  history: createMemoryHistory({ initialEntries: ["/"] }),
+  history: createHashHistory(),
   defaultPreload: "intent",
   defaultStaleTime: 5000,
   scrollRestoration: true,

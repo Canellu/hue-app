@@ -2,6 +2,7 @@ pub mod app_settings;
 pub mod discovery;
 pub mod events;
 pub mod grouped_lights;
+pub mod host_sync;
 pub mod lights;
 pub mod rooms;
 pub mod scenes;

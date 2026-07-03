@@ -12,7 +12,7 @@ import {
 import { UI_EASE_MS } from "@/lib/transitions";
 import { cn } from "@/lib/utils";
 import type { HueLight, HueRoomZone } from "@/types/hue";
-import { useSyncBoxStore } from "@/stores/SyncBoxStore";
+import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 import { getRoomZoneIcon } from "./room-zone-icons";
 
 type ControlCommitPhase = "live" | "final";
@@ -45,7 +45,7 @@ export const SpaceTile: React.FC<SpaceTileProps> = ({
   onRoomZoneToggle,
   onRoomZoneBrightness,
 }) => {
-  const syncedLightIds = useSyncBoxStore((store) => store.syncedLightIds);
+  const syncedLightIds = useEntertainmentStore((store) => store.syncedLightIds);
   const syncedIds = new Set(syncedLightIds);
   const syncedLightCount = members.filter((light) =>
     syncedIds.has(light.id),

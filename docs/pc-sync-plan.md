@@ -1,6 +1,92 @@
 # Plan: PC-Hosted Hue Entertainment Sync
 
-Status: **planned**.
+Status: **in progress**.
+
+- Step 1 (credentials, application-id lookup, HueStream v2 encoding, DTLS
+  transport, CLIP ownership, solid-color streaming spike) is implemented and
+  **hardware-validated** (provisioning, handshake, streaming, and release all
+  verified against a real bridge; `active_streamer.rid` confirmed equal to the
+  credential's `hue-application-id`). Commands: `get-host-sync-overview`,
+  `provision-host-sync-credentials`, `start-host-sync-color-test`,
+  `stop-host-sync`, `get-host-sync-status`. The
+  `src-tauri/examples/pc_sync_spike.rs` binary drives the stack from a
+  terminal for hardware tests.
+- Step 2 is done: light snapshot/restore with paced writes
+  (hardware-validated — note: the bridge does **not** restore light state
+  itself, confirming the snapshot requirement), single-session enforcement,
+  failed-start rollback, idempotent stop, external-ownership monitoring with
+  bridge-loss detection, bounded exit cleanup on `RunEvent::Exit`, and unit
+  tests for the lifecycle/takeover/ownership/restore logic. Bridge and
+  transport abstractions now provide mocked run-loop coverage for failed
+  handshakes, explicit stop cleanup order, transport failure, external
+  takeover, and repeated bridge-poll failures.
+- Step 3 display capture is implemented and hardware-validated for SDR:
+  Windows Graphics Capture per selected display (`windows-capture` 2.x),
+  display topology enumeration with virtual-desktop bounds, channel→tile
+  mapping across the combined bounds of the selected displays, letterbox
+  rejection, saturation-weighted analysis, intensity presets (20/30/40/50 Hz),
+  and Video/Games mode smoothing. Display selection is a persisted preference:
+  automatic primary tracking by default, or an explicit multi-display
+  selection (adjusted from the original single-display plan). New commands:
+  `start-host-sync`, `get-host-sync-preferences`, `set-host-sync-preferences`;
+  the overview now carries displays and preferences. HDR display detection,
+  RGBA16F/scRGB capture, bounded adaptive exposure, and ACES-style tone mapping
+  are implemented with deterministic tests but still need HDR hardware
+  validation. The Music pipeline is implemented with WASAPI shared-mode
+  loopback, 48 kHz stereo-to-mono capture, Hann-windowed FFT, RMS/onset
+  response, horizontal frequency-band allocation, four built-in palettes,
+  match-area/1/3/5 channel modes, default-output following, and explicit
+  device-loss errors. Audio outputs and the persisted Music defaults are
+  exposed by the existing overview/preferences IPC. Deterministic tests cover
+  silence, clipping/non-finite input, onset response, band allocation, channel
+  assignment, and sample conversion. Audio-reactive Video is implemented: an
+  opt-in loudness envelope (shared WASAPI worker, fast attack/slow decay)
+  scales Video brightness between a 0.4 floor and 1.0; audio failure degrades
+  to plain Video with a `warning` on `host-sync-status` instead of ending the
+  session. Scene-derived Music palettes are implemented: `musicPalette`
+  persists either a built-in name or `{ sceneId }` (backward compatible via
+  untagged serde), and the engine resolves scene colors (xy chromaticity and
+  mirek → normalized linear RGB stops, piecewise-interpolated) from the
+  bridge at session start, failing fast before claiming the area. Still
+  pending from step 3: audio/HDR hardware validation.
+- Step 4 is done: `update-host-sync` applies live brightness/intensity to a
+  running session over a watch channel (send tick and smoothing retune
+  in-loop; validation and idle rejection unit-tested). Stop behavior
+  (`restore`/`keep`/`turnOff`) is a persisted preference applied on normal
+  stop; failures always restore (unit-tested). `HostSyncStatus` gained a
+  `warning` field. The shared `EntertainmentStore`
+  (`src/stores/EntertainmentStore.tsx`) is the source of truth for area
+  topology, active-stream ownership (PC / Sync Box / other), and
+  `syncedLightIds`; it loads CLIP v2 topology once and stays fresh from the
+  `hue-event` stream (entertainment `status`/`activeStreamerId`) and
+  `host-sync-status` events. All sync-lock consumers (tiles, panes, widgets,
+  inspector, root banner) moved off `SyncBoxStore`, which now keeps only
+  box-specific state; widget windows no longer poll the box for lock state.
+  Frontend types live in `src/types/host-sync.ts`.
+- Step 5 is done: `/sync` is a unified hub with a persisted "This PC" /
+  "Sync Box" selection; `/sync/pc/$areaId` hosts the PC Sync screen (status
+  hero with Start/Stop, mode cards, intensity cards, effect brightness,
+  audio-for-effect toggle for Video, Music palette including scene palettes
+  and channel counts, confirmed-takeover dialog); the Sync Box screens moved
+  to `/sync/box/$areaId` unchanged. The root-layout sync banner attributes
+  the active stream to this PC, the Sync Box, or another app, with matching
+  stop/navigation actions. Live brightness/intensity changes apply without a
+  restart; mode/palette/audio-toggle changes restart the session
+  automatically.
+- Step 6 is mostly done: a "PC Sync" connection settings tab covers the
+  entertainment credential status with the link-button enable/re-pair flow,
+  the rendered monitor topology with automatic-primary toggle and explicit
+  multi-display selection, audio output selection, default Music
+  palette/channel count, and stop behavior. The accessibility pass is done:
+  mode/intensity/display toggles expose `aria-pressed` plus the standard
+  focus-visible ring, all PC Sync selects and the effect-brightness slider
+  have accessible names (the shared `Slider` now forwards `aria-label` to the
+  Base UI thumb input, where the accessible name is actually read), error
+  banners are `role="alert"`, the sync-state hero and warnings are
+  `role="status"` live regions, decorative icons/dots are `aria-hidden`, and
+  loading spinners are labeled. Remaining: only the manual acceptance list
+  below (multi-monitor/HDR/audio device matrix, latency check, and audio/HDR
+  hardware validation).
 
 Related plan: [HDMI Sync Box Control](sync-box-plan.md)
 
@@ -33,8 +119,10 @@ Add Windows-first light sync driven directly by the PC, without a Sync Box:
     PSK identity.
 - Use CLIP v2 to list entertainment configurations and start/stop ownership
   with `action: start|stop`.
-- Implement HueStream v2 over DTLS 1.2/UDP port 2100 using vendored OpenSSL,
-  restricted to `PSK-AES128-GCM-SHA256`. Encode the 16-byte header, ASCII area
+- Implement HueStream v2 over DTLS 1.2/UDP port 2100 using the pure-Rust
+  `webrtc-dtls` crate (adjusted from vendored OpenSSL, which needs a
+  Perl/NASM toolchain on Windows and complicates CI), restricted to
+  `TLS_PSK_WITH_AES_128_GCM_SHA256`. Encode the 16-byte header, ASCII area
   UUID, and 7-byte RGB payload per channel described by the local
   [migration guide](HUE/migration-guide-to-the-new-hue-api.md#entertainment).
 - Maintain a latest-value queue: captured frames are dropped when superseded

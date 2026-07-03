@@ -46,7 +46,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { useSyncBoxStore } from "@/stores/SyncBoxStore";
+import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 import { SPACE_ARCHETYPES } from "@/features/settings-screen/constants";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
 import type {
@@ -292,7 +292,7 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
   onRefresh,
 }) => {
   const reduceMotion = useReducedMotion();
-  const syncedLightIds = useSyncBoxStore((store) => store.syncedLightIds);
+  const syncedLightIds = useEntertainmentStore((store) => store.syncedLightIds);
   const syncedIds = new Set(syncedLightIds);
   const syncedLightCount = lights.filter((light) =>
     syncedIds.has(light.id),

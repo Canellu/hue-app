@@ -18,6 +18,7 @@ export const EditableResourceRow = ({
   onRename,
   onDelete,
   deleteDescription,
+  actions,
   children,
 }: {
   id: string;
@@ -28,6 +29,8 @@ export const EditableResourceRow = ({
   onRename: RenameResource;
   onDelete?: DeleteResource;
   deleteDescription?: string;
+  /** Extra row actions rendered before the rename button. */
+  actions?: React.ReactNode;
   children?: React.ReactNode;
 }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -101,6 +104,7 @@ export const EditableResourceRow = ({
             )}
           </div>
           <div className="flex shrink-0 gap-1">
+            {actions}
             <Button
               type="button"
               size="icon"

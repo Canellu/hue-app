@@ -5,7 +5,8 @@ import type {
   HueLight,
 } from "@/types/hue";
 import { invoke } from "@tauri-apps/api/core";
-import { Loader2, RefreshCw } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { Loader2, Move3d, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { EditableResourceRow } from "../components/EditableResourceRow";
@@ -18,6 +19,7 @@ import {
 import type { DeleteResource, RenameResource } from "../types";
 
 export const EntertainmentAreasTab = ({ lights }: { lights: HueLight[] }) => {
+  const navigate = useNavigate();
   const [areas, setAreas] = useState<HueEntertainmentConfiguration[]>([]);
   const [services, setServices] = useState<HueEntertainmentService[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -136,6 +138,24 @@ export const EntertainmentAreasTab = ({ lights }: { lights: HueLight[] }) => {
                 onRename={rename}
                 onDelete={remove}
                 deleteDescription={`Delete entertainment area "${area.metadata.name}" from the bridge.`}
+                actions={
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    aria-label={`Edit light placement for ${area.metadata.name}`}
+                    title="Edit light placement"
+                    onClick={() =>
+                      void navigate({
+                        to: "/settings/entertainment-placement/$areaId",
+                        params: { areaId: area.id },
+                        search: { from: undefined },
+                      })
+                    }
+                  >
+                    <Move3d />
+                  </Button>
+                }
               />
             );
           })}

@@ -13,7 +13,7 @@ import { UI_EASE_MS } from "@/lib/transitions";
 import { lightColorHex } from "@/features/space-screen/utils/color-state";
 import { getLightIcon } from "@/features/space-screen/utils/light-icons";
 import type { HueLight } from "@/types/hue";
-import { useSyncBoxStore } from "@/stores/SyncBoxStore";
+import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 
 type ControlCommitPhase = "live" | "final";
 
@@ -41,7 +41,7 @@ export const LightCard: React.FC<LightCardProps> = ({
   onToggle,
   onBrightness,
 }) => {
-  const syncLocked = useSyncBoxStore((store) =>
+  const syncLocked = useEntertainmentStore((store) =>
     store.syncedLightIds.includes(light.id),
   );
   const pct = Math.round(light.brightness ?? 0);

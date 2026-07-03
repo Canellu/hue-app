@@ -15,6 +15,9 @@ function Slider({
   max = 100,
   size = "default",
   style,
+  // Base UI reads the accessible name from the thumb's hidden input, not the
+  // root, so route aria-label to every thumb.
+  "aria-label": ariaLabel,
   ...props
 }: SliderPrimitive.Root.Props & {
   size?: "default" | "lg" | "xl";
@@ -72,6 +75,7 @@ function Slider({
           <SliderPrimitive.Thumb
             data-slot="slider-thumb"
             key={index}
+            aria-label={ariaLabel}
             className="block size-[var(--slider-thumb-size)] shrink-0 rounded-4xl border border-foreground/30 bg-background shadow-sm ring-ring/50 transition-[color,background-color,border-color,inset-inline-start,inset-inline-end,left,right,width,transform,translate] duration-[var(--paced-ease,0ms)] ease-out select-none hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50 dark:border-foreground/25"
           />
         ))}

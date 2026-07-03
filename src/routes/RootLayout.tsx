@@ -12,6 +12,10 @@ import {
   useHueResourcesStore,
 } from "@/stores/HueResourcesStore";
 import type { HueLight, HueRoomZone, HueScene } from "@/types/hue";
+import {
+  EntertainmentStoreEffects,
+  useEntertainmentStore,
+} from "@/stores/EntertainmentStore";
 import { useSyncBoxStore } from "@/stores/SyncBoxStore";
 import { Outlet, useNavigate, useRouterState } from "@tanstack/react-router";
 import { listen } from "@tauri-apps/api/event";
@@ -19,7 +23,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SyncBoxSession } from "@/types/sync-box";
-import { ChevronRight, Loader2, TriangleAlert, Tv } from "lucide-react";
+import { ChevronRight, Loader2, Plus, TriangleAlert, Tv } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 
 /** Whichever resource the inspector is currently showing. */
@@ -73,7 +77,9 @@ const LightInspector: React.FC = () => {
       setRoomZoneState: state.setRoomZoneState,
     })),
   );
-  const syncedLightIds = useSyncBoxStore((state) => state.syncedLightIds);
+  const syncedLightIds = useEntertainmentStore(
+    (state) => state.syncedLightIds,
+  );
 
   // The inspector only opens from inside a space, so resolve which room/zone is
   // on screen — the light pane removes a light from *this* space specifically.
@@ -281,13 +287,35 @@ const ShellHeader: React.FC = () => {
   const onWidgetWizard = pathname === "/settings/widget-wizard";
   const onSpacesWizard = pathname === "/settings/spaces-wizard";
   const onEntertainmentWizard = pathname === "/settings/entertainment-wizard";
+  const entertainmentWizardFrom = useRouterState({
+    select: (s) => (s.location.search as { from?: string }).from,
+  });
   const onSync = pathname === "/sync";
-  const activeSyncAreaId = pathname.startsWith("/sync/")
-    ? decodeURIComponent(pathname.slice("/sync/".length))
+  const entertainmentAreas = useEntertainmentStore((state) => state.areas);
+  const placementAreaId = pathname.startsWith(
+    "/settings/entertainment-placement/",
+  )
+    ? decodeURIComponent(
+        pathname.slice("/settings/entertainment-placement/".length),
+      )
     : null;
-  const activeSyncArea = activeSyncAreaId
-    ? syncBoxState?.hue.groups[activeSyncAreaId]
+  const placementFrom = useRouterState({
+    select: (s) => (s.location.search as { from?: string }).from,
+  });
+  const placementArea = placementAreaId
+    ? entertainmentAreas.find((area) => area.id === placementAreaId)
     : null;
+  const activeBoxAreaId = pathname.startsWith("/sync/box/")
+    ? decodeURIComponent(pathname.slice("/sync/box/".length))
+    : null;
+  const activePcAreaId = pathname.startsWith("/sync/pc/")
+    ? decodeURIComponent(pathname.slice("/sync/pc/".length))
+    : null;
+  const activeSyncArea = activeBoxAreaId
+    ? syncBoxState?.hue.groups[activeBoxAreaId]
+    : activePcAreaId
+      ? entertainmentAreas.find((area) => area.id === activePcAreaId)
+      : null;
   const title = onDeviceDiscovery
     ? "Add devices"
     : onWidgetWizard
@@ -296,9 +324,11 @@ const ShellHeader: React.FC = () => {
         ? "Create room or zone"
         : onEntertainmentWizard
           ? "Create entertainment area"
-          : activeSyncArea
-            ? activeSyncArea.name
-            : onSync
+          : placementAreaId
+            ? "Light placement"
+            : activeSyncArea
+              ? activeSyncArea.name
+              : onSync
               ? "Sync"
               : pathname === "/settings"
                 ? "Settings"
@@ -311,10 +341,14 @@ const ShellHeader: React.FC = () => {
         ? "Group your devices and lights"
         : onEntertainmentWizard
           ? "Choose compatible lights and place them"
-          : activeSyncArea
-            ? "Entertainment area"
+          : placementAreaId
+            ? (placementArea?.name ?? "Place your lights around the room")
+            : activeSyncArea
+            ? activePcAreaId
+              ? "PC light sync"
+              : "Entertainment area"
             : onSync
-              ? "Philips Hue HDMI Sync Box"
+              ? "Light sync from this PC or the HDMI Sync Box"
               : pathname === "/settings"
                 ? "Bridge & app preferences"
                 : undefined;
@@ -326,21 +360,53 @@ const ShellHeader: React.FC = () => {
           : () =>
               void (onDeviceDiscovery
                 ? navigate({ to: "/settings", search: { tab: "devices" } })
-                : activeSyncArea
-                  ? navigate({ to: "/sync" })
+                : placementAreaId
+                  ? navigate(
+                      placementFrom === "pc"
+                        ? {
+                            to: "/sync/pc/$areaId",
+                            params: { areaId: placementAreaId },
+                          }
+                        : {
+                            to: "/settings",
+                            search: { tab: "entertainment" },
+                          },
+                    )
+                  : activeSyncArea
+                    ? navigate({ to: "/sync" })
                   : onWidgetWizard
                     ? navigate({ to: "/settings", search: { tab: "widget" } })
                     : onSpacesWizard
                       ? navigate({ to: "/settings", search: { tab: "spaces" } })
-                      : onEntertainmentWizard
-                        ? navigate({
-                            to: "/settings",
-                            search: { tab: "entertainment" },
-                          })
+                    : onEntertainmentWizard
+                        ? navigate(
+                            entertainmentWizardFrom === "sync"
+                              ? { to: "/sync" }
+                              : {
+                                  to: "/settings",
+                                  search: { tab: "entertainment" },
+                                },
+                          )
                         : navigate({ to: "/" }))
       }
       title={title}
       description={description}
+      headerAction={
+        onSync ? (
+          <Button
+            size="xl"
+            onClick={() =>
+              void navigate({
+                to: "/settings/entertainment-wizard",
+                search: { from: "sync" },
+              })
+            }
+          >
+            <Plus size={20} />
+            Add entertainment areas
+          </Button>
+        ) : undefined
+      }
       titleIcon={
         ActiveSpaceIcon ? (
           <ActiveSpaceIcon size={24} strokeWidth={2.25} />
@@ -401,7 +467,9 @@ export const RootLayout: React.FC = () => {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const routeOwnsScroll =
     pathname === "/settings" ||
-    (pathname.startsWith("/settings/") && pathname.endsWith("-wizard"));
+    (pathname.startsWith("/settings/") &&
+      (pathname.endsWith("-wizard") ||
+        pathname.startsWith("/settings/entertainment-placement/")));
   const navigate = useNavigate();
   const inspectorPaneOpen = useHueResourcesStore(
     (state) => state.inspectorPaneOpen,
@@ -412,23 +480,56 @@ export const RootLayout: React.FC = () => {
   );
   const { refreshSession, isLoading: sessionLoading } = useHue();
   const syncState = useSyncBoxStore((state) => state.state);
-  const activeSyncedLightIds = useSyncBoxStore((state) => state.syncedLightIds);
+  const activeSyncedLightIds = useEntertainmentStore(
+    (state) => state.syncedLightIds,
+  );
   const syncUpdating = useSyncBoxStore((state) => state.isUpdating);
   const refreshSync = useSyncBoxStore((state) => state.refresh);
   const loadAreaLights = useSyncBoxStore((state) => state.loadAreaLights);
   const updateSync = useSyncBoxStore((state) => state.updateExecution);
-  // The entertainment area with an active stream: this box's own sync session
-  // first, otherwise one streamed by another app (e.g. the official Hue Sync
-  // app) — the bridge only ever runs one stream at a time.
+  const entertainmentAreas = useEntertainmentStore((state) => state.areas);
+  const pcSyncStatus = useEntertainmentStore((state) => state.pcStatus);
+  const [pcStopping, setPcStopping] = useState(false);
+  // The entertainment area with an active stream and who owns it: this PC's
+  // engine, the Sync Box, or another application — the bridge only ever runs
+  // one stream at a time.
   const activeSync = (() => {
-    if (!syncState) return null;
-    const groups = Object.entries(syncState.hue.groups);
-    const owned = syncState.execution.syncActive
-      ? groups.find(([id]) => id === syncState.execution.hueTarget)
+    const area = entertainmentAreas.find(
+      (candidate) => candidate.status === "active",
+    );
+    if (!area) return null;
+    const ownedByPc =
+      pcSyncStatus.areaId === area.id &&
+      (pcSyncStatus.state === "running" || pcSyncStatus.state === "starting");
+    const boxGroup = syncState
+      ? Object.entries(syncState.hue.groups).find(
+          ([id, group]) =>
+            syncState.execution.syncActive &&
+            syncState.execution.hueTarget === id &&
+            group.name.trim().toLocaleLowerCase() ===
+              area.name.trim().toLocaleLowerCase(),
+        )
       : undefined;
-    const entry = owned ?? groups.find(([, group]) => group.active);
-    if (!entry) return null;
-    return { id: entry[0], group: entry[1], ownedByBox: owned != null };
+    // The bridge reports the external owner's name through the box's group
+    // list when a box is paired; otherwise the app id is all we have.
+    const externalOwner = syncState
+      ? Object.values(syncState.hue.groups).find((group) => group.active)
+          ?.owner
+      : undefined;
+    return {
+      area,
+      owner: ownedByPc
+        ? ("pc" as const)
+        : boxGroup
+          ? ("box" as const)
+          : ("other" as const),
+      boxGroupId: boxGroup?.[0] ?? null,
+      ownerLabel: ownedByPc
+        ? "this PC"
+        : boxGroup
+          ? "the Sync Box"
+          : (externalOwner ?? "another app"),
+    };
   })();
   const activeSpace = pathname.startsWith("/space/")
     ? roomZones.find(
@@ -441,6 +542,22 @@ export const RootLayout: React.FC = () => {
         .length
     : 0;
   const showSyncBanner = pathname === "/" || activeSpaceSyncedLightCount > 0;
+  const openSyncControls = () => {
+    if (!activeSync) return;
+    if (activeSync.owner === "pc") {
+      void navigate({
+        to: "/sync/pc/$areaId",
+        params: { areaId: activeSync.area.id },
+      });
+    } else if (activeSync.owner === "box" && activeSync.boxGroupId) {
+      void navigate({
+        to: "/sync/box/$areaId",
+        params: { areaId: activeSync.boxGroupId },
+      });
+    } else {
+      void navigate({ to: "/sync" });
+    }
+  };
 
   useEffect(() => {
     let interval: number | undefined;
@@ -483,6 +600,7 @@ export const RootLayout: React.FC = () => {
   return (
     <>
       <HueResourcesStoreEffects />
+      <EntertainmentStoreEffects />
       <div className="flex h-full flex-col">
         <ShellHeader />
         {!bridgeConnected && (
@@ -511,20 +629,12 @@ export const RootLayout: React.FC = () => {
           <div
             role="button"
             tabIndex={0}
-            aria-label={`Open sync controls for ${activeSync.group.name}`}
-            onClick={() =>
-              void navigate({
-                to: "/sync/$areaId",
-                params: { areaId: activeSync.id },
-              })
-            }
+            aria-label={`Open sync controls for ${activeSync.area.name}`}
+            onClick={openSyncControls}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
-                void navigate({
-                  to: "/sync/$areaId",
-                  params: { areaId: activeSync.id },
-                });
+                openSyncControls();
               }
             }}
             className="mx-12 mb-2 flex cursor-pointer items-center gap-4 rounded-2xl border border-primary/25 bg-primary/10 px-5 py-3 outline-none transition-colors hover:bg-primary/15 focus-visible:ring-2 focus-visible:ring-ring"
@@ -539,14 +649,29 @@ export const RootLayout: React.FC = () => {
                   const subject =
                     activeSpace && activeSpaceSyncedLightCount > 0
                       ? `${activeSpaceSyncedLightCount} ${activeSpaceSyncedLightCount === 1 ? "light" : "lights"} in ${activeSpace.name} ${activeSpaceSyncedLightCount === 1 ? "is" : "are"}`
-                      : `${activeSync.group.name} is`;
-                  return activeSync.ownedByBox
-                    ? `${subject} controlled by the Sync Box. Stop sync to control those lights normally.`
-                    : `${subject} syncing with ${activeSync.group.owner ?? "another app"}.`;
+                      : `${activeSync.area.name} is`;
+                  return activeSync.owner === "other"
+                    ? `${subject} syncing with ${activeSync.ownerLabel}.`
+                    : `${subject} controlled by ${activeSync.ownerLabel}. Stop sync to control those lights normally.`;
                 })()}
               </p>
             </div>
-            {activeSync.ownedByBox ? (
+            {activeSync.owner === "pc" ? (
+              <Button
+                variant="outline"
+                disabled={pcStopping}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setPcStopping(true);
+                  void invoke("stop-host-sync")
+                    .catch(() => undefined)
+                    .finally(() => setPcStopping(false));
+                }}
+              >
+                {pcStopping && <Loader2 className="animate-spin" />}
+                Stop sync
+              </Button>
+            ) : activeSync.owner === "box" ? (
               <Button
                 variant="outline"
                 disabled={syncUpdating}

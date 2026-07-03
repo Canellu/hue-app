@@ -136,6 +136,12 @@ export interface HueEntertainmentConfiguration {
       equalization_factor?: number;
     }>;
   };
+  /** Streaming channels derived by the bridge from the service locations. */
+  channels?: Array<{
+    channel_id: number;
+    position?: HuePosition;
+    members?: Array<{ service: HueResourceReference; index?: number }>;
+  }>;
 }
 
 /** One preset color from a scene action — exactly one field is set. */
@@ -244,5 +250,9 @@ export interface HueEventUpdate {
   speed: number | null;
   /** Whether a dynamic scene auto-starts when recalled as active. */
   autoDynamic: boolean | null;
+  /** Entertainment configuration lifecycle state (`active` or `inactive`). */
+  status: string | null;
+  /** Application id currently owning an entertainment configuration. */
+  activeStreamerId: string | null;
   value: string | null;
 }

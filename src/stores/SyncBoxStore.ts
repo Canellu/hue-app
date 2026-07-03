@@ -14,14 +14,12 @@ interface SyncBoxStore {
   loadError: string | null;
   isLoading: boolean;
   isUpdating: boolean;
-  areaLightIds: Record<string, string[]>;
   /**
-   * Light ids in every entertainment area with an active stream — this box's
-   * own sync session or one owned by another app (e.g. the official Hue Sync
-   * app). These lights are controlled by the stream, so app controls should
-   * treat them as sync-locked either way.
+   * Member light ids per entertainment area, keyed by every known alias
+   * (v2 UUID, v1 id, box group id). Sync-locked light derivation lives in
+   * `EntertainmentStore`; this map only feeds the box screen's area tiles.
    */
-  syncedLightIds: string[];
+  areaLightIds: Record<string, string[]>;
   refresh: () => Promise<void>;
   loadAreaLights: () => Promise<void>;
   updateExecution: (update: SyncBoxExecutionUpdate) => Promise<void>;
@@ -36,39 +34,6 @@ interface SyncBoxStore {
   clear: () => void;
 }
 
-const EMPTY_SYNCED_LIGHT_IDS: string[] = [];
-
-const deriveSyncedLightIds = (
-  state: SyncBoxState | null,
-  areaLightIds: Record<string, string[]>,
-): string[] => {
-  if (!state) return EMPTY_SYNCED_LIGHT_IDS;
-  const ids = new Set<string>();
-  for (const [groupId, group] of Object.entries(state.hue.groups)) {
-    const syncedByBox =
-      state.execution.syncActive && state.execution.hueTarget === groupId;
-    if (!group.active && !syncedByBox) continue;
-    for (const id of areaLightIds[groupId] ?? []) ids.add(id);
-  }
-  return ids.size > 0 ? [...ids] : EMPTY_SYNCED_LIGHT_IDS;
-};
-
-/**
- * Recomputes the derived synced ids, keeping the previous array reference when
- * the contents are unchanged so zustand selectors don't re-render every poll.
- */
-const nextSyncedLightIds = (
-  previous: string[],
-  state: SyncBoxState | null,
-  areaLightIds: Record<string, string[]>,
-): string[] => {
-  const next = deriveSyncedLightIds(state, areaLightIds);
-  const same =
-    next.length === previous.length &&
-    next.every((id, index) => id === previous[index]);
-  return same ? previous : next;
-};
-
 let refreshInFlight: Promise<void> | null = null;
 
 export const useSyncBoxStore = create<SyncBoxStore>((set, get) => ({
@@ -78,22 +43,11 @@ export const useSyncBoxStore = create<SyncBoxStore>((set, get) => ({
   isLoading: false,
   isUpdating: false,
   areaLightIds: {},
-  syncedLightIds: EMPTY_SYNCED_LIGHT_IDS,
   refresh: () => {
     if (refreshInFlight) return refreshInFlight;
     set((current) => ({ isLoading: current.state == null }));
     refreshInFlight = invoke<SyncBoxState>("get-sync-box-state")
-      .then((state) =>
-        set((current) => ({
-          state,
-          loadError: null,
-          syncedLightIds: nextSyncedLightIds(
-            current.syncedLightIds,
-            state,
-            current.areaLightIds,
-          ),
-        })),
-      )
+      .then((state) => set({ state, loadError: null }))
       .catch((error) => set({ loadError: String(error) }))
       .finally(() => {
         refreshInFlight = null;
@@ -188,17 +142,9 @@ export const useSyncBoxStore = create<SyncBoxStore>((set, get) => ({
         }
         aliases.forEach((alias) => entries.push([alias, lightIds]));
       }
-      const areaLightIds = Object.fromEntries(entries);
-      set((current) => ({
-        areaLightIds,
-        syncedLightIds: nextSyncedLightIds(
-          current.syncedLightIds,
-          current.state,
-          areaLightIds,
-        ),
-      }));
+      set({ areaLightIds: Object.fromEntries(entries) });
     } catch {
-      set({ areaLightIds: {}, syncedLightIds: EMPTY_SYNCED_LIGHT_IDS });
+      set({ areaLightIds: {} });
     }
   },
   updateExecution: async (update) => {
@@ -207,14 +153,7 @@ export const useSyncBoxStore = create<SyncBoxStore>((set, get) => ({
       const state = await invoke<SyncBoxState>("set-sync-box-execution", {
         update,
       });
-      set((current) => ({
-        state,
-        syncedLightIds: nextSyncedLightIds(
-          current.syncedLightIds,
-          state,
-          current.areaLightIds,
-        ),
-      }));
+      set({ state });
     } catch (error) {
       set({ error: String(error) });
     } finally {
@@ -277,14 +216,7 @@ export const useSyncBoxStore = create<SyncBoxStore>((set, get) => ({
       state = await invoke<SyncBoxState>("set-sync-box-execution", {
         update: { syncActive: true },
       });
-      set((current) => ({
-        state,
-        syncedLightIds: nextSyncedLightIds(
-          current.syncedLightIds,
-          state,
-          current.areaLightIds,
-        ),
-      }));
+      set({ state });
     } catch (error) {
       set({ error: String(error) });
     } finally {
@@ -298,6 +230,5 @@ export const useSyncBoxStore = create<SyncBoxStore>((set, get) => ({
       loadError: null,
       isLoading: false,
       areaLightIds: {},
-      syncedLightIds: EMPTY_SYNCED_LIGHT_IDS,
     }),
 }));

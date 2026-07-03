@@ -2,14 +2,16 @@ import { EntertainmentAreaWizard } from "@/features/settings-screen/components/E
 import { createEntertainmentConfigurationBody } from "@/features/settings-screen/entertainment";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HueEntertainmentService } from "@/types/hue";
-import { useNavigate } from "@tanstack/react-router";
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 export const EntertainmentAreaWizardRoute: React.FC = () => {
   const navigate = useNavigate();
+  const { from } = useSearch({ from: "/settings/entertainment-wizard" });
   const lights = useHueResourcesStore((state) => state.lights);
+  const roomZones = useHueResourcesStore((state) => state.roomZones);
   const resourcesLoading = useHueResourcesStore((state) => state.isLoading);
   const [services, setServices] = useState<HueEntertainmentService[]>([]);
   const [isLoadingCapabilities, setIsLoadingCapabilities] = useState(true);
@@ -44,6 +46,7 @@ export const EntertainmentAreaWizardRoute: React.FC = () => {
     <EntertainmentAreaWizard
       lights={lights}
       services={services}
+      roomZones={roomZones}
       isLoadingCapabilities={isLoadingCapabilities || resourcesLoading}
       capabilityError={capabilityError}
       isCreating={isCreating}
@@ -62,10 +65,14 @@ export const EntertainmentAreaWizardRoute: React.FC = () => {
         })
           .then(() => {
             toast.success("Entertainment area created");
-            void navigate({
-              to: "/settings",
-              search: { tab: "entertainment" },
-            });
+            void navigate(
+              from === "sync"
+                ? { to: "/sync" }
+                : {
+                    to: "/settings",
+                    search: { tab: "entertainment" },
+                  },
+            );
           })
           .catch((error) => {
             toast.error(

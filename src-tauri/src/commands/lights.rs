@@ -36,21 +36,12 @@ pub async fn set_light_state(
 }
 
 #[tauri::command(rename = "signal-light")]
-pub async fn signal_light(
-    app: AppHandle,
-    id: String,
-    duration_ms: u32,
-) -> Result<(), String> {
+pub async fn signal_light(app: AppHandle, id: String) -> Result<(), String> {
     let client = HueClient::new()?;
     let stored_bridge = client.get_stored_bridge(&app)?;
     let application_key = client.get_stored_application_key(&app)?;
     client
-        .signal_light(
-            &stored_bridge.bridge_ip,
-            &application_key,
-            &id,
-            duration_ms,
-        )
+        .signal_light(&stored_bridge.bridge_ip, &application_key, &id)
         .await
 }
 

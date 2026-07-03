@@ -1,6 +1,7 @@
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
+import { blinkableLightIds, useBlinkLights } from "@/hooks/useBlinkLights";
 import { cn } from "@/lib/utils";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HueLight, HueSettingsDevice } from "@/types/hue";
@@ -109,12 +110,22 @@ export const RoomZoneWizard = ({
       ),
   );
 
-  const toggleMember = (id: string) =>
+  const { blink } = useBlinkLights();
+
+  // Selecting a member blinks its physical light(s) so the user can confirm
+  // they picked the right one. Deselecting stays silent, and placeholder dev
+  // rows are filtered out inside the hook.
+  const toggleMember = (option: HueSettingsDevice | HueLight) => {
+    const id = option.id;
+    if (!selected.includes(id)) {
+      void blink(id, blinkableLightIds(option, lights));
+    }
     setSelected((current) =>
       current.includes(id)
         ? current.filter((value) => value !== id)
         : [...current, id],
     );
+  };
 
   const canContinue =
     (step === 0 && resourceType != null) ||
@@ -300,7 +311,7 @@ export const RoomZoneWizard = ({
                         icon={<Lightbulb size={18} />}
                         title={option.name}
                         meta={memberMeta(option)}
-                        onToggle={() => toggleMember(option.id)}
+                        onToggle={() => toggleMember(option)}
                       />
                     ))
                   ) : (
@@ -382,7 +393,7 @@ const MemberRow = ({
 }) => (
   <label
     className={cn(
-      "flex cursor-pointer items-center gap-3 px-4 py-2.5 transition-colors",
+      "relative flex cursor-pointer items-center gap-3 px-4 py-2.5 transition-colors",
       checked ? "bg-primary/5" : "hover:bg-foreground/3",
     )}
   >

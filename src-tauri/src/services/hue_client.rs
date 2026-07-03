@@ -18,6 +18,9 @@ const STORE_KEY: &str = "bridge";
 const KEYRING_SERVICE: &str = "com.anton.hue-app";
 const KEYRING_ACCOUNT: &str = "hue-application-key";
 const DEVICE_TYPE: &str = "hue-app#desktop";
+/// Devicetype for the separate entertainment credential provisioned on
+/// installations whose main pairing predates clientkey capture.
+const ENTERTAINMENT_DEVICE_TYPE: &str = "hue-app#pcsync";
 const REQUEST_TIMEOUT_SECS: u64 = 8;
 
 /// The local Hue Bridge tolerates only a handful of simultaneous connections;
@@ -92,6 +95,136 @@ pub struct StoredBridgeInfo {
     pub bridge_ip: String,
     #[serde(default)]
     pub application_key: Option<String>,
+}
+
+/// Result of a successful link-button pairing. `client_key` is the
+/// entertainment DTLS PSK; older bridge firmware may omit it.
+#[derive(Debug, Clone)]
+pub struct PairedBridge {
+    pub bridge: StoredBridgeInfo,
+    pub application_key: String,
+    pub client_key: Option<String>,
+}
+
+/// A v2 `entertainment_configuration` in the shape the frontend consumes.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HueEntertainmentArea {
+    pub id: String,
+    pub name: String,
+    /// e.g. "screen", "music", "3dspace", "other".
+    pub configuration_type: Option<String>,
+    /// "active" while an application streams to this area.
+    pub status: String,
+    /// `auth/v1` application id of the current streamer, when active.
+    pub active_streamer_id: Option<String>,
+    pub channels: Vec<HueEntertainmentChannel>,
+    /// v2 light UUIDs that belong to the area's channels (deduplicated).
+    pub light_ids: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HueEntertainmentChannel {
+    pub channel_id: u8,
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct HueEntertainmentConfigResource {
+    id: String,
+    #[serde(default)]
+    metadata: Option<HueMetadata>,
+    #[serde(default)]
+    configuration_type: Option<String>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    active_streamer: Option<HueResourceRef>,
+    #[serde(default)]
+    channels: Vec<HueEntertainmentChannelResource>,
+    #[serde(default)]
+    light_services: Vec<HueResourceRef>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HueEntertainmentChannelResource {
+    channel_id: u8,
+    #[serde(default)]
+    position: Option<HueEntertainmentPosition>,
+    #[serde(default)]
+    members: Vec<HueEntertainmentMember>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HueEntertainmentPosition {
+    #[serde(default)]
+    x: f64,
+    #[serde(default)]
+    y: f64,
+    #[serde(default)]
+    z: f64,
+}
+
+#[derive(Debug, Deserialize)]
+struct HueEntertainmentMember {
+    #[serde(default)]
+    service: Option<HueResourceRef>,
+}
+
+impl HueEntertainmentArea {
+    fn from_resource(resource: HueEntertainmentConfigResource) -> Self {
+        let mut light_ids: Vec<String> = Vec::new();
+        // `light_services` lists member lights directly; fall back to walking
+        // channel members (entertainment service rids owned by lights) when a
+        // bridge omits it.
+        for reference in &resource.light_services {
+            if !light_ids.contains(&reference.rid) {
+                light_ids.push(reference.rid.clone());
+            }
+        }
+        for channel in &resource.channels {
+            for member in &channel.members {
+                if let Some(service) = &member.service {
+                    if service.rtype == "light" && !light_ids.contains(&service.rid) {
+                        light_ids.push(service.rid.clone());
+                    }
+                }
+            }
+        }
+
+        Self {
+            name: resource
+                .metadata
+                .map(|metadata| metadata.name)
+                .filter(|name| !name.is_empty())
+                .unwrap_or_else(|| "Entertainment area".to_string()),
+            configuration_type: resource.configuration_type,
+            status: resource.status.unwrap_or_else(|| "inactive".to_string()),
+            active_streamer_id: resource.active_streamer.map(|streamer| streamer.rid),
+            channels: resource
+                .channels
+                .into_iter()
+                .map(|channel| {
+                    let position = channel.position.unwrap_or(HueEntertainmentPosition {
+                        x: 0.0,
+                        y: 0.0,
+                        z: 0.0,
+                    });
+                    HueEntertainmentChannel {
+                        channel_id: channel.channel_id,
+                        x: position.x,
+                        y: position.y,
+                        z: position.z,
+                    }
+                })
+                .collect(),
+            light_ids,
+            id: resource.id,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -335,6 +468,10 @@ pub struct HueEventUpdate {
     pub speed: Option<f64>,
     /// Whether a dynamic scene auto-starts when recalled as active.
     pub auto_dynamic: Option<bool>,
+    /// Entertainment configuration lifecycle state (`active` or `inactive`).
+    pub status: Option<String>,
+    /// Application id currently owning an entertainment configuration.
+    pub active_streamer_id: Option<String>,
     /// Compact display value for accessory/sensor events.
     pub value: Option<String>,
 }
@@ -625,6 +762,10 @@ struct PairSuccessResponse {
 #[derive(Debug, Deserialize)]
 struct PairUsername {
     username: String,
+    /// Entertainment clientkey (DTLS PSK), returned when the pairing request
+    /// asks for `generateclientkey`.
+    #[serde(default)]
+    clientkey: Option<String>,
 }
 
 pub struct HueClient {
@@ -1016,12 +1157,43 @@ impl HueClient {
         Ok(bridges)
     }
 
-    pub async fn pair_bridge(&self, ip: &str) -> Result<(StoredBridgeInfo, String), String> {
-        let formatted_ip = format_host(ip);
+    pub async fn pair_bridge(&self, ip: &str) -> Result<PairedBridge, String> {
+        let (username, client_key) = self.link_button_pair(ip, DEVICE_TYPE).await?;
+        let bridge_id = self.fetch_bridge_id(&format_host(ip), &username).await?;
 
-        // The CLIP link-button handshake is unchanged between API versions.
-        let url = format!("http://{}/api", formatted_ip);
-        let payload = json!({ "devicetype": DEVICE_TYPE, "generateclientkey": true });
+        Ok(PairedBridge {
+            bridge: StoredBridgeInfo {
+                bridge_id: bridge_id.to_uppercase(),
+                bridge_ip: ip.to_string(),
+                application_key: Some(username.clone()),
+            },
+            application_key: username,
+            client_key,
+        })
+    }
+
+    /// Creates a dedicated entertainment credential for installations that
+    /// paired before the clientkey was captured. Uses a distinct devicetype so
+    /// the existing bridge session stays untouched.
+    pub async fn pair_entertainment_credential(
+        &self,
+        ip: &str,
+    ) -> Result<(String, String), String> {
+        let (username, client_key) = self.link_button_pair(ip, ENTERTAINMENT_DEVICE_TYPE).await?;
+        let client_key = client_key
+            .ok_or_else(|| "The bridge did not return an entertainment clientkey.".to_string())?;
+        Ok((username, client_key))
+    }
+
+    /// Runs the CLIP link-button handshake (unchanged between API versions)
+    /// and returns `(username, clientkey)`.
+    async fn link_button_pair(
+        &self,
+        ip: &str,
+        device_type: &str,
+    ) -> Result<(String, Option<String>), String> {
+        let url = format!("http://{}/api", format_host(ip));
+        let payload = json!({ "devicetype": device_type, "generateclientkey": true });
 
         let response = self
             .client
@@ -1036,17 +1208,92 @@ impl HueClient {
             .await
             .map_err(|error| format!("Invalid pairing response: {error}"))?;
 
-        let username = extract_hue_username(&json)?;
-        let bridge_id = self.fetch_bridge_id(&formatted_ip, &username).await?;
+        extract_hue_credentials(&json)
+    }
 
-        Ok((
-            StoredBridgeInfo {
-                bridge_id: bridge_id.to_uppercase(),
-                bridge_ip: ip.to_string(),
-                application_key: Some(username.clone()),
-            },
-            username,
-        ))
+    /// Fetches the credential's `hue-application-id` from `/auth/v1`. This id
+    /// is the DTLS PSK identity for HueStream v2.
+    pub async fn fetch_application_id(
+        &self,
+        ip: &str,
+        application_key: &str,
+    ) -> Result<String, String> {
+        let url = format!("https://{}/auth/v1", format_host(ip));
+        let response = self
+            .client
+            .get(&url)
+            .header("hue-application-key", application_key)
+            .send()
+            .await
+            .map_err(|error| format!("Failed to fetch hue-application-id: {error}"))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(format!(
+                "Bridge rejected the /auth/v1 request (HTTP {status}). Re-pair to refresh the credential."
+            ));
+        }
+        response
+            .headers()
+            .get("hue-application-id")
+            .and_then(|value| value.to_str().ok())
+            .map(ToString::to_string)
+            .ok_or_else(|| "Bridge did not return a hue-application-id header.".to_string())
+    }
+
+    // ---- Entertainment configurations ----------------------------------------
+
+    pub async fn get_entertainment_areas(
+        &self,
+        ip: &str,
+        application_key: &str,
+    ) -> Result<Vec<HueEntertainmentArea>, String> {
+        let resources: Vec<HueEntertainmentConfigResource> = self
+            .get_v2(ip, application_key, "entertainment_configuration")
+            .await?;
+        Ok(resources
+            .into_iter()
+            .map(HueEntertainmentArea::from_resource)
+            .collect())
+    }
+
+    pub async fn get_entertainment_area(
+        &self,
+        ip: &str,
+        application_key: &str,
+        area_id: &str,
+    ) -> Result<HueEntertainmentArea, String> {
+        let resources: Vec<HueEntertainmentConfigResource> = self
+            .get_v2(
+                ip,
+                application_key,
+                &format!("entertainment_configuration/{area_id}"),
+            )
+            .await?;
+        resources
+            .into_iter()
+            .next()
+            .map(HueEntertainmentArea::from_resource)
+            .ok_or_else(|| "Entertainment area not found.".to_string())
+    }
+
+    /// Claims (`start`) or releases (`stop`) streaming ownership of an
+    /// entertainment area for the calling credential.
+    pub async fn set_entertainment_action(
+        &self,
+        ip: &str,
+        application_key: &str,
+        area_id: &str,
+        action: &str,
+    ) -> Result<(), String> {
+        self.put_v2(
+            ip,
+            application_key,
+            "entertainment_configuration",
+            area_id,
+            json!({ "action": action }),
+        )
+        .await
     }
 
     // ---- Session restore / persistence --------------------------------------
@@ -1154,6 +1401,9 @@ impl HueClient {
     pub fn clear_session<R: Runtime>(&self, app: &AppHandle<R>) -> Result<(), String> {
         clear_bridge_info(app)?;
         clear_application_key()?;
+        // Entertainment credentials belong to the same pairing; never let them
+        // outlive the bridge session.
+        crate::services::entertainment::credentials::clear_credentials()?;
         Ok(())
     }
 
@@ -1343,28 +1593,60 @@ impl HueClient {
             .await
     }
 
-    /// Runs the bridge-native on/off identification signal without changing the
-    /// light's persisted state.
+    /// Runs the same one-cycle identification breathe used by the Hue app.
+    /// This legacy alert is command-local and restores the light automatically.
     pub async fn signal_light(
         &self,
         ip: &str,
         application_key: &str,
         id: &str,
-        duration_ms: u32,
     ) -> Result<(), String> {
-        self.put_v2(
-            ip,
+        let resources = self
+            .get_v2::<Value>(ip, application_key, &format!("light/{id}"))
+            .await?;
+        let id_v1 = resources
+            .first()
+            .and_then(|resource| resource.get("id_v1"))
+            .and_then(Value::as_str)
+            .and_then(|value| value.strip_prefix("/lights/"))
+            .ok_or_else(|| format!("Light {id} does not expose a v1 identity"))?;
+        let url = format!(
+            "http://{}/api/{}/lights/{}/state",
+            format_host(ip),
             application_key,
-            "light",
-            id,
-            json!({
-                "signaling": {
-                    "signal": "on_off",
-                    "duration": duration_ms,
-                }
-            }),
-        )
-        .await
+            id_v1
+        );
+        let permit = bridge_semaphore().acquire().await.ok();
+        let response = self
+            .client
+            .put(&url)
+            .json(&json!({ "alert": "select" }))
+            .send()
+            .await
+            .map_err(|error| format!("Failed to identify light: {error}"))?;
+        let status = response.status();
+        let text = response
+            .text()
+            .await
+            .map_err(|error| format!("Failed to read light identification response: {error}"))?;
+        drop(permit);
+
+        if !status.is_success() {
+            return Err(format!(
+                "Failed to identify light: bridge returned HTTP {status}"
+            ));
+        }
+        if let Ok(entries) = serde_json::from_str::<Vec<Value>>(&text) {
+            if let Some(description) = entries.iter().find_map(|entry| {
+                entry
+                    .get("error")
+                    .and_then(|error| error.get("description"))
+                    .and_then(Value::as_str)
+            }) {
+                return Err(format!("Hue bridge error: {description}"));
+            }
+        }
+        Ok(())
     }
 
     /// Updates an individual light's color attributes. Any combination of `xy`,
@@ -3616,12 +3898,48 @@ fn parse_event_block(block: &str) -> Option<Vec<HueEventUpdate>> {
                     .and_then(Value::as_f64)
                     .or_else(|| resource.pointer("/dynamics/speed").and_then(Value::as_f64)),
                 auto_dynamic: resource.get("auto_dynamic").and_then(Value::as_bool),
+                status: resource
+                    .get("status")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
+                active_streamer_id: resource
+                    .pointer("/active_streamer/rid")
+                    .and_then(Value::as_str)
+                    .map(ToString::to_string),
                 value: summarize_resource_value(&resource),
             });
         }
     }
 
     Some(updates)
+}
+
+#[cfg(test)]
+mod event_tests {
+    use super::parse_event_block;
+
+    #[test]
+    fn parses_entertainment_ownership_update() {
+        let block = r#"data: [{"type":"update","data":[{"id":"area-id","type":"entertainment_configuration","status":"active","active_streamer":{"rid":"application-id","rtype":"auth_v1"}}]}]"#;
+
+        let updates = parse_event_block(block).expect("valid Hue event");
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].rtype, "entertainment_configuration");
+        assert_eq!(updates[0].status.as_deref(), Some("active"));
+        assert_eq!(
+            updates[0].active_streamer_id.as_deref(),
+            Some("application-id")
+        );
+    }
+
+    #[test]
+    fn entertainment_fields_remain_absent_for_unrelated_updates() {
+        let block = r#"data: [{"type":"update","data":[{"id":"light-id","type":"light","on":{"on":true}}]}]"#;
+
+        let updates = parse_event_block(block).expect("valid Hue event");
+        assert_eq!(updates[0].status, None);
+        assert_eq!(updates[0].active_streamer_id, None);
+    }
 }
 
 fn zigbee_status_is_reachable(status: &str) -> bool {
@@ -3704,13 +4022,14 @@ fn device_kind(service_types: &[&str]) -> Option<&'static str> {
     }
 }
 
-fn extract_hue_username(value: &Value) -> Result<String, String> {
+/// Extracts `(username, clientkey)` from a link-button pairing response.
+fn extract_hue_credentials(value: &Value) -> Result<(String, Option<String>), String> {
     let array = value
         .as_array()
         .ok_or_else(|| "Unexpected pairing response from bridge".to_string())?;
     for item in array {
         if let Ok(success) = serde_json::from_value::<PairSuccessResponse>(item.clone()) {
-            return Ok(success.success.username);
+            return Ok((success.success.username, success.success.clientkey));
         }
         if let Ok(error) = serde_json::from_value::<PairErrorResponse>(item.clone()) {
             return Err(format!(

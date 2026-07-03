@@ -9,7 +9,7 @@ import {
   sceneBubbleCss,
 } from "@/features/space-screen/utils/color-state";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
-import { useSyncBoxStore } from "@/stores/SyncBoxStore";
+import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 import {
   activeTileTheme,
   TILE_BRIGHTNESS_SLIDER_CLASS,
@@ -319,7 +319,7 @@ export const ControlCard = ({
   );
   const setLightState = useHueResourcesStore((state) => state.setLightState);
   const activateScene = useHueResourcesStore((state) => state.activateScene);
-  const syncedLightIds = useSyncBoxStore((state) => state.syncedLightIds);
+  const syncedLightIds = useEntertainmentStore((state) => state.syncedLightIds);
 
   if (control.target.kind === "light") {
     const light = lights.find(

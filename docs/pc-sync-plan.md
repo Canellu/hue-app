@@ -84,9 +84,16 @@ Status: **in progress**.
   Base UI thumb input, where the accessible name is actually read), error
   banners are `role="alert"`, the sync-state hero and warnings are
   `role="status"` live regions, decorative icons/dots are `aria-hidden`, and
-  loading spinners are labeled. Remaining: only the manual acceptance list
-  below (multi-monitor/HDR/audio device matrix, latency check, and audio/HDR
-  hardware validation).
+  loading spinners are labeled. The internal capture-to-send latency check is
+  hardware-validated: the `pc_sync_spike latency` command runs the real
+  capture→smooth→encode→DTLS-send pipeline and measures analysis-to-wire
+  latency per genuinely-new frame (`ColorBoard::last_update`). On an ultrawide
+  SDR display it passed comfortably — High (40 Hz): p50 4.7 ms / p95 17.0 ms /
+  max 27.8 ms; Extreme (50 Hz): p50 3.9 ms / p95 17.6 ms / max 30.3 ms — all
+  under the 50 ms target. Remaining: the interactive/app-driven manual
+  acceptance items (multi-monitor selection + primary-display change + hot
+  unplug, audio-device matrix and Music response, stop behaviors,
+  minimize/hide, and HDR-display validation).
 
 Related plan: [HDMI Sync Box Control](sync-box-plan.md)
 

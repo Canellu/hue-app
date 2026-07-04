@@ -11,6 +11,15 @@ import {
   ZoomOut,
 } from "lucide-react";
 import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
+} from "react";
+import {
   BackSide,
   BufferGeometry,
   DoubleSide,
@@ -23,15 +32,6 @@ import {
   Vector2,
   Vector3,
 } from "three";
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent as ReactPointerEvent,
-  type WheelEvent as ReactWheelEvent,
-} from "react";
 import type { RoomPin } from "./RoomCanvas";
 import { roomDisplayFrames, roomFrameOptionsFor } from "./display-geometry";
 
@@ -294,9 +294,7 @@ export const RoomCanvas3D = ({
     raycaster.setFromCamera(new Vector2(u * 2 - 1, 1 - v * 2), camera);
     wallPlane.constant = -depthY * ROOM_HALF_DEPTH;
     const point = raycaster.ray.intersectPlane(wallPlane, floorHit);
-    return point
-      ? { x: -point.x / ROOM_HALF_WIDTH, z: point.y }
-      : null;
+    return point ? { x: -point.x / ROOM_HALF_WIDTH, z: point.y } : null;
   };
 
   const cancelCameraAnimation = () => {
@@ -747,9 +745,7 @@ const RoomScene = ({
       const startKey = start.toArray().join(",");
       const endKey = end.toArray().join(",");
       const key =
-        startKey < endKey
-          ? `${startKey}|${endKey}`
-          : `${endKey}|${startKey}`;
+        startKey < endKey ? `${startKey}|${endKey}` : `${endKey}|${startKey}`;
       if (addedEdges.has(key)) return;
       addedEdges.add(key);
       visiblePositions.push(...start.toArray(), ...end.toArray());
@@ -793,10 +789,7 @@ const RoomScene = ({
 
     // The floor always needs a complete boundary. When the camera dips below
     // the roof, do the same for the visible ceiling face.
-    for (const y of [
-      -halfHeight,
-      ...(showCeilingEdges ? [halfHeight] : []),
-    ]) {
+    for (const y of [-halfHeight, ...(showCeilingEdges ? [halfHeight] : [])]) {
       addEdge(
         new Vector3(-halfWidth, y, -halfDepth),
         new Vector3(halfWidth, y, -halfDepth),

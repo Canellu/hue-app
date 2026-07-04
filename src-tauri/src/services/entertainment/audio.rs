@@ -24,6 +24,10 @@ use super::music::{
 
 const AUDIO_BUFFER_DURATION_HNS: i64 = 200_000;
 const DEVICE_CHECK_INTERVAL: Duration = Duration::from_secs(1);
+/// Consecutive non-active state checks (at `DEVICE_CHECK_INTERVAL`) before an
+/// explicit audio device is treated as disconnected. Tolerates transient
+/// state blips from wireless endpoints and virtual audio routers.
+const DEVICE_LOSS_CHECKS: u32 = 4;
 const START_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Serialize)]
@@ -75,6 +79,164 @@ fn enumerate_on_com_thread() -> Result<Vec<AudioDeviceInfo>, String> {
             .then_with(|| a.name.cmp(&b.name))
     });
     Ok(devices)
+}
+
+/// Diagnostic: opens loopback on `device_id` (or the default render endpoint
+/// when `None`) for `duration` and returns the peak RMS observed. Lets a
+/// caller confirm which endpoint actually carries a given app's audio without
+/// starting a full sync session or touching any lights.
+pub fn measure_loopback_peak_rms(
+    device_id: Option<String>,
+    duration: Duration,
+) -> Result<f32, String> {
+    thread::Builder::new()
+        .name("hue-audio-probe".to_string())
+        .spawn(move || {
+            let _com = ComGuard::initialize()?;
+            let enumerator = DeviceEnumerator::new()
+                .map_err(|error| format!("Failed to create the audio device enumerator: {error}"))?;
+            let device = match device_id.as_deref() {
+                Some(id) => enumerator
+                    .get_device(id)
+                    .map_err(|_| "The selected audio output is unavailable.".to_string())?,
+                None => enumerator
+                    .get_default_device(&Direction::Render)
+                    .map_err(|error| format!("No default audio output is available: {error}"))?,
+            };
+            let name = device
+                .get_friendlyname()
+                .unwrap_or_else(|_| "selected audio output".to_string());
+            let client = create_loopback_client(&device)?;
+            let capture = client
+                .get_audiocaptureclient()
+                .map_err(|error| format!("Failed to create loopback capture for {name}: {error}"))?;
+            client
+                .start_stream()
+                .map_err(|error| format!("Failed to start loopback capture for {name}: {error}"))?;
+
+            let mut raw = VecDeque::new();
+            let mut samples = VecDeque::new();
+            let mut peak = 0.0f32;
+            let started = Instant::now();
+            while started.elapsed() < duration {
+                loop {
+                    let frames = capture
+                        .get_next_packet_size()
+                        .map_err(|error| format!("Audio output {name} was lost: {error}"))?
+                        .unwrap_or_default();
+                    if frames == 0 {
+                        break;
+                    }
+                    capture
+                        .read_from_device_to_deque(&mut raw)
+                        .map_err(|error| format!("Audio output {name} was lost: {error}"))?;
+                }
+                mix_stereo_f32_to_mono(&mut raw, &mut samples);
+                if !samples.is_empty() {
+                    let sum_squares: f32 = samples.iter().map(|s| s * s).sum();
+                    let rms = (sum_squares / samples.len() as f32).sqrt();
+                    peak = peak.max(rms);
+                    samples.clear();
+                }
+                thread::sleep(Duration::from_millis(20));
+            }
+            let _ = client.stop_stream();
+            Ok(peak)
+        })
+        .map_err(|error| format!("Failed to start audio probe: {error}"))?
+        .join()
+        .map_err(|_| "Audio probe thread panicked.".to_string())?
+}
+
+/// Diagnostic: opens loopback on `device_id` exactly like a Music session and
+/// logs the endpoint's reported state plus read health every `interval` for
+/// `duration`. Reveals whether an explicit device spuriously drops out of the
+/// `Active` state (virtual audio routers churn endpoint state) versus a real
+/// read failure. Returns one log line per tick.
+pub fn diagnose_selected_device_capture(
+    device_id: String,
+    duration: Duration,
+    interval: Duration,
+) -> Result<Vec<String>, String> {
+    thread::Builder::new()
+        .name("hue-audio-diagnose".to_string())
+        .spawn(move || {
+            let _com = ComGuard::initialize()?;
+            let enumerator = DeviceEnumerator::new()
+                .map_err(|error| format!("Failed to create the audio device enumerator: {error}"))?;
+            let device = enumerator
+                .get_device(&device_id)
+                .map_err(|_| "The selected audio output is unavailable.".to_string())?;
+            let name = device
+                .get_friendlyname()
+                .unwrap_or_else(|_| "selected audio output".to_string());
+            let client = create_loopback_client(&device)?;
+            let capture = client
+                .get_audiocaptureclient()
+                .map_err(|error| format!("Failed to create loopback capture for {name}: {error}"))?;
+            client
+                .start_stream()
+                .map_err(|error| format!("Failed to start loopback capture for {name}: {error}"))?;
+
+            let mut log = Vec::new();
+            let mut raw = VecDeque::new();
+            let mut samples = VecDeque::new();
+            let mut next_check = Instant::now();
+            let started = Instant::now();
+            let mut read_error: Option<String> = None;
+            while started.elapsed() < duration {
+                let mut peak = 0.0f32;
+                let drain = (|| -> Result<(), String> {
+                    loop {
+                        let frames = capture
+                            .get_next_packet_size()
+                            .map_err(|error| format!("get_next_packet_size failed: {error}"))?
+                            .unwrap_or_default();
+                        if frames == 0 {
+                            break;
+                        }
+                        capture
+                            .read_from_device_to_deque(&mut raw)
+                            .map_err(|error| format!("read_from_device failed: {error}"))?;
+                    }
+                    Ok(())
+                })();
+                if let Err(error) = drain {
+                    read_error = Some(error);
+                    break;
+                }
+                mix_stereo_f32_to_mono(&mut raw, &mut samples);
+                if !samples.is_empty() {
+                    let sum_squares: f32 = samples.iter().map(|s| s * s).sum();
+                    peak = (sum_squares / samples.len() as f32).sqrt();
+                    samples.clear();
+                }
+
+                if Instant::now() >= next_check {
+                    next_check = Instant::now() + interval;
+                    let state = enumerator
+                        .get_device(&device_id)
+                        .and_then(|device| device.get_state());
+                    let (state_text, active) = match state {
+                        Ok(state) => (format!("{state:?}"), state == DeviceState::Active),
+                        Err(error) => (format!("get_device/get_state ERROR: {error}"), false),
+                    };
+                    log.push(format!(
+                        "t={:>5}ms  state={state_text:<12} active={active:<5} rms={peak:.4}",
+                        started.elapsed().as_millis()
+                    ));
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            let _ = client.stop_stream();
+            if let Some(error) = read_error {
+                log.push(format!("READ FAILED (this is a real device loss): {error}"));
+            }
+            Ok(log)
+        })
+        .map_err(|error| format!("Failed to start audio diagnosis: {error}"))?
+        .join()
+        .map_err(|_| "Audio diagnosis thread panicked.".to_string())?
 }
 
 pub struct AudioBoard {
@@ -337,6 +499,11 @@ fn capture_device(
     let mut raw = VecDeque::new();
     let mut samples = VecDeque::with_capacity(FFT_SIZE * 2);
     let mut last_device_check = Instant::now();
+    // Consecutive checks where an explicit device read as not-active. Wireless
+    // endpoints and virtual audio routers (SteelSeries Sonar, VoiceMeeter, ...)
+    // briefly report `NotPresent`/`Unplugged` while audio still streams, so a
+    // single blip must not tear down the session.
+    let mut unhealthy_checks: u32 = 0;
     let result = loop {
         if stop.load(Ordering::Acquire) {
             break Ok(CaptureEnd::Stopped);
@@ -371,8 +538,15 @@ fn capture_device(
                     .get_device(id)
                     .and_then(|device| device.get_state())
                     .is_ok_and(|state| state == DeviceState::Active);
-                if !is_active {
-                    break Err("The selected audio output was disconnected.".to_string());
+                if is_active {
+                    unhealthy_checks = 0;
+                } else {
+                    unhealthy_checks += 1;
+                    // Genuine removal also fails the reads above; this guard
+                    // only catches a device disabled without a read error.
+                    if unhealthy_checks >= DEVICE_LOSS_CHECKS {
+                        break Err("The selected audio output was disconnected.".to_string());
+                    }
                 }
             } else {
                 let current_default = enumerator

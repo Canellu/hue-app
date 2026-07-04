@@ -31,9 +31,13 @@ async fn main() {
         Some("test") => test(&args[1..]).await,
         Some("white") => white(&args[1..]).await,
         Some("video") => video(&args[1..]).await,
+        Some("latency") => latency(&args[1..]).await,
+        Some("audio") => audio(),
+        Some("listen") => listen(&args[1..]),
+        Some("capstate") => capstate(&args[1..]),
         _ => {
             eprintln!(
-                "usage: pc_sync_spike status | provision | test <area-id> [r g b] [seconds] | white <area-id> | video <area-id> [seconds]"
+                "usage: pc_sync_spike status | provision | test <area-id> [r g b] [seconds] | white <area-id> | video <area-id> [seconds] | latency <area-id> [seconds] | audio | listen [device-substring] [seconds]"
             );
             std::process::exit(2);
         }
@@ -297,6 +301,103 @@ async fn white(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// Diagnostic: lists the render endpoints the app enumerates and flags the
+/// one Music captures when following the Windows default. With a virtual audio
+/// router (SteelSeries Sonar, VoiceMeeter, ...) the default is often a per-app
+/// sub-mix, so apps routed elsewhere are never heard by loopback.
+fn audio() -> Result<(), String> {
+    let outputs = hue_app_lib::services::entertainment::audio::enumerate_audio_outputs()?;
+    println!("render endpoints the app sees ({}):", outputs.len());
+    for output in &outputs {
+        println!(
+            "  {} {}",
+            if output.is_default { "[DEFAULT]" } else { "         " },
+            output.name
+        );
+    }
+    println!(
+        "\nMusic with audioDeviceId=null captures the [DEFAULT] endpoint above.\nApps routed to any other endpoint (e.g. another Sonar channel) are not heard."
+    );
+    Ok(())
+}
+
+/// Diagnostic: meters loopback RMS on endpoints matching `device-substring`
+/// (case-insensitive) for a few seconds each, so you can see which endpoint
+/// actually carries an app's audio. No arg meters every endpoint. Play the
+/// app you're debugging (e.g. Spotify) while this runs.
+fn listen(args: &[String]) -> Result<(), String> {
+    use hue_app_lib::services::entertainment::audio;
+
+    let filter = args.first().map(|s| s.to_lowercase());
+    let seconds: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(4);
+    let duration = Duration::from_secs(seconds);
+
+    let outputs = audio::enumerate_audio_outputs()?;
+    let matches: Vec<_> = outputs
+        .iter()
+        .filter(|o| {
+            filter
+                .as_deref()
+                .is_none_or(|needle| o.name.to_lowercase().contains(needle))
+        })
+        .collect();
+    if matches.is_empty() {
+        return Err("no endpoint matched that substring (try `audio` to list them).".to_string());
+    }
+
+    println!(
+        "metering {} endpoint(s) for {seconds}s each — play the audio you're testing now:\n",
+        matches.len()
+    );
+    for output in matches {
+        print!("  {:<48} ", output.name);
+        use std::io::Write as _;
+        let _ = std::io::stdout().flush();
+        match audio::measure_loopback_peak_rms(Some(output.id.clone()), duration) {
+            Ok(peak) => {
+                let heard = if peak > 0.001 { "HEARS AUDIO" } else { "silent" };
+                println!("peak RMS {peak:.4}  -> {heard}");
+            }
+            Err(error) => println!("error: {error}"),
+        }
+    }
+    Ok(())
+}
+
+/// Diagnostic: captures the first endpoint matching `device-substring` exactly
+/// like a Music session and logs its state every 500ms, so we can see whether
+/// an explicit device spuriously leaves the `Active` state (which the session's
+/// device-loss guard treats as a disconnect).
+fn capstate(args: &[String]) -> Result<(), String> {
+    use hue_app_lib::services::entertainment::audio;
+
+    let needle = args
+        .first()
+        .ok_or_else(|| "usage: capstate <device-substring> [seconds]".to_string())?
+        .to_lowercase();
+    let seconds: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(15);
+
+    let outputs = audio::enumerate_audio_outputs()?;
+    let output = outputs
+        .iter()
+        .find(|o| o.name.to_lowercase().contains(&needle))
+        .ok_or_else(|| "no endpoint matched that substring (try `audio`).".to_string())?;
+
+    println!(
+        "capturing \"{}\" for {seconds}s, polling state every 500ms (play audio now):\n",
+        output.name
+    );
+    let log = audio::diagnose_selected_device_capture(
+        output.id.clone(),
+        Duration::from_secs(seconds),
+        Duration::from_millis(500),
+    )?;
+    for line in &log {
+        println!("  {line}");
+    }
+    Ok(())
+}
+
 fn parse(value: &str) -> Result<u8, String> {
     value
         .parse::<u8>()
@@ -430,4 +531,143 @@ async fn video(args: &[String]) -> Result<(), String> {
         .await?;
     snapshot::restore(&client, &ip, &key, &snapshots).await?;
     result.map(|()| println!("done."))
+}
+
+/// Manual-acceptance latency check: runs the real capture -> smooth -> encode
+/// -> DTLS-send pipeline at High and Extreme and reports the internal
+/// capture-analysis-to-send latency distribution against the 50 ms target.
+/// Only genuinely new frames (board timestamp advanced) are measured, so
+/// static-resend ticks never inflate the numbers.
+async fn latency(args: &[String]) -> Result<(), String> {
+    use hue_app_lib::services::entertainment::analysis::{
+        self, ChannelSmoother, SyncIntensity, SyncMode,
+    };
+    use hue_app_lib::services::entertainment::capture::{CaptureRig, ColorBoard};
+    use hue_app_lib::services::entertainment::displays;
+
+    let area_id = args
+        .first()
+        .ok_or_else(|| "usage: latency <area-id> [seconds]".to_string())?;
+    let seconds: u64 = args
+        .get(1)
+        .map(|s| parse(s))
+        .transpose()?
+        .map(u64::from)
+        .unwrap_or(10);
+    let mode = SyncMode::Game; // lowest-latency mode: the worst case for the target
+
+    let ip = bridge_ip()?;
+    let key = rest_key()?;
+    let client = HueClient::new()?;
+
+    let client_key = credentials::load_client_key()?
+        .ok_or_else(|| "no entertainment clientkey stored; run `provision` first.".to_string())?;
+    let psk = credentials::decode_client_key(&client_key)?;
+    let application_id = client.fetch_application_id(&ip, &key).await?;
+
+    let area = client.get_entertainment_area(&ip, &key, area_id).await?;
+    let displays_all = displays::enumerate_displays()?;
+    let selected = displays::resolve_selected(&displays_all, true, &[])?;
+    let bounds: Vec<_> = selected.iter().map(|d| d.bounds()).collect();
+    let frame = analysis::ScreenFrame::from_configuration_type(area.configuration_type.as_deref());
+    let tiles = analysis::map_channels_to_tiles(&area.channels, &bounds, frame);
+    let channel_ids: Vec<u8> = area.channels.iter().map(|c| c.channel_id).collect();
+
+    let snapshots = snapshot::capture(&client, &ip, &key, &area.light_ids).await?;
+    println!(
+        "measuring capture->send latency on {} ({} channel(s)); move colorful content around!",
+        selected[0].name,
+        area.channels.len()
+    );
+    client
+        .set_entertainment_action(&ip, &key, area_id, "start")
+        .await?;
+
+    let transport = match EntertainmentTransport::connect(&ip, &application_id, psk).await {
+        Ok(transport) => transport,
+        Err(error) => {
+            let _ = client
+                .set_entertainment_action(&ip, &key, area_id, "stop")
+                .await;
+            return Err(error);
+        }
+    };
+
+    let mut result = Ok(());
+    for intensity in [SyncIntensity::High, SyncIntensity::Extreme] {
+        let tick = Duration::from_secs_f64(1.0 / f64::from(intensity.tick_hz()));
+        let board = ColorBoard::new(area.channels.len());
+        let mut rig = match CaptureRig::start(&selected, &tiles, &board, tick) {
+            Ok(rig) => rig,
+            Err(error) => {
+                result = Err(error);
+                break;
+            }
+        };
+        let mut smoother = ChannelSmoother::new(channel_ids.len(), intensity, mode);
+        let mut sequence: u8 = 0;
+        let mut samples: Vec<f64> = Vec::new();
+        let mut last_measured: Option<std::time::Instant> = None;
+        let started = std::time::Instant::now();
+        while started.elapsed() < Duration::from_secs(seconds) {
+            if let Some(error) = board.error() {
+                result = Err(error);
+                break;
+            }
+            let update = board.last_update();
+            let targets = board.snapshot();
+            let smoothed = smoother.step(&targets);
+            let colors =
+                analysis::to_wire_colors(smoothed, &channel_ids, mode.saturation_boost(), 100.0);
+            let wire = protocol::encode_frame(&area.id, sequence, &colors)?;
+            if let Err(error) = transport.send(&wire).await {
+                result = Err(error);
+                break;
+            }
+            // Count a sample only when this is a frame we hadn't sent before,
+            // measured from analysis completion to just after the wire send.
+            if let Some(update) = update {
+                if last_measured != Some(update) {
+                    samples.push(update.elapsed().as_secs_f64() * 1000.0);
+                    last_measured = Some(update);
+                }
+            }
+            sequence = sequence.wrapping_add(1);
+            tokio::time::sleep(tick).await;
+        }
+        rig.stop();
+        report_latency(intensity.tick_hz(), &mut samples);
+        if result.is_err() {
+            break;
+        }
+    }
+
+    println!("releasing area and restoring lights ...");
+    transport.close().await;
+    client
+        .set_entertainment_action(&ip, &key, area_id, "stop")
+        .await?;
+    snapshot::restore(&client, &ip, &key, &snapshots).await?;
+    result.map(|()| println!("done."))
+}
+
+/// Prints p50/p95/max for a latency sample set and PASS/FAIL against 50 ms.
+fn report_latency(tick_hz: u32, samples: &mut [f64]) {
+    if samples.is_empty() {
+        println!("  {tick_hz} Hz: no new frames captured (was the screen static?)");
+        return;
+    }
+    samples.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let pct = |p: f64| {
+        let idx = ((p / 100.0) * (samples.len() as f64 - 1.0)).round() as usize;
+        samples[idx]
+    };
+    let p50 = pct(50.0);
+    let p95 = pct(95.0);
+    let max = *samples.last().unwrap();
+    let verdict = if max < 50.0 { "PASS" } else { "FAIL" };
+    println!(
+        "  {tick_hz} Hz over {} frames: p50={p50:.1}ms p95={p95:.1}ms max={max:.1}ms -> {verdict} (<50ms)",
+        samples.len()
+    );
 }

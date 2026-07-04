@@ -27,6 +27,9 @@ use super::displays::DisplayInfo;
 pub struct ColorBoard {
     colors: Mutex<Vec<[f32; 3]>>,
     error: Mutex<Option<String>>,
+    /// When the most recent analyzed frame was written. Used only by the
+    /// latency-measurement path; the stream loop reads colors, not this.
+    updated_at: Mutex<Option<Instant>>,
 }
 
 impl ColorBoard {
@@ -34,6 +37,7 @@ impl ColorBoard {
         Arc::new(Self {
             colors: Mutex::new(vec![[0.0; 3]; channel_count]),
             error: Mutex::new(None),
+            updated_at: Mutex::new(None),
         })
     }
 
@@ -41,10 +45,17 @@ impl ColorBoard {
         if let Some(slot) = self.colors.lock().unwrap().get_mut(channel_index) {
             *slot = color;
         }
+        *self.updated_at.lock().unwrap() = Some(Instant::now());
     }
 
     pub fn snapshot(&self) -> Vec<[f32; 3]> {
         self.colors.lock().unwrap().clone()
+    }
+
+    /// The instant the latest analyzed frame was written, if any. Lets a
+    /// caller measure capture-analysis-to-send latency without adding a queue.
+    pub fn last_update(&self) -> Option<Instant> {
+        *self.updated_at.lock().unwrap()
     }
 
     pub fn set_error(&self, error: String) {

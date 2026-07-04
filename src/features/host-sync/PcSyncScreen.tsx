@@ -17,6 +17,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -37,6 +46,7 @@ import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import { useSyncBoxStore } from "@/stores/SyncBoxStore";
 import type {
+  HostSyncDisplay,
   HostSyncIntensity,
   HostSyncMode,
   HostSyncPreferences,
@@ -48,6 +58,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "@tanstack/react-router";
 import {
   AudioLines,
+  Check,
+  ChevronDown,
   Clapperboard,
   Gamepad2,
   Lightbulb,
@@ -294,6 +306,18 @@ export const PcSyncScreen = ({ areaId }: { areaId: string }) => {
           ? (prefs.musicPalette.sceneName ?? "Scene")
           : "Scene"));
 
+  // Music captures audio, not the screen — surface which output it listens to.
+  // For the default, name the actual device so a virtual router routing apps
+  // elsewhere (e.g. SteelSeries Sonar) is visible instead of a bare "Default".
+  const defaultOutput = overview.audioOutputs.find((output) => output.isDefault);
+  const selectedOutputName = overview.audioOutputs.find(
+    (output) => output.id === prefs.audioDeviceId,
+  )?.name;
+  const audioSourceCaption =
+    prefs.audioDeviceId == null
+      ? `Default · ${defaultOutput?.name ?? "system output"}`
+      : (selectedOutputName ?? "Unavailable device");
+
   return (
     <div className="mx-auto grid w-full max-w-5xl gap-5 pb-8">
       {(actionError ?? status.error) && (
@@ -333,15 +357,23 @@ export const PcSyncScreen = ({ areaId }: { areaId: string }) => {
         }`}
         aside={
           <>
-            <SyncHeroChip
-              icon={Monitor}
-              label="Display capture"
-              caption={
-                prefs.automaticDisplay
-                  ? "Following the primary display"
-                  : `${Math.max(prefs.displayIds.length, 1)} ${prefs.displayIds.length === 1 ? "display" : "displays"} selected`
-              }
-            />
+            {prefs.mode === "music" ? (
+              <SyncHeroChip
+                icon={AudioLines}
+                label="Audio input"
+                caption={audioSourceCaption}
+              />
+            ) : (
+              <DisplayCaptureChip
+                displays={overview.displays}
+                automaticDisplay={prefs.automaticDisplay}
+                selectedIds={prefs.displayIds}
+                disabled={busy || busyElsewhere}
+                onChange={(update) =>
+                  void applyPreference(update, { restart: true })
+                }
+              />
+            )}
             <SyncToggleButton
               active={runningHere}
               busy={busy}
@@ -478,6 +510,48 @@ export const PcSyncScreen = ({ areaId }: { areaId: string }) => {
             {prefs.mode === "music" && (
               <>
                 <SettingRow
+                  icon={AudioLines}
+                  title="Audio input"
+                  description="The output Music listens to. Pick your speakers or headphones if the default isn't heard."
+                  className="border-t border-border pt-4"
+                >
+                  <Select
+                    value={prefs.audioDeviceId ?? "default"}
+                    disabled={busy || overview.audioOutputs.length === 0}
+                    onValueChange={(value) =>
+                      void applyPreference(
+                        { audioDeviceId: value === "default" ? null : value },
+                        { restart: true },
+                      )
+                    }
+                  >
+                    <SelectTrigger
+                      aria-label="Audio input device"
+                      className="w-56"
+                    >
+                      <SelectValue>
+                        {() =>
+                          prefs.audioDeviceId == null
+                            ? "Default output"
+                            : (selectedOutputName ?? "Unavailable device")
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent className="w-auto max-w-80 min-w-(--anchor-width)">
+                      <SelectItem value="default">Default output</SelectItem>
+                      {overview.audioOutputs.map((output) => (
+                        <SelectItem
+                          key={output.id}
+                          value={output.id}
+                          className="[&>div:first-child]:whitespace-normal [&>div:first-child]:line-clamp-2"
+                        >
+                          {output.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </SettingRow>
+                <SettingRow
                   title="Color palette"
                   description="Built-in palettes, or colors from one of your scenes."
                   className="border-t border-border pt-4"
@@ -592,5 +666,124 @@ export const PcSyncScreen = ({ areaId }: { areaId: string }) => {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+};
+
+/** Square checkbox box matching the rooms/zones multiselect indicator. */
+const CaptureCheck = ({ checked }: { checked: boolean }) => (
+  <span className="flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-input bg-background">
+    {checked && <Check className="size-3.5" strokeWidth={3} />}
+  </span>
+);
+
+/**
+ * Interactive version of the "Display capture" hero chip: opens a menu to
+ * switch the capture source without a trip to Settings. Picking a specific
+ * display turns off primary-tracking; choosing "Follow primary display"
+ * turns it back on. At least one display always stays captured.
+ */
+const DisplayCaptureChip = ({
+  displays,
+  automaticDisplay,
+  selectedIds,
+  disabled,
+  onChange,
+}: {
+  displays: HostSyncDisplay[];
+  automaticDisplay: boolean;
+  selectedIds: string[];
+  disabled?: boolean;
+  onChange: (update: {
+    automaticDisplay: boolean;
+    displayIds: string[];
+  }) => void;
+}) => {
+  const selected = new Set(selectedIds);
+  const isCaptured = (display: HostSyncDisplay) =>
+    automaticDisplay ? display.isPrimary : selected.has(display.id);
+
+  const capturedNames = displays
+    .filter(isCaptured)
+    .map((display) => display.name);
+  const caption = automaticDisplay
+    ? "Following the primary display"
+    : capturedNames.length === 0
+      ? "No display selected"
+      : capturedNames.length === 1
+        ? capturedNames[0]
+        : `${capturedNames.length} displays`;
+
+  const chooseAutomatic = () => {
+    if (automaticDisplay) return;
+    onChange({ automaticDisplay: true, displayIds: selectedIds });
+  };
+
+  const toggleDisplay = (id: string) => {
+    // Switching to a specific display drops out of primary-tracking; seed the
+    // manual set from what's currently captured so the primary isn't lost.
+    const next = new Set(
+      automaticDisplay
+        ? displays.filter((display) => display.isPrimary).map((d) => d.id)
+        : selected,
+    );
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    if (next.size === 0) return; // keep at least one display captured
+    onChange({ automaticDisplay: false, displayIds: [...next] });
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        disabled={disabled}
+        render={
+          <button
+            type="button"
+            aria-label="Change display capture"
+            className="flex items-center gap-3 rounded-full bg-background/60 py-2 pr-3 pl-2.5 backdrop-blur-sm transition-colors outline-none hover:bg-background/85 focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-60"
+          />
+        }
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <Monitor className="size-4.5" />
+        </span>
+        <span className="min-w-0 text-left">
+          <span className="block text-sm leading-tight font-medium">
+            Display capture
+          </span>
+          <span className="mt-0.5 block max-w-40 truncate text-xs leading-tight text-muted-foreground">
+            {caption}
+          </span>
+        </span>
+        <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Capture source</DropdownMenuLabel>
+        </DropdownMenuGroup>
+        <DropdownMenuItem closeOnClick={false} onClick={chooseAutomatic}>
+          <CaptureCheck checked={automaticDisplay} />
+          Follow primary display
+        </DropdownMenuItem>
+        {displays.length > 0 && <DropdownMenuSeparator />}
+        {displays.map((display) => (
+          <DropdownMenuItem
+            key={display.id}
+            closeOnClick={false}
+            onClick={() => toggleDisplay(display.id)}
+          >
+            <CaptureCheck checked={isCaptured(display)} />
+            <span className="flex min-w-0 flex-col">
+              <span className="truncate">{display.name}</span>
+              <span className="text-xs text-muted-foreground">
+                {display.width}×{display.height}
+                {display.isPrimary ? " · Primary" : ""}
+                {display.hdrEnabled ? " · HDR" : ""}
+              </span>
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 };

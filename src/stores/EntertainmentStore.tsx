@@ -1,5 +1,8 @@
 import type { HostSyncStatus } from "@/types/host-sync";
-import type { HueEventUpdate } from "@/types/hue";
+import type {
+  HueEntertainmentConfiguration,
+  HueEventUpdate,
+} from "@/types/hue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
@@ -15,6 +18,7 @@ import { create } from "zustand";
 export interface EntertainmentAreaSummary {
   id: string;
   name: string;
+  configurationType: HueEntertainmentConfiguration["configuration_type"];
   /** "active" while an application streams to this area. */
   status: string;
   /** `auth/v1` application id of the current streamer, when active. */
@@ -87,6 +91,7 @@ export const useEntertainmentStore = create<EntertainmentStore>((set, get) => ({
       id?: string;
       name?: string;
       metadata?: { name?: string };
+      configuration_type?: HueEntertainmentConfiguration["configuration_type"];
       status?: string;
       active_streamer?: Ref;
       light_services?: Ref[];
@@ -142,6 +147,8 @@ export const useEntertainmentStore = create<EntertainmentStore>((set, get) => ({
                   configuration.metadata?.name ??
                   configuration.name ??
                   "Entertainment area",
+                configurationType:
+                  configuration.configuration_type ?? "other",
                 status: configuration.status ?? "inactive",
                 activeStreamerId: configuration.active_streamer?.rid ?? null,
                 lightIds: [...new Set([...direct, ...located, ...channelled])],

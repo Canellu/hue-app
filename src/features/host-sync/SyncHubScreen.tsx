@@ -5,7 +5,24 @@ import { cn } from "@/lib/utils";
 import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 import { useSyncBoxStore } from "@/stores/SyncBoxStore";
 import { useNavigate } from "@tanstack/react-router";
-import { LampDesk, Loader2, MonitorPlay } from "lucide-react";
+import {
+  ChevronRight,
+  Cuboid,
+  LampDesk,
+  Loader2,
+  Monitor,
+  MonitorPlay,
+  Music2,
+  Tv,
+} from "lucide-react";
+
+const AREA_TYPE_DETAILS = {
+  screen: { label: "TV", Icon: Tv },
+  monitor: { label: "Monitor", Icon: Monitor },
+  music: { label: "Music", Icon: Music2 },
+  "3dspace": { label: "3D space", Icon: Cuboid },
+  other: { label: "Entertainment", Icon: MonitorPlay },
+} as const;
 
 /** One area picker shared by every entertainment sync source. */
 export const SyncHubScreen = () => {
@@ -46,6 +63,10 @@ export const SyncHubScreen = () => {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {areas.map((area) => {
           const active = area.status === "active";
+          const areaType =
+            AREA_TYPE_DETAILS[area.configurationType] ??
+            AREA_TYPE_DETAILS.other;
+          const AreaIcon = areaType.Icon;
           const ownedByPc =
             pcStatus.areaId === area.id &&
             (pcStatus.state === "running" || pcStatus.state === "starting");
@@ -94,38 +115,56 @@ export const SyncHubScreen = () => {
                   });
                 }
               }}
-              className="cursor-pointer justify-center gap-4 border border-tile-border bg-tile-off transition-colors hover:bg-accent"
+              aria-label={`Open ${area.name}, ${areaType.label}, ${area.lightIds.length} ${
+                area.lightIds.length === 1 ? "light" : "lights"
+              }${active ? `, syncing with ${owner}` : ""}`}
+              className="group relative min-h-60 cursor-pointer items-center justify-center gap-0 border border-tile-border bg-tile-off px-5 py-6 text-center outline-none transition-[transform,background-color,border-color,box-shadow] hover:-translate-y-0.5 hover:border-foreground/15 hover:bg-accent/70 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <div className="flex items-center gap-4 px-(--card-spacing)">
-                <span
-                  className={cn(
-                    "flex size-12 shrink-0 items-center justify-center",
-                    active ? "text-primary" : "text-muted-foreground",
-                  )}
-                >
-                  <MonitorPlay size={26} strokeWidth={2.5} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-base font-medium">{area.name}</p>
-                  <p
-                    className={cn(
-                      "truncate text-sm",
-                      active ? "text-primary" : "text-muted-foreground",
-                    )}
-                  >
-                    {active
-                      ? `Syncing with ${owner}`
-                      : `${area.lightIds.length} ${
-                          area.lightIds.length === 1 ? "light" : "lights"
-                        }`}
-                  </p>
-                </div>
-                {active && (
+              {active && (
+                <div className="absolute right-4 top-4">
                   <SyncIndicator
                     syncedCount={area.lightIds.length}
                     totalCount={area.lightIds.length}
                   />
+                </div>
+              )}
+
+              <div
+                className={cn(
+                  "mb-4 flex size-14 items-center justify-center rounded-2xl bg-background/70 text-muted-foreground ring-1 ring-border/60 transition-transform group-hover:scale-105",
+                  active && "bg-primary/12 text-primary ring-primary/20",
                 )}
+              >
+                <AreaIcon size={27} strokeWidth={2.2} />
+              </div>
+
+              <p className="max-w-full truncate text-lg font-semibold">
+                {area.name}
+              </p>
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-2 text-sm text-muted-foreground">
+                <span>{areaType.label}</span>
+                <span aria-hidden className="size-1 rounded-full bg-border" />
+                <span>
+                  {area.lightIds.length}{" "}
+                  {area.lightIds.length === 1 ? "light" : "lights"}
+                </span>
+              </div>
+
+              <p
+                className={cn(
+                  "mt-4 rounded-full bg-background/60 px-3 py-1 text-xs font-medium text-muted-foreground ring-1 ring-border/60",
+                  active && "bg-primary/10 text-primary ring-primary/20",
+                )}
+              >
+                {active ? `Syncing with ${owner}` : "Ready to sync"}
+              </p>
+
+              <div className="mt-5 flex w-full items-center justify-center gap-1 border-t border-border/60 pt-4 text-sm font-medium text-muted-foreground transition-colors group-hover:text-foreground">
+                <span>Choose sync source</span>
+                <ChevronRight
+                  aria-hidden
+                  className="size-4 transition-transform group-hover:translate-x-0.5"
+                />
               </div>
             </Card>
           );

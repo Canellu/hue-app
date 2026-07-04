@@ -22,6 +22,7 @@ import {
   ToggleLeft,
   X,
 } from "lucide-react";
+import { useBlocker } from "@tanstack/react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -411,6 +412,20 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [actionDialog, editing, managing]);
 
+  // Customize/manage are modal sub-states of the space, so a mouse Back should
+  // exit the mode before it leaves the screen — the same one-level unwind as
+  // Escape. Reorders persist on drop, so leaving is a clean save, not a discard.
+  const spaceEditBlocker = useBlocker({
+    shouldBlockFn: ({ action }) =>
+      (editing || managing) && (action === "BACK" || action === "GO"),
+    withResolver: true,
+  });
+  useEffect(() => {
+    if (spaceEditBlocker.status !== "blocked") return;
+    window.dispatchEvent(new CustomEvent("hue-space-edit-save"));
+    spaceEditBlocker.reset();
+  }, [spaceEditBlocker]);
+
   useEffect(() => {
     document
       .querySelectorAll<HTMLElement>("[data-edit-selected]")
@@ -511,6 +526,33 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
     return () => window.removeEventListener("hue-space-rename", rename);
   });
 
+  // Manage-mode "Select all / Deselect all" shown in each selectable section's
+  // header. Selecting makes the whole section the active multi-select category;
+  // deselecting clears it. Disabled while another section owns the selection,
+  // since only one category can be selected at a time.
+  const selectAllControl = (category: EditCategory, ids: string[]) => {
+    if (!managing || ids.length === 0) return null;
+    const otherCategorySelected =
+      selection != null && selection.category !== category;
+    const allSelected =
+      selection?.category === category &&
+      ids.every((id) => selection.ids.has(id));
+    return (
+      <Button
+        variant="ghost"
+        size="sm"
+        data-edit-interactive
+        disabled={otherCategorySelected}
+        className="h-7 px-2 text-xs text-muted-foreground"
+        onClick={() =>
+          setSelection(allSelected ? null : { category, ids: new Set(ids) })
+        }
+      >
+        {allSelected ? "Deselect all" : "Select all"}
+      </Button>
+    );
+  };
+
   const sectionContent: Record<SectionId, React.ReactNode> = {
     // Keyed on the space so the expanded/collapsed state resets when entering or
     // leaving a room/zone (this screen instance is reused across spaces).
@@ -538,6 +580,10 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
         editing={editing || managing}
         reordering={editing}
         orderedIds={itemOrder.scenes}
+        headerAction={selectAllControl(
+          "scenes",
+          orderedScenes.map((scene) => scene.id),
+        )}
         onReorder={persistItemOrder("scenes")}
         onSceneApply={onSceneApply}
         onSceneInspect={onSceneInspect}
@@ -558,6 +604,10 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
           hueEventRevision={hueEventRevision}
           editing={editing || managing}
           reordering={editing}
+          headerAction={selectAllControl(
+            "lights",
+            orderedLights.map((light) => light.id),
+          )}
           onReorder={persistItemOrder("lights")}
           onSelectLight={onSelectLight}
           onLightToggle={onLightToggle}
@@ -574,6 +624,10 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
           accessories={orderedSwitches}
           readingsByDevice={readingsByDevice}
           reordering={editing}
+          headerAction={selectAllControl(
+            "switches",
+            orderedSwitches.map((accessory) => accessory.id),
+          )}
           onReorder={persistItemOrder("switches")}
         />
       ) : editing ? (
@@ -587,6 +641,10 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
           accessories={orderedSensors}
           readingsByDevice={readingsByDevice}
           reordering={editing}
+          headerAction={selectAllControl(
+            "sensors",
+            orderedSensors.map((accessory) => accessory.id),
+          )}
           onReorder={persistItemOrder("sensors")}
         />
       ) : editing ? (

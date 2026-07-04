@@ -36,7 +36,6 @@ const isSyncLocked = (lightIds: string[]): boolean => {
   const syncedIds = activeSyncedLightIds();
   return lightIds.some((id) => syncedIds.has(id));
 };
-import { requestInspectorTransition } from "@/features/space-screen/utils/inspector-transition";
 
 /** Color attributes that can be pushed to an individual light. */
 export interface LightColorChange {
@@ -89,29 +88,9 @@ export interface HueResourcesState extends LayoutState {
    */
   hueEventRevision: number;
 
-  // The light whose inspector panel content is selected. Lives here (not
-  // route-local) so the app shell can render the panel as a layout sibling that
-  // pushes the content aside.
-  selectedLightId: string | null;
-  setSelectedLightId: (id: string | null) => void;
-  toggleLightInspector: (id: string) => void;
-
-  // The scene whose inspector panel content is selected, or null. Mutually
-  // exclusive with `selectedLightId` — the shell renders one inspector at a time.
-  selectedSceneId: string | null;
-  setSelectedSceneId: (id: string | null) => void;
-  toggleSceneInspector: (id: string) => void;
-
-  // The room/zone whose inspector panel content is selected, or null. Opens the
-  // multi-light group pane. Mutually exclusive with the light/scene selections.
-  selectedGroupId: string | null;
-  setSelectedGroupId: (id: string | null) => void;
-  toggleGroupInspector: (id: string) => void;
-
-  // Whether the side pane is visible. Kept separate from selection so tiles can
-  // update the pane content without opening or closing it.
-  inspectorPaneOpen: boolean;
-  setInspectorPaneOpen: (open: boolean) => void;
+  // The inspector pane's selection now lives in the URL (`?inspect=<kind>:<id>`
+  // on the space route) so it participates in browser history — see
+  // `useInspector`. Nothing about the pane is tracked in this store anymore.
 
   // Home layout editing. Layout sections are local app state, not Hue resources.
   draftLayout: HomeLayout;
@@ -637,77 +616,6 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   draftLayout: [],
   isEditLayoutMode: false,
   isCreatingSection: false,
-  selectedLightId: null,
-  selectedSceneId: null,
-  selectedGroupId: null,
-  inspectorPaneOpen: false,
-
-  setSelectedLightId: (id) =>
-    requestInspectorTransition(() =>
-      set({
-        selectedLightId: id,
-        selectedSceneId: null,
-        selectedGroupId: null,
-      }),
-    ),
-  toggleLightInspector: (id) =>
-    requestInspectorTransition(() =>
-      set((state) =>
-        state.inspectorPaneOpen && state.selectedLightId === id
-          ? { inspectorPaneOpen: false }
-          : {
-              selectedLightId: id,
-              selectedSceneId: null,
-              selectedGroupId: null,
-              inspectorPaneOpen: true,
-            },
-      ),
-    ),
-  setSelectedSceneId: (id) =>
-    requestInspectorTransition(() =>
-      set({
-        selectedSceneId: id,
-        selectedLightId: null,
-        selectedGroupId: null,
-      }),
-    ),
-  toggleSceneInspector: (id) =>
-    requestInspectorTransition(() =>
-      set((state) =>
-        state.inspectorPaneOpen && state.selectedSceneId === id
-          ? { inspectorPaneOpen: false }
-          : {
-              selectedSceneId: id,
-              selectedLightId: null,
-              selectedGroupId: null,
-              inspectorPaneOpen: true,
-            },
-      ),
-    ),
-  setSelectedGroupId: (id) =>
-    requestInspectorTransition(() =>
-      set({
-        selectedGroupId: id,
-        selectedLightId: null,
-        selectedSceneId: null,
-      }),
-    ),
-  toggleGroupInspector: (id) =>
-    requestInspectorTransition(() =>
-      set((state) =>
-        state.inspectorPaneOpen && state.selectedGroupId === id
-          ? { inspectorPaneOpen: false }
-          : {
-              selectedGroupId: id,
-              selectedLightId: null,
-              selectedSceneId: null,
-              inspectorPaneOpen: true,
-            },
-      ),
-    ),
-  setInspectorPaneOpen: (open) =>
-    requestInspectorTransition(() => set({ inspectorPaneOpen: open })),
-
   setDraftLayout: (next) => set({ draftLayout: next }),
 
   setGroupingMode: (mode) => {
@@ -1694,14 +1602,12 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   },
 
   deleteScene: async (scene) => {
-    const { selectedSceneId } = get();
     set((state) => ({
       scenes: state.scenes.filter(
         (candidate) =>
           candidate.id !== scene.id ||
           candidate.resourceType !== scene.resourceType,
       ),
-      selectedSceneId: selectedSceneId === scene.id ? null : selectedSceneId,
       error: null,
     }));
     try {

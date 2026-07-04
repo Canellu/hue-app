@@ -1,8 +1,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { SpaceScreen } from "@/features/space-screen/SpaceScreen";
+import {
+  useInspector,
+  type InspectKind,
+  type InspectSelection,
+} from "@/features/space-screen/hooks/useInspector";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HueAccessoryService } from "@/types/hue";
 
@@ -15,18 +20,57 @@ export const SpaceRoute: React.FC = () => {
   const { spaceId } = useParams({ from: "/space/$spaceId" });
   const navigate = useNavigate();
   const {
+    selection,
+    isOpen: inspectorOpen,
+    open: openInspector,
+    toggle: toggleInspector,
+    close: closeInspector,
+  } = useInspector();
+  const selectedLightId =
+    selection?.kind === "light" ? selection.id : null;
+
+  // Customize/Manage take the tiles over for reordering and multi-select, so the
+  // inspector pane closes on entry and stays closed until the mode exits — the
+  // space broadcasts its edit state through this window event.
+  const [spaceEditActive, setSpaceEditActive] = useState(false);
+  useEffect(() => {
+    const onEditState = (event: Event) =>
+      setSpaceEditActive(
+        (event as CustomEvent<"customize" | "manage" | null>).detail != null,
+      );
+    window.addEventListener("hue-space-edit-state", onEditState);
+    return () => window.removeEventListener("hue-space-edit-state", onEditState);
+  }, []);
+
+  // Remember whatever the pane was showing when the mode opened, so leaving the
+  // mode (save/cancel/done) restores it instead of leaving the pane closed.
+  const restoreInspectRef = useRef<InspectSelection | null>(null);
+  useEffect(() => {
+    if (spaceEditActive) {
+      if (inspectorOpen && selection) {
+        restoreInspectRef.current = selection;
+        closeInspector();
+      }
+    } else if (restoreInspectRef.current) {
+      const restore = restoreInspectRef.current;
+      restoreInspectRef.current = null;
+      openInspector(restore.kind, restore.id);
+    }
+  }, [spaceEditActive, inspectorOpen, selection, closeInspector, openInspector]);
+
+  const inspect = useCallback(
+    (kind: InspectKind, id: string) => {
+      if (spaceEditActive) return;
+      toggleInspector(kind, id);
+    },
+    [spaceEditActive, toggleInspector],
+  );
+  const {
     roomZones,
     lights,
     scenes,
     error,
     hueEventRevision,
-    selectedLightId,
-    setSelectedLightId,
-    setSelectedSceneId,
-    setInspectorPaneOpen,
-    toggleLightInspector,
-    toggleSceneInspector,
-    toggleGroupInspector,
     setRoomZoneState,
     setLightState,
     createGalleryScene,
@@ -42,13 +86,6 @@ export const SpaceRoute: React.FC = () => {
       scenes: state.scenes,
       error: state.error,
       hueEventRevision: state.hueEventRevision,
-      selectedLightId: state.selectedLightId,
-      setSelectedLightId: state.setSelectedLightId,
-      setSelectedSceneId: state.setSelectedSceneId,
-      setInspectorPaneOpen: state.setInspectorPaneOpen,
-      toggleLightInspector: state.toggleLightInspector,
-      toggleSceneInspector: state.toggleSceneInspector,
-      toggleGroupInspector: state.toggleGroupInspector,
       setRoomZoneState: state.setRoomZoneState,
       setLightState: state.setLightState,
       createGalleryScene: state.createGalleryScene,
@@ -119,20 +156,15 @@ export const SpaceRoute: React.FC = () => {
     [spaceScenes],
   );
 
-  // A missing room/zone (stale URL, or it vanished after a refresh) falls back Home.
+  // A missing room/zone (stale URL, or it vanished after a refresh) falls back
+  // Home. Replace so a dead route can't be reached again with Forward.
   useEffect(() => {
-    if (roomZones.length > 0 && !roomZone) void navigate({ to: "/" });
+    if (roomZones.length > 0 && !roomZone)
+      void navigate({ to: "/", replace: true });
   }, [roomZones.length, roomZone, navigate]);
 
-  // The inspector panel belongs to this space; collapse it when leaving so it
-  // doesn't linger open over Home or another room. (Clearing the light id also
-  // clears any selected scene — they're mutually exclusive in the store.)
-  useEffect(() => {
-    return () => {
-      setInspectorPaneOpen(false);
-      setSelectedLightId(null);
-    };
-  }, [spaceId, setInspectorPaneOpen, setSelectedLightId]);
+  // The inspector lives in the `?inspect` search param, which is scoped to this
+  // route — leaving the space drops it, so the pane closes on its own.
 
   if (!roomZone) return null;
 
@@ -157,13 +189,10 @@ export const SpaceRoute: React.FC = () => {
       onLightBrightness={(light, pct, phase) =>
         setLightState(light, pct > 0, pct, phase)
       }
-      onOpenGroup={(group) => toggleGroupInspector(group.id)}
-      onSelectLight={(id) => toggleLightInspector(id)}
-      onSceneApply={(scene) => {
-        setSelectedSceneId(scene.id);
-        void activateScene(scene, "apply");
-      }}
-      onSceneInspect={(scene) => toggleSceneInspector(scene.id)}
+      onOpenGroup={(group) => inspect("group", group.id)}
+      onSelectLight={(id) => inspect("light", id)}
+      onSceneApply={(scene) => void activateScene(scene, "apply")}
+      onSceneInspect={(scene) => inspect("scene", scene.id)}
       onSceneTogglePlay={(scene) => void activateScene(scene, "dynamic")}
       onGallerySceneCreate={(preset) => createGalleryScene(roomZone, preset)}
       onGallerySceneApplyOnce={(preset) =>

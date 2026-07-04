@@ -107,6 +107,8 @@ interface ScenesSectionProps {
   editing: boolean;
   /** Enables drag-and-drop ordering. False while selecting in Manage mode. */
   reordering: boolean;
+  /** Optional header control (e.g. the Manage-mode "Select all" toggle). */
+  headerAction?: React.ReactNode;
   /** Saved order including the gallery tile sentinel. */
   orderedIds: string[];
   /** Persist the new scene and gallery tile order after a reorder drag. */
@@ -128,6 +130,7 @@ export const ScenesSection: React.FC<ScenesSectionProps> = ({
   activeSceneId,
   editing,
   reordering,
+  headerAction,
   orderedIds,
   onReorder,
   onSceneApply,
@@ -323,12 +326,15 @@ export const ScenesSection: React.FC<ScenesSectionProps> = ({
               <span className="text-muted-foreground/60">{scenes.length}</span>
             </p>
           </div>
-          {canScroll && (
-            <div data-edit-interactive className="flex items-center gap-2">
-              <CarouselPrevious className="static translate-y-0" />
-              <CarouselNext className="static translate-y-0" />
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {headerAction}
+            {canScroll && (
+              <div data-edit-interactive className="flex items-center gap-2">
+                <CarouselPrevious className="static translate-y-0" />
+                <CarouselNext className="static translate-y-0" />
+              </div>
+            )}
+          </div>
         </div>
         <DndContext
           sensors={sensors}

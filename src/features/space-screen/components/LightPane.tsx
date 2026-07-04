@@ -337,9 +337,6 @@ const EditPane: React.FC<{
   const navigate = useNavigate();
   const roomZones = useHueResourcesStore((state) => state.roomZones);
   const loadAll = useHueResourcesStore((state) => state.loadAll);
-  const setSelectedLightId = useHueResourcesStore(
-    (state) => state.setSelectedLightId,
-  );
   const [name, setName] = useState(light.name);
   const [icon, setIcon] = useState(light.typeName ?? "");
   const [func, setFunc] = useState(light.function ?? "");
@@ -384,7 +381,6 @@ const EditPane: React.FC<{
         lightIds: space.lightIds.filter((id) => id !== light.id),
       });
     }
-    setSelectedLightId(null);
     onClosePane();
     await loadAll();
   };

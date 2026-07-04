@@ -27,6 +27,8 @@ export const AccessorySection: React.FC<{
   readingsByDevice: Map<string, HueAccessoryService[]>;
   /** Enables drag-and-drop ordering. False while selecting in Manage mode. */
   reordering?: boolean;
+  /** Optional header control (e.g. the Manage-mode "Select all" toggle). */
+  headerAction?: React.ReactNode;
   /** Persist the new accessory order (full list of ids) after a reorder drag. */
   onReorder?: (orderedIds: string[]) => void;
 }> = ({
@@ -35,6 +37,7 @@ export const AccessorySection: React.FC<{
   accessories,
   readingsByDevice,
   reordering = false,
+  headerAction,
   onReorder,
 }) => {
   const sensors = useSensors(
@@ -100,12 +103,17 @@ export const AccessorySection: React.FC<{
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex h-7 items-center">
-        <SectionGrip />
-        <p className="text-sm font-medium text-muted-foreground">
-          {title}{" "}
-          <span className="text-muted-foreground/60">{accessories.length}</span>
-        </p>
+      <div className="flex h-7 items-center justify-between gap-3">
+        <div className="flex items-center">
+          <SectionGrip />
+          <p className="text-sm font-medium text-muted-foreground">
+            {title}{" "}
+            <span className="text-muted-foreground/60">
+              {accessories.length}
+            </span>
+          </p>
+        </div>
+        {headerAction}
       </div>
       {reordering ? (
         <DndContext

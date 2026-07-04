@@ -89,10 +89,27 @@ export const SidePane: React.FC<SidePaneProps> = ({
   }, [editing]);
 
   const routeBlocker = useBlocker({
-    shouldBlockFn: () => editing && Boolean(guardRef.current?.dirty),
+    shouldBlockFn: ({ action }) => {
+      if (!editing) return false;
+      // Unsaved edits: intercept any navigation away to offer Save/Discard.
+      if (guardRef.current?.dirty) return true;
+      // Clean edits: let a mouse Back unwind edit mode before it closes the
+      // whole pane, so Back steps out one level at a time. Programmatic closes
+      // (the X button) and in-place content swaps still collapse edit directly.
+      return action === "BACK" || action === "GO";
+    },
     enableBeforeUnload: editing && Boolean(guardRef.current?.dirty),
     withResolver: true,
   });
+
+  // A blocked *clean* Back means "step out of edit mode": drop to the read-only
+  // view and cancel the navigation so the pane stays open. A second Back then
+  // closes the pane itself.
+  useEffect(() => {
+    if (routeBlocker.status !== "blocked" || guardRef.current?.dirty) return;
+    setEditing(false);
+    routeBlocker.reset();
+  }, [routeBlocker]);
 
   const finishTransition = (proceed: () => void) => {
     setPendingTransition(null);
@@ -126,21 +143,27 @@ export const SidePane: React.FC<SidePaneProps> = ({
   const editable = renderEdit != null;
 
   useEffect(() => {
-    if (!editing) return;
-
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Let a nested control (popover, rename input) or an open dialog own
+      // Escape before it reaches the pane.
       if (event.key !== "Escape" || event.defaultPrevented) return;
       if (pendingTransition != null || routeBlocker.status === "blocked") {
         return;
       }
 
       event.preventDefault();
-      requestInspectorTransition(() => setEditing(false));
+      // Escape unwinds one level, like Back: step out of edit mode first
+      // (guarding dirty edits), otherwise close the pane.
+      if (editing) {
+        requestInspectorTransition(() => setEditing(false));
+      } else {
+        onClose();
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [editing, pendingTransition, routeBlocker.status]);
+  }, [editing, pendingTransition, routeBlocker.status, onClose]);
 
   return (
     <div className="flex h-full flex-col">
@@ -227,7 +250,11 @@ export const SidePane: React.FC<SidePaneProps> = ({
       </div>
 
       <AlertDialog
-        open={pendingTransition != null || routeBlocker.status === "blocked"}
+        open={
+          pendingTransition != null ||
+          (routeBlocker.status === "blocked" &&
+            Boolean(guardRef.current?.dirty))
+        }
         onOpenChange={(open) => {
           if (open) return;
           setPendingTransition(null);

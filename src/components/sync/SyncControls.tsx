@@ -120,7 +120,7 @@ export const SyncHeroChip = ({
   caption: string;
   control?: React.ReactNode;
 }) => (
-  <div className="flex items-center gap-3 rounded-full bg-background/60 py-2 pl-2.5 pr-4 backdrop-blur-sm">
+  <div className="flex items-center gap-3 rounded-full border border-border bg-background/70 py-2 pl-2.5 pr-4 backdrop-blur-sm dark:border-foreground/8">
     <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
       <Icon className="size-4.5" />
     </span>
@@ -159,9 +159,9 @@ export const OptionTile = ({
     disabled={disabled}
     onClick={onSelect}
     className={cn(
-      "flex min-w-0 items-center gap-3 rounded-xl border border-foreground/8 bg-foreground/3 p-3 text-left transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
+      "flex min-w-0 items-center gap-3 rounded-xl border border-border bg-muted/50 p-3 text-left transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 dark:border-foreground/8 dark:bg-foreground/3",
       vertical && "flex-col items-start gap-2.5",
-      selected && "border-primary bg-primary/8 ring-1 ring-primary",
+      selected && "border-primary bg-primary/8 ring-1 ring-primary dark:border-primary",
     )}
   >
     {Icon && (
@@ -205,7 +205,7 @@ export function SegmentedOptions<T extends string>({
     <div
       role="group"
       aria-label={ariaLabel}
-      className="inline-flex rounded-full bg-foreground/6 p-1 dark:bg-muted"
+      className="inline-flex rounded-full bg-muted p-1"
     >
       {options.map((option) => {
         const selected = option.value === value;
@@ -217,9 +217,9 @@ export function SegmentedOptions<T extends string>({
             disabled={disabled}
             onClick={() => onValueChange(option.value)}
             className={cn(
-              "h-8 rounded-full border border-transparent px-3.5 text-sm font-medium text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
+              "h-8 rounded-full border border-transparent px-3.5 text-sm font-medium text-foreground/60 transition-colors outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 dark:text-muted-foreground",
               selected &&
-                "border-foreground/12 bg-background text-foreground shadow-sm dark:border-foreground/10 dark:bg-foreground/12",
+                "border-foreground/12 bg-background text-foreground shadow-sm dark:border-foreground/8 dark:bg-input/30 dark:text-foreground dark:shadow-none",
             )}
           >
             {option.label}

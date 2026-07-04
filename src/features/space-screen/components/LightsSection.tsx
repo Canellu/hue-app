@@ -48,6 +48,8 @@ interface LightsSectionProps {
   editing: boolean;
   /** Enables drag-and-drop ordering. False while selecting in Manage mode. */
   reordering: boolean;
+  /** Optional header control (e.g. the Manage-mode "Select all" toggle). */
+  headerAction?: React.ReactNode;
   /** Persist the new light order (full list of ids) after a reorder drag. */
   onReorder: (orderedIds: string[]) => void;
   onSelectLight: (id: string) => void;
@@ -65,6 +67,7 @@ export const LightsSection: React.FC<LightsSectionProps> = ({
   hueEventRevision,
   editing,
   reordering,
+  headerAction,
   onReorder,
   onSelectLight,
   onLightToggle,
@@ -99,12 +102,15 @@ export const LightsSection: React.FC<LightsSectionProps> = ({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex h-7 items-center">
-        <SectionGrip />
-        <p className="text-sm font-medium text-muted-foreground">
-          Lights{" "}
-          <span className="text-muted-foreground/60">{lights.length}</span>
-        </p>
+      <div className="flex h-7 items-center justify-between gap-3">
+        <div className="flex items-center">
+          <SectionGrip />
+          <p className="text-sm font-medium text-muted-foreground">
+            Lights{" "}
+            <span className="text-muted-foreground/60">{lights.length}</span>
+          </p>
+        </div>
+        {headerAction}
       </div>
       {lights.length === 0 ? (
         <p className="text-sm text-muted-foreground">

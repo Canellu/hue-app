@@ -270,7 +270,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     <Tabs
       value={activeTab}
       onValueChange={(tab) =>
-        void navigate({ to: "/settings", search: { tab } })
+        // Tabs are lateral within Settings — replace so Back exits Settings
+        // rather than stepping back through every tab you visited.
+        void navigate({ to: "/settings", search: { tab }, replace: true })
       }
       orientation="horizontal"
       className="@container flex min-h-0 w-full flex-1 flex-col gap-0"
@@ -280,7 +282,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
           <SettingsSidebar
             activeTab={activeTab}
             onSelect={(tab) =>
-              void navigate({ to: "/settings", search: { tab } })
+              void navigate({ to: "/settings", search: { tab }, replace: true })
             }
           />
           <ScrollArea

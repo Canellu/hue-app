@@ -6,6 +6,7 @@ import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-ico
 import { GroupPane } from "@/features/space-screen/components/GroupPane";
 import { LightPane } from "@/features/space-screen/components/LightPane";
 import { ScenePane } from "@/features/space-screen/components/ScenePane";
+import { useInspector } from "@/features/space-screen/hooks/useInspector";
 import { cn } from "@/lib/utils";
 import {
   HueResourcesStoreEffects,
@@ -49,35 +50,32 @@ const getInspectorPaneWidth = () => {
  */
 const LightInspector: React.FC = () => {
   const {
-    selectedLightId,
-    selectedSceneId,
-    selectedGroupId,
-    inspectorPaneOpen,
     lights,
     scenes,
     roomZones,
     hueEventRevision,
-    setInspectorPaneOpen,
     setLightState,
     setLightColor,
     setRoomZoneState,
   } = useHueResourcesStore(
     useShallow((state) => ({
-      selectedLightId: state.selectedLightId,
-      selectedSceneId: state.selectedSceneId,
-      selectedGroupId: state.selectedGroupId,
-      inspectorPaneOpen: state.inspectorPaneOpen,
       lights: state.lights,
       scenes: state.scenes,
       roomZones: state.roomZones,
       hueEventRevision: state.hueEventRevision,
-      setInspectorPaneOpen: state.setInspectorPaneOpen,
       setLightState: state.setLightState,
       setLightColor: state.setLightColor,
       setRoomZoneState: state.setRoomZoneState,
     })),
   );
   const syncedLightIds = useEntertainmentStore((state) => state.syncedLightIds);
+
+  // The pane's open state and selection both live in the URL (see useInspector),
+  // so mouse Back/Forward walk in and out of it like any other navigation.
+  const { selection, isOpen, close } = useInspector();
+  const selectedLightId = selection?.kind === "light" ? selection.id : null;
+  const selectedGroupId = selection?.kind === "group" ? selection.id : null;
+  const selectedSceneId = selection?.kind === "scene" ? selection.id : null;
 
   // The inspector only opens from inside a space, so resolve which room/zone is
   // on screen — the light pane removes a light from *this* space specifically.
@@ -120,8 +118,7 @@ const LightInspector: React.FC = () => {
     syncedLightIds,
   ]);
 
-  const open = inspectorPaneOpen;
-  const close = () => setInspectorPaneOpen(false);
+  const open = isOpen;
   const reduceMotion = useReducedMotion();
   const [paneWidth, setPaneWidth] = useState(getInspectorPaneWidth);
   const transition = {
@@ -469,9 +466,10 @@ export const RootLayout: React.FC = () => {
     "/settings/entertainment-placement/",
   );
   const navigate = useNavigate();
-  const inspectorPaneOpen = useHueResourcesStore(
-    (state) => state.inspectorPaneOpen,
-  );
+  const inspectorPaneOpen = useRouterState({
+    select: (state) =>
+      (state.location.search as { inspect?: string }).inspect != null,
+  });
   const roomZones = useHueResourcesStore((state) => state.roomZones);
   const bridgeConnected = useHueResourcesStore(
     (state) => state.bridgeConnected,

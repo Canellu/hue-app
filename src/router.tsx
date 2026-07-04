@@ -29,6 +29,16 @@ const indexRoute = createRoute({
 const spaceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/space/$spaceId",
+  // The inspector selection lives in the URL so it's a real history entry:
+  // mouse Back closes the pane instead of leaving the space. Shape is
+  // "<kind>:<id>" where kind is light | scene | group (mutually exclusive).
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { inspect?: string } =>
+    typeof search.inspect === "string" &&
+    /^(light|scene|group):.+/.test(search.inspect)
+      ? { inspect: search.inspect }
+      : {},
   component: SpaceRoute,
 });
 

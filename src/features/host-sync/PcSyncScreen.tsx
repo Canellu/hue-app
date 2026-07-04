@@ -39,13 +39,13 @@ import {
   SegmentedOptions,
   SettingRow,
   SyncHero,
-  SyncHeroChip,
   SyncToggleButton,
 } from "@/components/sync/SyncControls";
 import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import { useSyncBoxStore } from "@/stores/SyncBoxStore";
 import type {
+  HostSyncAudioOutput,
   HostSyncDisplay,
   HostSyncIntensity,
   HostSyncMode,
@@ -306,18 +306,6 @@ export const PcSyncScreen = ({ areaId }: { areaId: string }) => {
           ? (prefs.musicPalette.sceneName ?? "Scene")
           : "Scene"));
 
-  // Music captures audio, not the screen — surface which output it listens to.
-  // For the default, name the actual device so a virtual router routing apps
-  // elsewhere (e.g. SteelSeries Sonar) is visible instead of a bare "Default".
-  const defaultOutput = overview.audioOutputs.find((output) => output.isDefault);
-  const selectedOutputName = overview.audioOutputs.find(
-    (output) => output.id === prefs.audioDeviceId,
-  )?.name;
-  const audioSourceCaption =
-    prefs.audioDeviceId == null
-      ? `Default · ${defaultOutput?.name ?? "system output"}`
-      : (selectedOutputName ?? "Unavailable device");
-
   return (
     <div className="mx-auto grid w-full max-w-5xl gap-5 pb-8">
       {(actionError ?? status.error) && (
@@ -358,10 +346,13 @@ export const PcSyncScreen = ({ areaId }: { areaId: string }) => {
         aside={
           <>
             {prefs.mode === "music" ? (
-              <SyncHeroChip
-                icon={AudioLines}
-                label="Audio input"
-                caption={audioSourceCaption}
+              <AudioInputChip
+                outputs={overview.audioOutputs}
+                selectedId={prefs.audioDeviceId}
+                disabled={busy || busyElsewhere}
+                onChange={(audioDeviceId) =>
+                  void applyPreference({ audioDeviceId }, { restart: true })
+                }
               />
             ) : (
               <DisplayCaptureChip
@@ -510,48 +501,6 @@ export const PcSyncScreen = ({ areaId }: { areaId: string }) => {
             {prefs.mode === "music" && (
               <>
                 <SettingRow
-                  icon={AudioLines}
-                  title="Audio input"
-                  description="The output Music listens to. Pick your speakers or headphones if the default isn't heard."
-                  className="border-t border-border pt-4"
-                >
-                  <Select
-                    value={prefs.audioDeviceId ?? "default"}
-                    disabled={busy || overview.audioOutputs.length === 0}
-                    onValueChange={(value) =>
-                      void applyPreference(
-                        { audioDeviceId: value === "default" ? null : value },
-                        { restart: true },
-                      )
-                    }
-                  >
-                    <SelectTrigger
-                      aria-label="Audio input device"
-                      className="w-56"
-                    >
-                      <SelectValue>
-                        {() =>
-                          prefs.audioDeviceId == null
-                            ? "Default output"
-                            : (selectedOutputName ?? "Unavailable device")
-                        }
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent className="w-auto max-w-80 min-w-(--anchor-width)">
-                      <SelectItem value="default">Default output</SelectItem>
-                      {overview.audioOutputs.map((output) => (
-                        <SelectItem
-                          key={output.id}
-                          value={output.id}
-                          className="[&>div:first-child]:whitespace-normal [&>div:first-child]:line-clamp-2"
-                        >
-                          {output.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </SettingRow>
-                <SettingRow
                   title="Color palette"
                   description="Built-in palettes, or colors from one of your scenes."
                   className="border-t border-border pt-4"
@@ -676,6 +625,119 @@ const CaptureCheck = ({ checked }: { checked: boolean }) => (
   </span>
 );
 
+/** Single-select tick: a bare checkmark on the chosen row, blank otherwise. */
+const SelectedCheck = ({ checked }: { checked: boolean }) => (
+  <span className="flex size-4 shrink-0 items-center justify-center">
+    {checked && <Check className="size-4" strokeWidth={2.5} />}
+  </span>
+);
+
+/**
+ * Clickable hero-chip trigger shared by the source pickers (display capture,
+ * audio input) so both read as the same control next to Start/Stop.
+ */
+const SourceChipTrigger = ({
+  icon: Icon,
+  label,
+  caption,
+  ariaLabel,
+  disabled,
+}: {
+  icon: typeof Monitor;
+  label: string;
+  caption: string;
+  ariaLabel: string;
+  disabled?: boolean;
+}) => (
+  <DropdownMenuTrigger
+    disabled={disabled}
+    render={
+      <button
+        type="button"
+        aria-label={ariaLabel}
+        className="flex items-center gap-3 rounded-full border border-border bg-background/70 py-2 pr-3 pl-2.5 backdrop-blur-sm transition-colors outline-none hover:bg-background/90 focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-60 dark:border-foreground/8"
+      />
+    }
+  >
+    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+      <Icon className="size-4.5" />
+    </span>
+    <span className="min-w-0 text-left">
+      <span className="block text-sm leading-tight font-medium">{label}</span>
+      <span className="mt-0.5 block max-w-40 truncate text-xs leading-tight text-muted-foreground">
+        {caption}
+      </span>
+    </span>
+    <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+  </DropdownMenuTrigger>
+);
+
+/**
+ * Interactive "Audio input" hero chip for Music mode: mirrors the display
+ * capture picker but selects a single output for the beat detector. The
+ * default names the actual system device so a virtual router is visible.
+ */
+const AudioInputChip = ({
+  outputs,
+  selectedId,
+  disabled,
+  onChange,
+}: {
+  outputs: HostSyncAudioOutput[];
+  selectedId: string | null;
+  disabled?: boolean;
+  onChange: (deviceId: string | null) => void;
+}) => {
+  const defaultOutput = outputs.find((output) => output.isDefault);
+  const selectedName = outputs.find((output) => output.id === selectedId)?.name;
+  const caption =
+    selectedId == null
+      ? `Default · ${defaultOutput?.name ?? "system output"}`
+      : (selectedName ?? "Unavailable device");
+
+  return (
+    <DropdownMenu>
+      <SourceChipTrigger
+        icon={AudioLines}
+        label="Audio input"
+        caption={caption}
+        ariaLabel="Change audio input"
+        disabled={disabled}
+      />
+      <DropdownMenuContent
+        align="end"
+        className="max-h-[60vh] w-80 overflow-y-auto"
+      >
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Audio input</DropdownMenuLabel>
+        </DropdownMenuGroup>
+        <DropdownMenuItem
+          closeOnClick={false}
+          onClick={() => onChange(null)}
+          className="items-start justify-between gap-2"
+        >
+          <span className="min-w-0 flex-1">Default output</span>
+          <SelectedCheck checked={selectedId == null} />
+        </DropdownMenuItem>
+        {outputs.length > 0 && <DropdownMenuSeparator />}
+        {outputs.map((output) => (
+          <DropdownMenuItem
+            key={output.id}
+            closeOnClick={false}
+            onClick={() => onChange(output.id)}
+            className="items-start justify-between gap-2"
+          >
+            <span className="line-clamp-2 min-w-0 flex-1 whitespace-normal">
+              {output.name}
+            </span>
+            <SelectedCheck checked={output.id === selectedId} />
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
+
 /**
  * Interactive version of the "Display capture" hero chip: opens a menu to
  * switch the capture source without a trip to Settings. Picking a specific
@@ -734,29 +796,13 @@ const DisplayCaptureChip = ({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
+      <SourceChipTrigger
+        icon={Monitor}
+        label="Display capture"
+        caption={caption}
+        ariaLabel="Change display capture"
         disabled={disabled}
-        render={
-          <button
-            type="button"
-            aria-label="Change display capture"
-            className="flex items-center gap-3 rounded-full bg-background/60 py-2 pr-3 pl-2.5 backdrop-blur-sm transition-colors outline-none hover:bg-background/85 focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-60"
-          />
-        }
-      >
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-          <Monitor className="size-4.5" />
-        </span>
-        <span className="min-w-0 text-left">
-          <span className="block text-sm leading-tight font-medium">
-            Display capture
-          </span>
-          <span className="mt-0.5 block max-w-40 truncate text-xs leading-tight text-muted-foreground">
-            {caption}
-          </span>
-        </span>
-        <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
-      </DropdownMenuTrigger>
+      />
       <DropdownMenuContent align="end" className="w-64">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Capture source</DropdownMenuLabel>

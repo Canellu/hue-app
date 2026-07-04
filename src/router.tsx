@@ -5,15 +5,14 @@ import {
   createRouter,
 } from "@tanstack/react-router";
 import { DeviceDiscoveryRoute } from "./routes/DeviceDiscoveryRoute";
+import { EntertainmentAreaSyncRoute } from "./routes/EntertainmentAreaSyncRoute";
 import { EntertainmentAreaWizardRoute } from "./routes/EntertainmentAreaWizardRoute";
 import { EntertainmentPlacementRoute } from "./routes/EntertainmentPlacementRoute";
 import { HomeRoute } from "./routes/HomeRoute";
 import { RoomZoneWizardRoute } from "./routes/RoomZoneWizardRoute";
 import { RootLayout } from "./routes/RootLayout";
-import { PcSyncRoute } from "./routes/PcSyncRoute";
 import { SettingsRoute } from "./routes/SettingsRoute";
 import { SpaceRoute } from "./routes/SpaceRoute";
-import { SyncBoxAreaRoute } from "./routes/SyncBoxAreaRoute";
 import { SyncHubRoute } from "./routes/SyncHubRoute";
 import { WidgetWizardRoute } from "./routes/WidgetWizardRoute";
 
@@ -80,7 +79,7 @@ const entertainmentPlacementRoute = createRoute({
   path: "/settings/entertainment-placement/$areaId",
   validateSearch: (search: Record<string, unknown>) => ({
     // Where the editor was opened from, so Back can return there.
-    from: search.from === "pc" ? ("pc" as const) : undefined,
+    from: search.from === "sync" ? ("sync" as const) : undefined,
   }),
   component: EntertainmentPlacementRoute,
 });
@@ -91,16 +90,10 @@ const syncHubRoute = createRoute({
   component: SyncHubRoute,
 });
 
-const pcSyncRoute = createRoute({
+const entertainmentAreaSyncRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/sync/pc/$areaId",
-  component: PcSyncRoute,
-});
-
-const syncBoxAreaRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/sync/box/$areaId",
-  component: SyncBoxAreaRoute,
+  path: "/sync/$areaId",
+  component: EntertainmentAreaSyncRoute,
 });
 
 const routeTree = rootRoute.addChildren([
@@ -113,8 +106,7 @@ const routeTree = rootRoute.addChildren([
   entertainmentAreaWizardRoute,
   entertainmentPlacementRoute,
   syncHubRoute,
-  pcSyncRoute,
-  syncBoxAreaRoute,
+  entertainmentAreaSyncRoute,
 ]);
 
 export const router = createRouter({

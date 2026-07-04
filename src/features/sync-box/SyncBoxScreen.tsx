@@ -18,7 +18,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  OptionTile,
+  SegmentedOptions,
+  SettingRow,
+  SyncHero,
+  SyncHeroChip,
+  SyncToggleButton,
+} from "@/components/sync/SyncControls";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { roomZoneTileColor } from "@/features/space-screen/utils/color-state";
@@ -30,10 +37,15 @@ import {
 } from "@/lib/tile-theme";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { cn } from "@/lib/utils";
+import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import { useSyncBoxStore } from "@/stores/SyncBoxStore";
 import type { HueLight } from "@/types/hue";
-import type { SyncBoxIntensity, SyncBoxMode, SyncBoxSession } from "@/types/sync-box";
+import type {
+  SyncBoxIntensity,
+  SyncBoxMode,
+  SyncBoxSession,
+} from "@/types/sync-box";
 import { invoke } from "@tauri-apps/api/core";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -46,8 +58,6 @@ import {
   Loader2,
   MonitorPlay,
   Music2,
-  Pause,
-  Play,
   Power,
   TriangleAlert,
   Tv,
@@ -59,7 +69,8 @@ import { useSyncBoxPolling } from "./hooks/useSyncBoxPolling";
 const formatContentSpecs = (specs: string): string =>
   specs.replace(
     /@\s*(\d+)/,
-    (_match, fpks: string) => `@ ${Number((Number(fpks) / 1000).toFixed(3))} fps`,
+    (_match, fpks: string) =>
+      `@ ${Number((Number(fpks) / 1000).toFixed(3))} fps`,
   );
 
 const modeOptions: {
@@ -68,9 +79,24 @@ const modeOptions: {
   description: string;
   icon: typeof Clapperboard;
 }[] = [
-  { mode: "video", label: "Video", description: "Movies & TV", icon: Clapperboard },
-  { mode: "game", label: "Game", description: "Fast reactions", icon: Gamepad2 },
-  { mode: "music", label: "Music", description: "Follow the beat", icon: Music2 },
+  {
+    mode: "video",
+    label: "Video",
+    description: "Movies & TV",
+    icon: Clapperboard,
+  },
+  {
+    mode: "game",
+    label: "Game",
+    description: "Fast reactions",
+    icon: Gamepad2,
+  },
+  {
+    mode: "music",
+    label: "Music",
+    description: "Follow the beat",
+    icon: Music2,
+  },
 ];
 
 const sourceIcons: Record<string, typeof MonitorPlay> = {
@@ -123,7 +149,12 @@ export const SyncBoxScreen = ({ areaId }: { areaId?: string }) => {
       areaId={areaId}
       onReset={() => {
         void invoke("reset-sync-box-session").then(() =>
-          setSession({ configured: false, connected: false, syncBox: null, error: null }),
+          setSession({
+            configured: false,
+            connected: false,
+            syncBox: null,
+            error: null,
+          }),
         );
       }}
     />
@@ -140,6 +171,7 @@ export const SyncBoxConnectedView = ({
   onReset: () => void;
 }) => {
   const navigate = useNavigate();
+  const entertainmentAreas = useEntertainmentStore((store) => store.areas);
   const lights = useHueResourcesStore((store) => store.lights);
   const hueEventRevision = useHueResourcesStore(
     (store) => store.hueEventRevision,
@@ -191,7 +223,11 @@ export const SyncBoxConnectedView = ({
           >
             Pair again
           </Button>
-          <Button variant="outline" disabled={isLoading} onClick={() => void refresh()}>
+          <Button
+            variant="outline"
+            disabled={isLoading}
+            onClick={() => void refresh()}
+          >
             {isLoading && <Loader2 className="animate-spin" />}
             Retry
           </Button>
@@ -218,21 +254,46 @@ export const SyncBoxConnectedView = ({
     !execution.syncActive &&
     (conflictingStream != null || state.hue.connectionState === "busy");
   const conflictOwner = conflictingStream?.[1].owner ?? "another app";
-  const currentIntensity =
-    execution.mode === "video" ||
-    execution.mode === "game" ||
-    execution.mode === "music"
-      ? state.execution[execution.mode]?.intensity
-      : null;
   const sources = ["input1", "input2", "input3", "input4"] as const;
+  const displayedMode =
+    modeOptions.find(({ mode }) => mode === execution.mode)?.mode ??
+    modeOptions.find(({ mode }) => mode === execution.lastSyncMode)?.mode ??
+    "video";
+  const currentIntensity = state.execution[displayedMode]?.intensity;
+  const selectedSource = sources.find(
+    (source) => source === execution.hdmiSource,
+  );
+  const selectedSourceUnplugged =
+    selectedSource != null && state.hdmi[selectedSource].status === "unplugged";
   const groups = Object.entries(state.hue.groups).sort(([, a], [, b]) =>
     a.name.localeCompare(b.name),
   );
+  const requestedArea = areaId
+    ? entertainmentAreas.find((area) => area.id === areaId)
+    : undefined;
+  const resolvedGroupEntry = areaId
+    ? Object.entries(state.hue.groups).find(
+        ([id, group]) =>
+          id === areaId ||
+          (requestedArea != null &&
+            group.name.trim().toLocaleLowerCase() ===
+              requestedArea.name.trim().toLocaleLowerCase()),
+      )
+    : undefined;
+  const resolvedAreaId = resolvedGroupEntry?.[0] ?? areaId;
   const selectedGroup = areaId
-    ? state.hue.groups[areaId]
+    ? resolvedGroupEntry?.[1]
     : execution.hueTarget
       ? state.hue.groups[execution.hueTarget]
       : undefined;
+  const syncingHere =
+    execution.syncActive && execution.hueTarget === resolvedAreaId;
+  const syncingElsewhere = execution.syncActive && !syncingHere;
+  const syncingElsewhereName = syncingElsewhere
+    ? ((execution.hueTarget
+        ? state.hue.groups[execution.hueTarget]?.name
+        : null) ?? "another area")
+    : null;
   const brightnessPercent = Math.round(execution.brightness / 2);
 
   if (!areaId) {
@@ -253,6 +314,13 @@ export const SyncBoxConnectedView = ({
         </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {groups.map(([id, group]) => {
+            const canonicalAreaId =
+              entertainmentAreas.find(
+                (area) =>
+                  area.id === id ||
+                  area.name.trim().toLocaleLowerCase() ===
+                    group.name.trim().toLocaleLowerCase(),
+              )?.id ?? id;
             const memberIds = new Set(areaLightIds[id] ?? []);
             const members = lights.filter((light) => memberIds.has(light.id));
             const onMembers = members.filter((light) => light.isOn);
@@ -282,16 +350,16 @@ export const SyncBoxConnectedView = ({
                 tabIndex={0}
                 onClick={() =>
                   void navigate({
-                    to: "/sync/box/$areaId",
-                    params: { areaId: id },
+                    to: "/sync/$areaId",
+                    params: { areaId: canonicalAreaId },
                   })
                 }
                 onKeyDown={(event) => {
                   if (event.key === "Enter" || event.key === " ") {
                     event.preventDefault();
                     void navigate({
-                      to: "/sync/box/$areaId",
-                      params: { areaId: id },
+                      to: "/sync/$areaId",
+                      params: { areaId: canonicalAreaId },
                     });
                   }
                 }}
@@ -318,15 +386,15 @@ export const SyncBoxConnectedView = ({
                   <span
                     className={cn(
                       "flex size-12 shrink-0 items-center justify-center",
-                      tile.active
-                        ? "text-foreground"
-                        : "text-muted-foreground",
+                      tile.active ? "text-foreground" : "text-muted-foreground",
                     )}
                   >
                     <Tv size={26} strokeWidth={2.5} />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-base font-medium">{group.name}</p>
+                    <p className="truncate text-base font-medium">
+                      {group.name}
+                    </p>
                     {group.active ? (
                       <p
                         className={cn(
@@ -390,12 +458,7 @@ export const SyncBoxConnectedView = ({
                       animateKey={hueEventRevision}
                       onCommit={(value, phase) => {
                         members.forEach((light: HueLight) =>
-                          setLightState(
-                            light,
-                            value > 0,
-                            value,
-                            phase,
-                          ),
+                          setLightState(light, value > 0, value, phase),
                         );
                       }}
                     />
@@ -411,7 +474,8 @@ export const SyncBoxConnectedView = ({
               <LampDesk className="mb-4 size-8 text-muted-foreground" />
               <p className="font-medium">No entertainment areas found</p>
               <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                Create an entertainment area in the Philips Hue app, then refresh.
+                Create an entertainment area in the Philips Hue app, then
+                refresh.
               </p>
               <Button
                 variant="outline"
@@ -429,7 +493,7 @@ export const SyncBoxConnectedView = ({
     );
   }
 
-  if (!state.hue.groups[areaId]) {
+  if (!selectedGroup) {
     return (
       <Card className="mx-auto max-w-xl border-dashed">
         <CardContent className="flex min-h-56 flex-col items-center justify-center text-center">
@@ -448,11 +512,11 @@ export const SyncBoxConnectedView = ({
   }
 
   const toggleSync = async () => {
-    if (execution.syncActive) {
+    if (syncingHere) {
       await updateExecution({ syncActive: false });
       return;
     }
-    if (areaId) await startSync(areaId);
+    if (resolvedAreaId) await startSync(resolvedAreaId);
   };
 
   return (
@@ -473,167 +537,177 @@ export const SyncBoxConnectedView = ({
         </div>
       )}
 
-      <Card className="overflow-hidden border-0 bg-gradient-to-br from-primary/15 via-card to-card shadow-sm">
-        <CardContent className="grid gap-6 p-6 sm:grid-cols-[1fr_auto] sm:items-center">
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-primary">
-              <span className={cn("size-2 rounded-full", execution.syncActive ? "bg-primary animate-pulse" : "bg-muted-foreground/40")} />
-              {execution.syncActive ? "Lights are syncing" : "Ready to sync"}
-            </div>
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">
-                {syncBox?.name ?? state.device.name}
-              </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {state.hdmi.contentSpecs
-                  ? formatContentSpecs(state.hdmi.contentSpecs)
-                  : "Waiting for an HDMI signal"}
-                {selectedGroup ? ` · ${selectedGroup.name}` : ""}
-              </p>
-            </div>
-            <Button
-              size="lg"
-              className="min-w-44 gap-2 rounded-full"
-              variant={execution.syncActive ? "secondary" : "default"}
+      <SyncHero
+        icon={Tv}
+        title={`Sync with ${syncBox?.name ?? state.device.name}`}
+        active={syncingHere}
+        statusLabel={
+          syncingHere
+            ? "Lights are syncing with the Sync Box"
+            : syncingElsewhere
+              ? `Syncing with ${syncingElsewhereName}`
+              : "Ready to sync"
+        }
+        meta={
+          state.hdmi.contentSpecs && !selectedSourceUnplugged
+            ? formatContentSpecs(state.hdmi.contentSpecs)
+            : "Waiting for an HDMI signal"
+        }
+        aside={
+          <>
+            <SyncHeroChip
+              icon={Power}
+              label="Power"
+              caption={execution.hdmiActive ? "On" : "Standby"}
+              control={
+                <Switch
+                  size="lg"
+                  aria-label="Toggle Sync Box power"
+                  checked={execution.hdmiActive}
+                  disabled={isUpdating}
+                  onCheckedChange={(checked) =>
+                    void updateExecution({ hdmiActive: checked })
+                  }
+                />
+              }
+            />
+            <SyncToggleButton
+              active={syncingHere}
+              busy={isUpdating}
               disabled={
                 isUpdating ||
-                (!execution.syncActive && (!hueConnected || !areaId))
+                syncingElsewhere ||
+                (!syncingHere && (!hueConnected || !resolvedAreaId))
               }
               onClick={() => {
                 if (streamConflict) setTakeoverOpen(true);
                 else void toggleSync();
               }}
-            >
-              {isUpdating ? (
-                <Loader2 className="animate-spin" />
-              ) : execution.syncActive ? (
-                <Pause />
-              ) : (
-                <Play className="fill-current" />
-              )}
-              {execution.syncActive ? "Stop light sync" : "Start light sync"}
-            </Button>
-            {!hueConnected ? (
-              <p className="text-sm text-destructive">
-                Connect the Sync Box to its Hue Bridge to start syncing.
-              </p>
-            ) : streamConflict ? (
-              <p className="flex items-start gap-2 text-sm text-(--warn-text)">
-                <TriangleAlert className="mt-0.5 size-4 shrink-0" />
-                <span>
-                  {conflictingStream
-                    ? `${conflictingStream[1].name} is syncing with ${conflictOwner}.`
-                    : "Another app is syncing with the Hue Bridge."}
-                </span>
-              </p>
-            ) : null}
-          </div>
-          <div className="flex items-center gap-3 rounded-2xl bg-background/60 p-4 backdrop-blur-sm">
-            <div className="rounded-xl bg-primary/10 p-3 text-primary">
-              <Power className="size-5" />
-            </div>
-            <div className="min-w-0">
-              <p className="font-medium">Sync Box power</p>
-              <p className="text-xs text-muted-foreground">
-                {execution.hdmiActive ? "On" : "Standby"}
-              </p>
-            </div>
-            <Switch
-              size="lg"
-              aria-label="Toggle Sync Box power"
-              checked={execution.hdmiActive}
-              disabled={isUpdating}
-              onCheckedChange={(checked) => void updateExecution({ hdmiActive: checked })}
             />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Choose a source</CardTitle>
-          <CardDescription>Select the device whose picture and sound should drive the lights.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-3">
+          </>
+        }
+        notice={
+          syncingElsewhere ? (
+            <p className="text-sm text-muted-foreground">
+              Stop the Sync Box in {syncingElsewhereName} before starting it
+              here.
+            </p>
+          ) : !hueConnected ? (
+            <p className="text-sm text-destructive">
+              Connect the Sync Box to its Hue Bridge to start syncing.
+            </p>
+          ) : streamConflict ? (
+            <p className="flex items-start gap-2 text-sm text-(--warn-text)">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+              <span>
+                {conflictingStream
+                  ? `${conflictingStream[1].name} is syncing with ${conflictOwner}.`
+                  : "Another app is syncing with the Hue Bridge."}
+              </span>
+            </p>
+          ) : null
+        }
+      >
+        <p className="mb-2.5 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+          Source
+        </p>
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
           {sources.map((source) => {
             const input = state.hdmi[source];
-            const selected = execution.hdmiSource === source;
             const SourceIcon = sourceIcons[input.type ?? ""] ?? HdmiPort;
             return (
-              <button
+              <OptionTile
                 key={source}
-                type="button"
+                icon={SourceIcon}
+                label={input.name}
+                caption={
+                  <span className="capitalize">
+                    {input.status ?? `HDMI ${source.slice(-1)}`}
+                  </span>
+                }
+                selected={execution.hdmiSource === source}
                 disabled={isUpdating}
-                onClick={() => void updateExecution({ hdmiSource: source })}
-                className={cn(
-                  "group rounded-2xl border p-4 text-left transition-colors hover:bg-accent disabled:opacity-50",
-                  selected && "border-primary bg-primary/8 ring-1 ring-primary",
-                )}
-              >
-                <SourceIcon className={cn("mb-4 size-6", selected ? "text-primary" : "text-muted-foreground")} />
-                <span className="block truncate font-medium">{input.name}</span>
-                <span className="mt-1 block text-xs capitalize text-muted-foreground">
-                  {input.status ?? `HDMI ${source.slice(-1)}`}
-                </span>
-              </button>
+                onSelect={() => void updateExecution({ hdmiSource: source })}
+              />
             );
           })}
-        </CardContent>
-      </Card>
+        </div>
+      </SyncHero>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Sync style</CardTitle>
-          <CardDescription>
-            Choose how the lights interpret your content. Start light sync first to change mode.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {modeOptions.map(({ mode, label, description, icon: Icon }) => {
-            const selected = execution.mode === mode;
-            return (
-              <button
-                key={mode}
-                type="button"
-                disabled={isUpdating || !hueConnected || !execution.syncActive}
-                onClick={() => void updateExecution({ mode })}
-                className={cn(
-                  "rounded-2xl border p-4 text-left transition-colors hover:bg-accent disabled:opacity-50",
-                  selected && "border-primary bg-primary/8 ring-1 ring-primary",
-                )}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Sync style</CardTitle>
+            <CardDescription>
+              {execution.syncActive
+                ? "How the lights interpret your content."
+                : "Start light sync to change the style."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-5">
+            <div className="grid grid-cols-3 gap-2.5">
+              {modeOptions.map(({ mode, label, description, icon: Icon }) => (
+                <OptionTile
+                  key={mode}
+                  vertical
+                  icon={Icon}
+                  label={label}
+                  caption={description}
+                  selected={displayedMode === mode}
+                  disabled={
+                    isUpdating || !hueConnected || !execution.syncActive
+                  }
+                  onSelect={() => void updateExecution({ mode })}
+                />
+              ))}
+            </div>
+            {currentIntensity && (
+              <SettingRow
+                title="Intensity"
+                description="How quickly and dramatically colors change."
+                className="border-t border-border pt-4"
               >
-                <span className={cn("mb-4 flex size-10 items-center justify-center rounded-xl", selected ? "bg-primary text-primary-foreground" : "bg-muted")}>
-                  <Icon className="size-5" />
-                </span>
-                <span className="block font-medium">{label}</span>
-                <span className="mt-1 block text-xs text-muted-foreground">{description}</span>
-              </button>
-            );
-          })}
-        </CardContent>
-      </Card>
+                <SegmentedOptions
+                  ariaLabel="Sync intensity"
+                  value={currentIntensity}
+                  disabled={isUpdating || !execution.syncActive}
+                  options={(
+                    ["subtle", "moderate", "high", "intense"] as const
+                  ).map((intensity) => ({
+                    value: intensity,
+                    label:
+                      intensity.charAt(0).toUpperCase() + intensity.slice(1),
+                  }))}
+                  onValueChange={(intensity) =>
+                    void updateExecution({
+                      intensity: intensity as SyncBoxIntensity,
+                    })
+                  }
+                />
+              </SettingRow>
+            )}
+          </CardContent>
+        </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Light response</CardTitle>
-          <CardDescription>Fine-tune how strongly the entertainment lights react.</CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-6">
-          <div className="grid gap-3">
-            <div className="flex items-end justify-between gap-4">
-              <div>
-                <p className="flex items-center gap-2 font-medium">
-                  <Lightbulb className="size-4" /> Effect brightness
-                </p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  50% is neutral; higher values boost the light effect.
-                </p>
-              </div>
-              <span className="rounded-lg bg-muted px-3 py-1.5 font-mono text-sm">
+        <Card>
+          <CardHeader>
+            <CardTitle>Light response</CardTitle>
+            <CardDescription>
+              Fine-tune how strongly the entertainment lights react.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            <SettingRow
+              icon={Lightbulb}
+              title="Effect brightness"
+              description="50% is neutral; higher values boost the effect."
+            >
+              <span className="rounded-lg bg-muted px-2.5 py-1 font-mono text-sm">
                 {brightnessPercent}%
               </span>
-            </div>
+            </SettingRow>
             <Slider
+              aria-label="Effect brightness"
               min={0}
               max={100}
               step={1}
@@ -646,42 +720,23 @@ export const SyncBoxConnectedView = ({
               }
             />
             <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Dimmer · 0%</span>
-              <span>Neutral · 50%</span>
-              <span>Boost · 100%</span>
+              <span>Dimmer</span>
+              <span>Neutral</span>
+              <span>Boost</span>
             </div>
-          </div>
-          {currentIntensity && (
-            <div className="flex items-center justify-between gap-6 border-t border-border pt-5">
-              <div>
-                <p className="font-medium">Intensity</p>
-                <p className="text-sm text-muted-foreground">How quickly and dramatically colors change.</p>
-              </div>
-              <Select
-                value={currentIntensity}
-                disabled={isUpdating}
-                onValueChange={(value) => void updateExecution({ intensity: value as SyncBoxIntensity })}
-              >
-                <SelectTrigger className="w-40">
-                  <SelectValue>{(value: string) => <span className="capitalize">{value}</span>}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  {(["subtle", "moderate", "high", "intense"] as const).map((intensity) => (
-                    <SelectItem key={intensity} value={intensity}>
-                      <span className="capitalize">{intensity}</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
 
       <div className="flex flex-wrap items-center justify-between gap-4 px-1">
         <span className="text-sm text-muted-foreground">
-          {state.hdmi.videoSyncSupported ? "Video ready" : "Video sync unavailable"} ·{" "}
-          {state.hdmi.audioSyncSupported ? "Audio ready" : "Audio sync unavailable"}
+          {state.hdmi.videoSyncSupported
+            ? "Video ready"
+            : "Video sync unavailable"}{" "}
+          ·{" "}
+          {state.hdmi.audioSyncSupported
+            ? "Audio ready"
+            : "Audio sync unavailable"}
         </span>
         <Button
           variant="ghost"

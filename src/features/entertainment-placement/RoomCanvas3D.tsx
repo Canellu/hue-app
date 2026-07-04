@@ -12,10 +12,8 @@ import {
 } from "lucide-react";
 import {
   BackSide,
-  BoxGeometry,
   BufferGeometry,
   DoubleSide,
-  EdgesGeometry,
   Float32BufferAttribute,
   MathUtils,
   PerspectiveCamera,
@@ -56,7 +54,11 @@ const FLOOR_PLANE = new Plane(new Vector3(0, 1, 0), 1);
 const STRUCTURE_COLOR = "#8b8b8b";
 const PROP_COLOR = "#777777";
 const ACCENT_COLOR = "#d6a84f";
-const ROOM_EDGE_SIZE = 1.992;
+const ROOM_WIDTH = 2.3;
+const ROOM_DEPTH = 2.3;
+const ROOM_HALF_WIDTH = ROOM_WIDTH / 2;
+const ROOM_HALF_DEPTH = ROOM_DEPTH / 2;
+const ROOM_EDGE_INSET = 0.008;
 const ROOM_SURFACE_COLOR = {
   light: "#f8f8f8",
   dark: "#292929",
@@ -147,7 +149,8 @@ const updateCamera = (
 
 // The default camera faces Three.js +Z, where screen-right is world -X.
 // Hue +X is physical right when seated facing the screen.
-const positionToWorld = ({ x, y, z }: HuePosition) => new Vector3(-x, z, y);
+const positionToWorld = ({ x, y, z }: HuePosition) =>
+  new Vector3(-x * ROOM_HALF_WIDTH, z, y * ROOM_HALF_DEPTH);
 
 const projectToCanvas = (world: Vector3, camera: PerspectiveCamera) => {
   const projected = world.clone().project(camera);
@@ -278,15 +281,22 @@ export const RoomCanvas3D = ({
   const floorPoint = (u: number, v: number) => {
     raycaster.setFromCamera(new Vector2(u * 2 - 1, 1 - v * 2), camera);
     const point = raycaster.ray.intersectPlane(FLOOR_PLANE, floorHit);
-    return point ? { x: -point.x, y: point.z } : null;
+    return point
+      ? {
+          x: -point.x / ROOM_HALF_WIDTH,
+          y: point.z / ROOM_HALF_DEPTH,
+        }
+      : null;
   };
 
   /** Pointer hit on a wall-parallel plane at Hue depth `depthY`. */
   const frontalPoint = (u: number, v: number, depthY: number) => {
     raycaster.setFromCamera(new Vector2(u * 2 - 1, 1 - v * 2), camera);
-    wallPlane.constant = -depthY;
+    wallPlane.constant = -depthY * ROOM_HALF_DEPTH;
     const point = raycaster.ray.intersectPlane(wallPlane, floorHit);
-    return point ? { x: -point.x, z: point.y } : null;
+    return point
+      ? { x: -point.x / ROOM_HALF_WIDTH, z: point.y }
+      : null;
   };
 
   const cancelCameraAnimation = () => {
@@ -517,11 +527,11 @@ export const RoomCanvas3D = ({
             viewportWidth={viewportSize.width}
           />
           <RoomScene
+            cameraHeight={camera.position.y}
             configurationType={configurationType}
             displays={displays}
             pins={displayPins}
             surfaceColor={ROOM_SURFACE_COLOR[resolvedThemeMode]}
-            tilt={tilt}
             yaw={yaw}
           />
         </Canvas>
@@ -602,8 +612,22 @@ export const RoomCanvas3D = ({
       </div>
 
       {[
-        { label: "Left", position: new Vector3(0.92, -0.93, -0.9) },
-        { label: "Right", position: new Vector3(-0.92, -0.93, -0.9) },
+        {
+          label: "Left",
+          position: new Vector3(
+            ROOM_HALF_WIDTH * 0.92,
+            -0.93,
+            -ROOM_HALF_DEPTH * 0.9,
+          ),
+        },
+        {
+          label: "Right",
+          position: new Vector3(
+            -ROOM_HALF_WIDTH * 0.92,
+            -0.93,
+            -ROOM_HALF_DEPTH * 0.9,
+          ),
+        },
       ].map(({ label, position }) => (
         <span
           key={label}
@@ -695,91 +719,109 @@ const InvalidateCameraFrame = ({
 };
 
 const RoomScene = ({
+  cameraHeight,
   configurationType,
   displays,
   pins,
   surfaceColor,
-  tilt,
   yaw,
 }: {
+  cameraHeight: number;
   configurationType: string | null;
   displays?: HostSyncDisplay[];
   pins: RoomPin[];
   surfaceColor: string;
-  tilt: number;
   yaw: number;
 }) => {
-  const hideNearRoofCorner =
-    tilt < MAX_TILT - 0.08 && Math.abs(Math.sin(yaw * 2)) > 0.08;
-  const hiddenRoofCorner = hideNearRoofCorner
-    ? `${Math.sin(yaw) > 0 ? 1 : -1},${-Math.cos(yaw) > 0 ? 1 : -1}`
-    : null;
-  const hiddenRoofSide = !hideNearRoofCorner
-    ? Math.abs(Math.sin(yaw)) > Math.abs(Math.cos(yaw))
-      ? `x,${Math.sin(yaw) > 0 ? 1 : -1}`
-      : `z,${-Math.cos(yaw) > 0 ? 1 : -1}`
-    : null;
+  const farX = Math.sin(yaw) >= 0 ? -1 : 1;
+  const farZ = Math.cos(yaw) >= 0 ? 1 : -1;
+  const showCeilingEdges = cameraHeight < 1 - ROOM_EDGE_INSET;
 
   const roomEdges = useMemo(() => {
-    // Keep the seams just inside the wall surfaces so they do not disappear
-    // into coplanar depth precision at oblique camera angles.
-    const room = new BoxGeometry(
-      ROOM_EDGE_SIZE,
-      ROOM_EDGE_SIZE,
-      ROOM_EDGE_SIZE,
-    );
-    const edges = new EdgesGeometry(room);
-    room.dispose();
-
-    const [hiddenX, hiddenZ] = hiddenRoofCorner?.split(",").map(Number) ?? [];
-    const [hiddenAxis, hiddenSide] = hiddenRoofSide?.split(",") ?? [];
-    const positions = edges.getAttribute("position");
+    const halfWidth = (ROOM_WIDTH - ROOM_EDGE_INSET) / 2;
+    const halfDepth = (ROOM_DEPTH - ROOM_EDGE_INSET) / 2;
+    const halfHeight = 1 - ROOM_EDGE_INSET / 2;
     const visiblePositions: number[] = [];
+    const addedEdges = new Set<string>();
+    const addEdge = (start: Vector3, end: Vector3) => {
+      const startKey = start.toArray().join(",");
+      const endKey = end.toArray().join(",");
+      const key =
+        startKey < endKey
+          ? `${startKey}|${endKey}`
+          : `${endKey}|${startKey}`;
+      if (addedEdges.has(key)) return;
+      addedEdges.add(key);
+      visiblePositions.push(...start.toArray(), ...end.toArray());
+    };
+    const x = farX * halfWidth;
+    const z = farZ * halfDepth;
 
-    for (let vertex = 0; vertex < positions.count; vertex += 2) {
-      const x1 = positions.getX(vertex);
-      const y1 = positions.getY(vertex);
-      const z1 = positions.getZ(vertex);
-      const x2 = positions.getX(vertex + 1);
-      const y2 = positions.getY(vertex + 1);
-      const z2 = positions.getZ(vertex + 1);
-      const startsAtHiddenRoofCorner =
-        hiddenRoofCorner !== null &&
-        y1 > 0 &&
-        Math.sign(x1) === hiddenX &&
-        Math.sign(z1) === hiddenZ;
-      const endsAtHiddenRoofCorner =
-        hiddenRoofCorner !== null &&
-        y2 > 0 &&
-        Math.sign(x2) === hiddenX &&
-        Math.sign(z2) === hiddenZ;
-      const isHiddenRoofSide =
-        hiddenRoofSide !== null &&
-        y1 > 0 &&
-        y2 > 0 &&
-        (hiddenAxis === "x"
-          ? Math.sign(x1) === Number(hiddenSide) &&
-            Math.sign(x2) === Number(hiddenSide)
-          : Math.sign(z1) === Number(hiddenSide) &&
-            Math.sign(z2) === Number(hiddenSide));
+    // Outline exactly the two selected far walls.
+    addEdge(
+      new Vector3(-halfWidth, -halfHeight, z),
+      new Vector3(halfWidth, -halfHeight, z),
+    );
+    addEdge(
+      new Vector3(-halfWidth, halfHeight, z),
+      new Vector3(halfWidth, halfHeight, z),
+    );
+    addEdge(
+      new Vector3(-halfWidth, -halfHeight, z),
+      new Vector3(-halfWidth, halfHeight, z),
+    );
+    addEdge(
+      new Vector3(halfWidth, -halfHeight, z),
+      new Vector3(halfWidth, halfHeight, z),
+    );
+    addEdge(
+      new Vector3(x, -halfHeight, -halfDepth),
+      new Vector3(x, -halfHeight, halfDepth),
+    );
+    addEdge(
+      new Vector3(x, halfHeight, -halfDepth),
+      new Vector3(x, halfHeight, halfDepth),
+    );
+    addEdge(
+      new Vector3(x, -halfHeight, -halfDepth),
+      new Vector3(x, halfHeight, -halfDepth),
+    );
+    addEdge(
+      new Vector3(x, -halfHeight, halfDepth),
+      new Vector3(x, halfHeight, halfDepth),
+    );
 
-      if (
-        !startsAtHiddenRoofCorner &&
-        !endsAtHiddenRoofCorner &&
-        !isHiddenRoofSide
-      ) {
-        visiblePositions.push(x1, y1, z1, x2, y2, z2);
-      }
+    // The floor always needs a complete boundary. When the camera dips below
+    // the roof, do the same for the visible ceiling face.
+    for (const y of [
+      -halfHeight,
+      ...(showCeilingEdges ? [halfHeight] : []),
+    ]) {
+      addEdge(
+        new Vector3(-halfWidth, y, -halfDepth),
+        new Vector3(halfWidth, y, -halfDepth),
+      );
+      addEdge(
+        new Vector3(-halfWidth, y, halfDepth),
+        new Vector3(halfWidth, y, halfDepth),
+      );
+      addEdge(
+        new Vector3(-halfWidth, y, -halfDepth),
+        new Vector3(-halfWidth, y, halfDepth),
+      );
+      addEdge(
+        new Vector3(halfWidth, y, -halfDepth),
+        new Vector3(halfWidth, y, halfDepth),
+      );
     }
 
-    edges.dispose();
     const visibleEdges = new BufferGeometry();
     visibleEdges.setAttribute(
       "position",
       new Float32BufferAttribute(visiblePositions, 3),
     );
     return visibleEdges;
-  }, [hiddenRoofCorner, hiddenRoofSide]);
+  }, [farX, farZ, showCeilingEdges]);
 
   useEffect(() => () => roomEdges.dispose(), [roomEdges]);
 
@@ -788,15 +830,33 @@ const RoomScene = ({
       <ambientLight intensity={1.25} />
       <directionalLight position={[-3, 5, -4]} intensity={1.5} />
 
-      {/* Back-side faces make a camera-facing cutaway: the near walls stay open,
-          while the far walls mask the flat dotted backdrop and establish depth. */}
-      <mesh>
-        <boxGeometry args={[2, 2, 2]} />
+      {/* Select one far wall per horizontal axis so the two near sides remain
+          open at every orbit angle. */}
+      <mesh
+        position={[farX * ROOM_HALF_WIDTH, 0, 0]}
+        rotation={[0, farX * (Math.PI / 2), 0]}
+      >
+        <planeGeometry args={[ROOM_DEPTH, 2]} />
+        <meshBasicMaterial color={surfaceColor} side={BackSide} />
+      </mesh>
+      <mesh
+        position={[0, 0, farZ * ROOM_HALF_DEPTH]}
+        rotation={[0, farZ < 0 ? Math.PI : 0, 0]}
+      >
+        <planeGeometry args={[ROOM_WIDTH, 2]} />
+        <meshBasicMaterial color={surfaceColor} side={BackSide} />
+      </mesh>
+      <mesh position={[0, -1, 0]} rotation={[Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[ROOM_WIDTH, ROOM_DEPTH]} />
+        <meshBasicMaterial color={surfaceColor} side={BackSide} />
+      </mesh>
+      <mesh position={[0, 1, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[ROOM_WIDTH, ROOM_DEPTH]} />
         <meshBasicMaterial color={surfaceColor} side={BackSide} />
       </mesh>
 
       <mesh position={[0, -1, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <planeGeometry args={[2, 2]} />
+        <planeGeometry args={[ROOM_WIDTH, ROOM_DEPTH]} />
         <meshStandardMaterial
           color={STRUCTURE_COLOR}
           transparent
@@ -806,7 +866,7 @@ const RoomScene = ({
         />
       </mesh>
       <gridHelper
-        args={[2, 6, STRUCTURE_COLOR, STRUCTURE_COLOR]}
+        args={[ROOM_WIDTH, 7, STRUCTURE_COLOR, STRUCTURE_COLOR]}
         position={[0, -0.995, 0]}
         material-transparent
         material-opacity={0.18}
@@ -829,18 +889,34 @@ const PinMarker3D = ({ pin }: { pin: RoomPin }) => {
   const color = pin.color ?? ACCENT_COLOR;
   return (
     <group>
-      <mesh position={[-pin.position.x, -1 + height / 2, pin.position.y]}>
+      <mesh
+        position={[
+          -pin.position.x * ROOM_HALF_WIDTH,
+          -1 + height / 2,
+          pin.position.y * ROOM_HALF_DEPTH,
+        ]}
+      >
         <cylinderGeometry args={[0.008, 0.008, height, 8]} />
         <meshBasicMaterial color={color} transparent opacity={0.55} />
       </mesh>
       <mesh
-        position={[-pin.position.x, -0.992, pin.position.y]}
+        position={[
+          -pin.position.x * ROOM_HALF_WIDTH,
+          -0.992,
+          pin.position.y * ROOM_HALF_DEPTH,
+        ]}
         rotation={[-Math.PI / 2, 0, 0]}
       >
         <circleGeometry args={[0.065, 24]} />
         <meshBasicMaterial color={color} transparent opacity={0.25} />
       </mesh>
-      <mesh position={[-pin.position.x, pin.position.z, pin.position.y]}>
+      <mesh
+        position={[
+          -pin.position.x * ROOM_HALF_WIDTH,
+          pin.position.z,
+          pin.position.y * ROOM_HALF_DEPTH,
+        ]}
+      >
         <sphereGeometry args={[0.045, 16, 12]} />
         <meshStandardMaterial
           color={color}

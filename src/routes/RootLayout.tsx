@@ -77,9 +77,7 @@ const LightInspector: React.FC = () => {
       setRoomZoneState: state.setRoomZoneState,
     })),
   );
-  const syncedLightIds = useEntertainmentStore(
-    (state) => state.syncedLightIds,
-  );
+  const syncedLightIds = useEntertainmentStore((state) => state.syncedLightIds);
 
   // The inspector only opens from inside a space, so resolve which room/zone is
   // on screen — the light pane removes a light from *this* space specifically.
@@ -257,7 +255,6 @@ const ShellHeader: React.FC = () => {
   );
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const syncBoxState = useSyncBoxStore((state) => state.state);
 
   useEffect(() => {
     const update = (event: Event) =>
@@ -305,17 +302,12 @@ const ShellHeader: React.FC = () => {
   const placementArea = placementAreaId
     ? entertainmentAreas.find((area) => area.id === placementAreaId)
     : null;
-  const activeBoxAreaId = pathname.startsWith("/sync/box/")
-    ? decodeURIComponent(pathname.slice("/sync/box/".length))
+  const activeSyncAreaId = pathname.startsWith("/sync/")
+    ? decodeURIComponent(pathname.slice("/sync/".length))
     : null;
-  const activePcAreaId = pathname.startsWith("/sync/pc/")
-    ? decodeURIComponent(pathname.slice("/sync/pc/".length))
+  const activeSyncArea = activeSyncAreaId
+    ? entertainmentAreas.find((area) => area.id === activeSyncAreaId)
     : null;
-  const activeSyncArea = activeBoxAreaId
-    ? syncBoxState?.hue.groups[activeBoxAreaId]
-    : activePcAreaId
-      ? entertainmentAreas.find((area) => area.id === activePcAreaId)
-      : null;
   const title = onDeviceDiscovery
     ? "Add devices"
     : onWidgetWizard
@@ -329,10 +321,10 @@ const ShellHeader: React.FC = () => {
             : activeSyncArea
               ? activeSyncArea.name
               : onSync
-              ? "Sync"
-              : pathname === "/settings"
-                ? "Settings"
-                : activeSpace?.name;
+                ? "Sync"
+                : pathname === "/settings"
+                  ? "Settings"
+                  : activeSpace?.name;
   const description = onDeviceDiscovery
     ? "Discover and place Hue devices"
     : onWidgetWizard
@@ -344,14 +336,12 @@ const ShellHeader: React.FC = () => {
           : placementAreaId
             ? (placementArea?.name ?? "Place your lights around the room")
             : activeSyncArea
-            ? activePcAreaId
-              ? "PC light sync"
-              : "Entertainment area"
-            : onSync
-              ? "Light sync from this PC or the HDMI Sync Box"
-              : pathname === "/settings"
-                ? "Bridge & app preferences"
-                : undefined;
+              ? "Choose what drives this entertainment area"
+              : onSync
+                ? "Light sync from this PC or the HDMI Sync Box"
+                : pathname === "/settings"
+                  ? "Bridge & app preferences"
+                  : undefined;
   return (
     <AppHeader
       onBack={
@@ -362,9 +352,9 @@ const ShellHeader: React.FC = () => {
                 ? navigate({ to: "/settings", search: { tab: "devices" } })
                 : placementAreaId
                   ? navigate(
-                      placementFrom === "pc"
+                      placementFrom === "sync"
                         ? {
-                            to: "/sync/pc/$areaId",
+                            to: "/sync/$areaId",
                             params: { areaId: placementAreaId },
                           }
                         : {
@@ -374,20 +364,23 @@ const ShellHeader: React.FC = () => {
                     )
                   : activeSyncArea
                     ? navigate({ to: "/sync" })
-                  : onWidgetWizard
-                    ? navigate({ to: "/settings", search: { tab: "widget" } })
-                    : onSpacesWizard
-                      ? navigate({ to: "/settings", search: { tab: "spaces" } })
-                    : onEntertainmentWizard
-                        ? navigate(
-                            entertainmentWizardFrom === "sync"
-                              ? { to: "/sync" }
-                              : {
-                                  to: "/settings",
-                                  search: { tab: "entertainment" },
-                                },
-                          )
-                        : navigate({ to: "/" }))
+                    : onWidgetWizard
+                      ? navigate({ to: "/settings", search: { tab: "widget" } })
+                      : onSpacesWizard
+                        ? navigate({
+                            to: "/settings",
+                            search: { tab: "spaces" },
+                          })
+                        : onEntertainmentWizard
+                          ? navigate(
+                              entertainmentWizardFrom === "sync"
+                                ? { to: "/sync" }
+                                : {
+                                    to: "/settings",
+                                    search: { tab: "entertainment" },
+                                  },
+                            )
+                          : navigate({ to: "/" }))
       }
       title={title}
       description={description}
@@ -518,8 +511,7 @@ export const RootLayout: React.FC = () => {
     // The bridge reports the external owner's name through the box's group
     // list when a box is paired; otherwise the app id is all we have.
     const externalOwner = syncState
-      ? Object.values(syncState.hue.groups).find((group) => group.active)
-          ?.owner
+      ? Object.values(syncState.hue.groups).find((group) => group.active)?.owner
       : undefined;
     return {
       area,
@@ -528,7 +520,6 @@ export const RootLayout: React.FC = () => {
         : boxGroup
           ? ("box" as const)
           : ("other" as const),
-      boxGroupId: boxGroup?.[0] ?? null,
       ownerLabel: ownedByPc
         ? "this PC"
         : boxGroup
@@ -549,19 +540,10 @@ export const RootLayout: React.FC = () => {
   const showSyncBanner = pathname === "/" || activeSpaceSyncedLightCount > 0;
   const openSyncControls = () => {
     if (!activeSync) return;
-    if (activeSync.owner === "pc") {
-      void navigate({
-        to: "/sync/pc/$areaId",
-        params: { areaId: activeSync.area.id },
-      });
-    } else if (activeSync.owner === "box" && activeSync.boxGroupId) {
-      void navigate({
-        to: "/sync/box/$areaId",
-        params: { areaId: activeSync.boxGroupId },
-      });
-    } else {
-      void navigate({ to: "/sync" });
-    }
+    void navigate({
+      to: "/sync/$areaId",
+      params: { areaId: activeSync.area.id },
+    });
   };
 
   useEffect(() => {

@@ -63,16 +63,16 @@ Status: **in progress**.
   inspector, root banner) moved off `SyncBoxStore`, which now keeps only
   box-specific state; widget windows no longer poll the box for lock state.
   Frontend types live in `src/types/host-sync.ts`.
-- Step 5 is done: `/sync` is a unified hub with a persisted "This PC" /
-  "Sync Box" selection; `/sync/pc/$areaId` hosts the PC Sync screen (status
-  hero with Start/Stop, mode cards, intensity cards, effect brightness,
-  audio-for-effect toggle for Video, Music palette including scene palettes
-  and channel counts, confirmed-takeover dialog); the Sync Box screens moved
-  to `/sync/box/$areaId` unchanged. The root-layout sync banner attributes
-  the active stream to this PC, the Sync Box, or another app, with matching
-  stop/navigation actions. Live brightness/intensity changes apply without a
-  restart; mode/palette/audio-toggle changes restart the session
-  automatically.
+- Step 5 is done: `/sync` is a single entertainment-area picker and
+  `/sync/$areaId` is the shared area workspace. "This PC" and "Sync Box" are
+  source tabs within that workspace, while light placement is shared by both.
+  The PC controls include a status hero with Start/Stop, mode cards, intensity
+  cards, effect brightness, audio-for-effect toggle for Video, Music palette
+  including scene palettes and channel counts, and a confirmed-takeover
+  dialog. The root-layout sync banner attributes the active stream to this PC,
+  the Sync Box, or another app and opens the shared area workspace. Live
+  brightness/intensity changes apply without a restart; mode/palette/audio
+  toggle changes restart the PC session automatically.
 - Step 6 is mostly done: a "PC Sync" connection settings tab covers the
   entertainment credential status with the link-button enable/re-pair flow,
   the rendered monitor topology with automatic-primary toggle and explicit
@@ -196,9 +196,9 @@ Add Windows-first light sync driven directly by the PC, without a Sync Box:
   - Synced light IDs and disabled manual controls.
   - Global active-sync banner and takeover flow.
 - Routes:
-  - `/sync`: unified hub with persisted "This PC" / "Sync Box" selection.
-  - `/sync/pc/$areaId`: PC Sync controls.
-  - `/sync/box/$areaId`: existing Sync Box controls.
+  - `/sync`: shared entertainment-area picker.
+  - `/sync/$areaId`: shared area workspace with persisted "This PC" /
+    "Sync Box" source selection.
 - PC Sync screen:
   - Bridge/area status hero and Start/Stop action.
   - Video, Games, and Music mode cards.

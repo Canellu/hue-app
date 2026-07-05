@@ -9,6 +9,7 @@ import {
   TILE_INTERACTION_TRANSITION_CLASS,
   TILE_POWER_SWITCH_CLASS,
 } from "@/lib/tile-theme";
+import { overlaySelectionClassName } from "@/lib/selection-styles";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { lightColorHex } from "@/features/space-screen/utils/color-state";
 import { getLightIcon } from "@/features/space-screen/utils/light-icons";
@@ -70,6 +71,7 @@ export const LightCard: React.FC<LightCardProps> = ({
         "cursor-pointer justify-center gap-6 border border-tile-border bg-tile-off outline-none focus-visible:ring-2 focus-visible:ring-ring",
         TILE_INTERACTION_TRANSITION_CLASS,
         active && "ring-transparent",
+        selected && overlaySelectionClassName,
         unreachable && "opacity-50",
       )}
       style={

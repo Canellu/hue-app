@@ -32,6 +32,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Carousel,
   CarouselContent,
@@ -523,7 +524,9 @@ export const ComponentGallery = () => {
                 style={{ background: `var(${s.fill})`, color: s.fg }}
               >
                 <span className="font-medium text-[14px]">{s.name}</span>
-                <span className="font-mono text-[14px] opacity-70">{s.fill}</span>
+                <span className="font-mono text-[14px] opacity-70">
+                  {s.fill}
+                </span>
                 <span className="opacity-90">Aa — message</span>
               </div>
             ))}
@@ -748,6 +751,18 @@ export const ComponentGallery = () => {
             <Switch defaultChecked={false} />
             <Switch defaultChecked disabled />
             <Switch defaultChecked={false} disabled />
+          </Group>
+        </GallerySection>
+
+        <GallerySection
+          title="Checkbox"
+          description="Checked, unchecked, indeterminate, and disabled states."
+        >
+          <Group label="States">
+            <Checkbox aria-label="Unchecked" />
+            <Checkbox defaultChecked aria-label="Checked" />
+            <Checkbox indeterminate aria-label="Indeterminate" />
+            <Checkbox defaultChecked disabled aria-label="Disabled checked" />
           </Group>
         </GallerySection>
 

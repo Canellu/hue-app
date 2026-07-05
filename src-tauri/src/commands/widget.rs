@@ -33,12 +33,19 @@ const CONTROL_HOTKEY_ACTIONS: [&str; 2] = ["toggle", "scene"];
 const WIDGET_CONTROLS_EVENT: &str = "widget-controls-changed";
 const WIDGET_SETTINGS_CHANGED_EVENT: &str = "widget-settings-changed";
 const OPEN_WIDGET_SETTINGS_EVENT: &str = "open-widget-settings";
+/// Emitted to the main window when a widget control card is double-clicked, so
+/// the app opens the Space screen for the control's targeted room/zone.
+const OPEN_WIDGET_TARGET_EVENT: &str = "open-widget-target";
 /// Emitted to the main window while a widget window is dragged/moved on screen,
 /// so the Settings "Position" preview tracks the real widget live (two-way sync).
 const WIDGET_MOVED_EVENT: &str = "widget-moved";
 
 fn default_true() -> bool {
     true
+}
+
+fn default_control_type() -> String {
+    "control".to_string()
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -58,6 +65,14 @@ pub struct StoredControlTarget {
     kind: String,
     /// v2 resource UUID.
     id: String,
+    /// For a toggles-card chip: "power" (flip on/off) or "scene" (activate
+    /// `scene_id`). Absent on single-control targets and on chips stored before
+    /// per-chip actions existed, both of which behave as "power".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    action: Option<String>,
+    /// The scene a "scene" chip activates. Only meaningful for room/zone chips.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scene_id: Option<String>,
 }
 
 /// An optional global hotkey bound to a control.
@@ -73,14 +88,26 @@ pub struct StoredControlHotkey {
     scene_id: Option<String>,
 }
 
-/// One configured control on a widget: a single Hue target plus which controls
-/// to surface for it. Persisted per widget so a widget reopens with its
-/// controls intact.
+/// One configured card on a widget. A `control` card wraps a single Hue target
+/// (power toggle, optional brightness, quick scenes); a `toggles` card is a rail
+/// of on/off chips over `targets`. Persisted per widget so a widget reopens with
+/// its cards intact.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StoredWidgetControl {
     id: String,
-    target: StoredControlTarget,
+    /// "control" (single target) or "toggles" (multiple targets). Defaults to
+    /// "control" for cards stored before this discriminator existed.
+    #[serde(rename = "type", default = "default_control_type")]
+    control_type: String,
+    /// The single target for a "control" card. Absent for a "toggles" card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    target: Option<StoredControlTarget>,
+    /// The targets for a "toggles" card, each rendered as a chip. Empty for a
+    /// "control" card. Always serialized (even when empty) so the renderer can
+    /// rely on `targets` being an array on every card.
+    #[serde(default)]
+    targets: Vec<StoredControlTarget>,
     /// Custom display name; the renderer falls back to the resource's own name
     /// when this is absent.
     #[serde(default)]
@@ -750,6 +777,29 @@ pub fn open_widget_settings(
     Ok(())
 }
 
+#[tauri::command(rename = "open-widget-target")]
+pub fn open_widget_target(
+    app: tauri::AppHandle,
+    kind: String,
+    id: String,
+) -> Result<(), String> {
+    // Only room/zone targets have a Space screen to open; the widget only sends
+    // those here, but guard so a stray call can't ask the app to navigate to a
+    // route that doesn't exist.
+    if kind != "room" && kind != "zone" {
+        return Err(format!("Cannot open a Space for target kind '{kind}'."));
+    }
+    crate::commands::app_settings::show_main_window(&app)?;
+    if app.get_webview_window("main").is_some() {
+        let _ = app.emit_to(
+            "main",
+            OPEN_WIDGET_TARGET_EVENT,
+            serde_json::json!({ "kind": kind, "id": id }),
+        );
+    }
+    Ok(())
+}
+
 #[tauri::command(rename = "remove-widget")]
 pub fn remove_widget(app: tauri::AppHandle, widget_id: Option<String>) -> Result<(), String> {
     let widget_id = resolve_widget_id(&app, widget_id)?;
@@ -1076,7 +1126,19 @@ fn sanitize_widget_title(title: Option<String>) -> Option<String> {
 fn control_composition_key(controls: &[StoredWidgetControl]) -> Vec<String> {
     let mut key = controls
         .iter()
-        .map(|control| format!("{}:{}", control.target.kind, control.target.id))
+        .flat_map(|control| {
+            if control.control_type == "toggles" {
+                control
+                    .targets
+                    .iter()
+                    .map(|target| format!("toggle:{}:{}", target.kind, target.id))
+                    .collect::<Vec<_>>()
+            } else if let Some(target) = &control.target {
+                vec![format!("{}:{}", target.kind, target.id)]
+            } else {
+                Vec::new()
+            }
+        })
         .collect::<Vec<_>>();
     key.sort();
     key.dedup();
@@ -1098,8 +1160,10 @@ fn find_widget_with_same_composition<'a>(
         .find(|widget| control_composition_key(&widget.controls) == target_key)
 }
 
-/// Drops controls a hand-edited or stale settings file can't render: unknown
-/// target kinds, duplicate ids, over-long scene lists, and malformed hotkeys.
+/// Drops cards a hand-edited or stale settings file can't render: unknown target
+/// kinds, duplicate ids, over-long scene lists, and malformed hotkeys. Also
+/// normalizes each card's fields to its `type` so a "control" never carries stray
+/// `targets` and a "toggles" never carries a stray single target.
 fn sanitize_controls(controls: Vec<StoredWidgetControl>) -> Vec<StoredWidgetControl> {
     let mut seen_ids = HashSet::new();
     controls
@@ -1108,15 +1172,54 @@ fn sanitize_controls(controls: Vec<StoredWidgetControl>) -> Vec<StoredWidgetCont
             if control.id.trim().is_empty() || !seen_ids.insert(control.id.clone()) {
                 return None;
             }
-            if !CONTROL_TARGET_KINDS.contains(&control.target.kind.as_str())
-                || control.target.id.trim().is_empty()
-            {
-                return None;
-            }
-            // Scenes only make sense for a group target.
-            if control.target.kind == "light" {
+
+            if control.control_type == "toggles" {
+                // A toggles card is a list of quick on/off targets; it carries no
+                // single target, brightness, or scenes.
+                control.target = None;
                 control.scene_ids.clear();
+                let mut seen_targets = HashSet::new();
+                control.targets.retain(|target| {
+                    CONTROL_TARGET_KINDS.contains(&target.kind.as_str())
+                        && !target.id.trim().is_empty()
+                        && seen_targets.insert(format!("{}:{}", target.kind, target.id))
+                });
+                // Normalize each chip's action: a "scene" chip needs a real scene
+                // and a group target; anything else collapses back to "power".
+                for target in control.targets.iter_mut() {
+                    let scene_action = target.action.as_deref() == Some("scene")
+                        && target.kind != "light"
+                        && target.scene_id.as_deref().is_some_and(|id| !id.trim().is_empty());
+                    if scene_action {
+                        target.action = Some("scene".to_string());
+                    } else {
+                        target.action = None;
+                        target.scene_id = None;
+                    }
+                }
+                // An empty toggles card is kept (the user may be mid-config); the
+                // renderer shows an "add toggles" hint rather than dropping it.
+            } else {
+                // Normalize any non-"toggles" value back to a single control.
+                control.control_type = "control".to_string();
+                control.targets.clear();
+                let valid_target = control.target.as_ref().is_some_and(|target| {
+                    CONTROL_TARGET_KINDS.contains(&target.kind.as_str())
+                        && !target.id.trim().is_empty()
+                });
+                if !valid_target {
+                    return None;
+                }
+                // Scenes only make sense for a group target.
+                let is_light = control
+                    .target
+                    .as_ref()
+                    .is_some_and(|target| target.kind == "light");
+                if is_light {
+                    control.scene_ids.clear();
+                }
             }
+
             if let Some(hotkey) = &control.hotkey {
                 let valid = !hotkey.accelerator.trim().is_empty()
                     && CONTROL_HOTKEY_ACTIONS.contains(&hotkey.action.as_str())

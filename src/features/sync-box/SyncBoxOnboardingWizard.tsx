@@ -6,6 +6,7 @@ import {
 import { SyncBoxStatus } from "@/components/SyncBoxStatus";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { overlaySelectionClassName } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
 import type { SyncBoxOnboardingState, SyncBoxSession } from "@/types/sync-box";
 import { Loader2 } from "lucide-react";
@@ -109,18 +110,30 @@ export const SyncBoxOnboardingWizard = ({
                 return (
                   <Card
                     key={syncBox.uniqueId}
+                    role="button"
+                    tabIndex={syncBox.supported ? 0 : -1}
                     aria-disabled={!syncBox.supported}
+                    aria-pressed={selected}
+                    data-selected={selected ? "" : undefined}
                     className={cn(
                       "border border-foreground/10 transition-[box-shadow,background-color] [--card-spacing:--spacing(8)]",
                       "bg-[oklch(0.99_0_0)] dark:bg-[oklch(0.24_0_0)]",
                       syncBox.supported &&
                         "cursor-pointer hover:bg-[oklch(0.96_0_0)] dark:hover:bg-[oklch(0.25_0_0)]",
-                      selected &&
-                        "ring-4 ring-foreground/10 hover:bg-[oklch(0.99_0_0)] dark:hover:bg-[oklch(0.24_0_0)]",
+                      selected && overlaySelectionClassName,
                       !syncBox.supported && "opacity-55",
                     )}
                     onClick={() => {
                       if (syncBox.supported) {
+                        selectSyncBox(syncBox.uniqueId);
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (
+                        syncBox.supported &&
+                        (event.key === "Enter" || event.key === " ")
+                      ) {
+                        event.preventDefault();
                         selectSyncBox(syncBox.uniqueId);
                       }
                     }}
@@ -225,7 +238,10 @@ const WizardCopy = ({
 }) => (
   <div className="flex max-w-xl flex-col gap-3">
     <h1
-      className={cn("font-heading text-4xl font-semibold", shimmer && "text-shimmer")}
+      className={cn(
+        "font-heading text-4xl font-semibold",
+        shimmer && "text-shimmer",
+      )}
     >
       {title}
     </h1>

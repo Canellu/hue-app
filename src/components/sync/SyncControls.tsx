@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { selectableVariants } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
 import { Loader2, Pause, Play } from "lucide-react";
 
@@ -156,12 +157,13 @@ export const OptionTile = ({
   <button
     type="button"
     aria-pressed={selected}
+    data-selected={selected ? "" : undefined}
     disabled={disabled}
     onClick={onSelect}
     className={cn(
-      "flex min-w-0 items-center gap-3 rounded-xl border border-border bg-muted/50 p-3 text-left transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 dark:border-foreground/8 dark:bg-foreground/3",
+      "flex min-w-0 items-center gap-3 rounded-xl bg-muted/50 p-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 dark:bg-foreground/3",
+      selectableVariants(),
       vertical && "flex-col items-start gap-2.5",
-      selected && "border-primary bg-primary/8 ring-1 ring-primary dark:border-primary",
     )}
   >
     {Icon && (
@@ -169,7 +171,7 @@ export const OptionTile = ({
         className={cn(
           "flex size-9 shrink-0 items-center justify-center rounded-lg transition-colors",
           selected
-            ? "bg-primary text-primary-foreground"
+            ? "bg-foreground/10 text-foreground"
             : "bg-foreground/6 text-muted-foreground",
         )}
       >

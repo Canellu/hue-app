@@ -46,6 +46,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { selectableVariants } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
 import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 import { SPACE_ARCHETYPES } from "@/features/settings-screen/constants";
@@ -903,10 +904,13 @@ export const SpaceScreen: React.FC<SpaceScreenProps> = ({
                       key={option.value}
                       type="button"
                       onClick={() => setDetailsArchetype(option.value)}
+                      data-selected={
+                        option.value === detailsArchetype ? "" : undefined
+                      }
                       className={cn(
-                        "flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl border border-border p-3 text-center text-xs text-muted-foreground transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                        option.value === detailsArchetype &&
-                          "border-primary bg-accent text-foreground ring-1 ring-primary",
+                        "flex min-h-24 flex-col items-center justify-center gap-2 rounded-2xl p-3 text-center text-xs text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                        selectableVariants(),
+                        option.value === detailsArchetype && "text-foreground",
                       )}
                     >
                       <Icon size={26} className="text-foreground" />

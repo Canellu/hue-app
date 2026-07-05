@@ -114,6 +114,7 @@ pub fn run() {
             commands::widget::preview_widget_config,
             commands::widget::set_widget_config,
             commands::widget::open_widget_settings,
+            commands::widget::open_widget_target,
             commands::widget::remove_widget,
             commands::widget::set_widget_acrylic,
             commands::widget::get_widget_placement,

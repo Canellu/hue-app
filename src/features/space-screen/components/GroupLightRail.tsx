@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { lightColorHex } from "@/features/space-screen/utils/color-state";
 import { getLightIcon } from "@/features/space-screen/utils/light-icons";
+import { selectableVariants } from "@/lib/selection-styles";
 import { foregroundForBackground } from "@/lib/tile-theme";
 import { cn } from "@/lib/utils";
 import type { HueLight } from "@/types/hue";
@@ -83,6 +84,7 @@ export const GroupLightRail: React.FC<GroupLightRailProps> = ({
               <button
                 type="button"
                 aria-pressed={selected}
+                data-selected={selected ? "" : undefined}
                 aria-label={`${selected ? "Unlink" : "Link"} ${light.name}`}
                 onClick={() => onToggle(light.id)}
                 onPointerEnter={() => onFocusedIdChange(light.id)}
@@ -90,21 +92,10 @@ export const GroupLightRail: React.FC<GroupLightRailProps> = ({
                 onFocus={() => onFocusedIdChange(light.id)}
                 onBlur={() => onFocusedIdChange(null)}
                 className={cn(
-                  "relative flex h-36 w-full flex-col items-center justify-center gap-3 rounded-xl border bg-muted/30 px-3 py-4 text-center outline-none transition-[border-color,background-color,transform] focus-visible:ring-2 focus-visible:ring-ring",
-                  selected
-                    ? "border-2 bg-muted/50"
-                    : "border-border hover:bg-muted/60",
+                  "relative flex h-36 w-full flex-col items-center justify-center gap-3 rounded-xl bg-muted/30 px-3 py-4 text-center outline-none transition-[border-color,background-color,transform] focus-visible:ring-2 focus-visible:ring-ring",
+                  selectableVariants(),
                   focused && "scale-[1.02]",
                 )}
-                style={
-                  {
-                    ...(selected
-                      ? {
-                          borderColor: color ?? "var(--muted-foreground)",
-                        }
-                      : null),
-                  } as React.CSSProperties
-                }
               >
                 <span
                   className="flex size-12 items-center justify-center rounded-full border border-white/30 shadow-sm"

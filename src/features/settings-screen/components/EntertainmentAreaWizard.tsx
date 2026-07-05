@@ -1,4 +1,5 @@
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -15,6 +16,7 @@ import {
 import { TvAspectRatioControl } from "@/features/entertainment-placement/TvAspectRatioControl";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
 import { useBlinkLights } from "@/hooks/useBlinkLights";
+import { selectableVariants } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
 import type {
   HueEntertainmentConfiguration,
@@ -24,11 +26,9 @@ import type {
   HueRoomZone,
 } from "@/types/hue";
 import {
-  Check,
   ChevronDown,
   Cuboid,
   Lightbulb,
-  Minus,
   Monitor,
   Music,
   Search,
@@ -404,12 +404,11 @@ export const EntertainmentAreaWizard = ({
                     key={option.value}
                     type="button"
                     aria-pressed={active}
+                    data-selected={active ? "" : undefined}
                     onClick={() => setConfigurationType(option.value)}
                     className={cn(
-                      "flex items-start gap-3 rounded-2xl border p-4 text-left transition-colors",
-                      active
-                        ? "border-primary bg-primary/5"
-                        : "border-foreground/15 hover:bg-foreground/5",
+                      "flex items-start gap-3 rounded-2xl p-4 text-left",
+                      selectableVariants(),
                     )}
                   >
                     <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-foreground/5">
@@ -418,9 +417,6 @@ export const EntertainmentAreaWizard = ({
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-2 font-semibold">
                         {option.label}
-                        {active ? (
-                          <Check size={15} className="text-primary" />
-                        ) : null}
                       </span>
                       <span className="mt-1 block text-sm text-muted-foreground">
                         {option.description}
@@ -553,11 +549,10 @@ export const EntertainmentAreaWizard = ({
                     key={light.id}
                     type="button"
                     onClick={() => setActiveLightId(light.id)}
+                    data-selected={activeLightId === light.id ? "" : undefined}
                     className={cn(
-                      "flex min-w-40 items-center gap-2 rounded-xl border px-3 py-2 text-left",
-                      activeLightId === light.id
-                        ? "border-primary bg-primary/5"
-                        : "border-foreground/12",
+                      "flex min-w-40 items-center gap-2 rounded-xl px-3 py-2 text-left",
+                      selectableVariants(),
                     )}
                   >
                     <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-foreground/7 text-xs font-semibold">
@@ -684,31 +679,14 @@ const LightGroupCard = ({
             open && SETTINGS_EXPANDABLE_TRIGGER_OPEN,
           )}
         >
-          <button
-            type="button"
-            role="checkbox"
-            aria-checked={partiallySelected ? "mixed" : allSelected}
+          <Checkbox
+            checked={allSelected}
+            indeterminate={partiallySelected}
             aria-label={`${allSelected ? "Clear" : "Select"} all lights in ${group.name}`}
             disabled={cannotSelectAll}
-            onClick={onToggleGroup}
-            className="absolute top-1/2 left-3 z-10 flex size-12 -translate-y-1/2 items-center justify-center rounded-xl transition-colors hover:bg-foreground/8 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <span
-              aria-hidden="true"
-              className={cn(
-                "flex size-5 items-center justify-center rounded-md border transition-colors",
-                selectedCount > 0
-                  ? "border-primary bg-primary text-primary-foreground"
-                  : "border-foreground/30",
-              )}
-            >
-              {allSelected ? (
-                <Check size={14} />
-              ) : partiallySelected ? (
-                <Minus size={14} />
-              ) : null}
-            </span>
-          </button>
+            onCheckedChange={onToggleGroup}
+            className="absolute top-1/2 left-9 z-10 -translate-x-1/2 -translate-y-1/2 after:-inset-3.5"
+          />
           <CollapsibleTrigger className="group flex min-w-0 flex-1 items-center gap-3 py-4 pr-5 pl-[72px] text-left">
             <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-muted-foreground">
               <GroupIcon size={19} />
@@ -748,32 +726,21 @@ const LightGroupCard = ({
               return (
                 <label
                   key={capability.light.id}
+                  data-selected={checked ? "" : undefined}
                   className={cn(
-                    "relative flex items-center gap-3 px-3 py-3 transition-colors",
+                    "relative flex items-center gap-3 px-3 py-3",
+                    selectableVariants({ treatment: "row" }),
                     wouldExceed
                       ? "cursor-not-allowed opacity-45"
-                      : "cursor-pointer hover:bg-foreground/3",
-                    checked && "bg-primary/5",
+                      : "cursor-pointer",
                   )}
                 >
-                  <input
-                    type="checkbox"
-                    className="sr-only"
-                    checked={checked}
-                    disabled={wouldExceed}
-                    onChange={() => onToggleLight(capability)}
-                  />
                   <span className="flex w-12 shrink-0 items-center justify-center">
-                    <span
-                      className={cn(
-                        "flex size-5 items-center justify-center rounded-md border",
-                        checked
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "border-foreground/30",
-                      )}
-                    >
-                      {checked ? <Check size={14} /> : null}
-                    </span>
+                    <Checkbox
+                      checked={checked}
+                      disabled={wouldExceed}
+                      onCheckedChange={() => onToggleLight(capability)}
+                    />
                   </span>
                   <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-muted-foreground">
                     <Lightbulb size={18} />

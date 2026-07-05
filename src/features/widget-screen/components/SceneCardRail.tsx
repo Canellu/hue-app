@@ -13,10 +13,11 @@ import {
   isSceneActive,
   isSceneDynamicActive,
 } from "@/features/space-screen/utils/scene-status";
+import { selectableVariants } from "@/lib/selection-styles";
 import { activeTileTheme } from "@/lib/tile-theme";
 import { cn } from "@/lib/utils";
 import type { HueScene } from "@/types/hue";
-import { Check, Palette, Play, Square } from "lucide-react";
+import { Palette, Play, Square } from "lucide-react";
 
 /** The scene's color bubble, or a palette placeholder when it has no colors. */
 const SceneBubble = ({
@@ -156,8 +157,7 @@ export const WidgetSceneCard = ({
 
 /**
  * A scene card used in the settings pickers: tapping toggles whether the scene
- * is one of the control's quick scenes. Shows a check when selected and dims
- * when the per-control limit is reached.
+ * is one of the control's quick scenes.
  */
 export const SelectableSceneCard = ({
   scene,
@@ -176,19 +176,10 @@ export const SelectableSceneCard = ({
       size="sm"
       name={scene.name}
       ariaPressed={selected}
+      selected={selected}
       disabled={disabled}
       onActivate={onToggle}
-      className={cn(
-        selected && "bg-foreground/10",
-        disabled && "opacity-40",
-      )}
-      cornerLabel={
-        selected ? (
-          <span className="flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
-            <Check size={12} strokeWidth={3} />
-          </span>
-        ) : undefined
-      }
+      className={cn(selectableVariants(), disabled && "opacity-40")}
       visual={<SceneBubble bubble={bubble} />}
     />
   );

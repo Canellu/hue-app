@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
+import { selectableVariants } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
 import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
@@ -610,19 +611,18 @@ export const PlacementEditor = ({ areaId }: { areaId: string }) => {
                     key={value}
                     type="button"
                     aria-pressed={view === value}
+                    data-selected={view === value ? "" : undefined}
                     onClick={() => setView(value)}
                     className={cn(
-                      "flex items-center gap-3 rounded-xl border px-3 py-2 text-left transition-colors",
-                      view === value
-                        ? "border-primary bg-primary/5"
-                        : "border-foreground/12 hover:bg-foreground/4",
+                      "flex items-center gap-3 rounded-xl px-3 py-2 text-left",
+                      selectableVariants(),
                     )}
                   >
                     <Icon
                       className={cn(
                         "size-4 shrink-0",
                         view === value
-                          ? "text-primary"
+                          ? "text-foreground"
                           : "text-muted-foreground",
                       )}
                     />
@@ -709,11 +709,10 @@ export const PlacementEditor = ({ areaId }: { areaId: string }) => {
               return (
                 <div
                   key={location.serviceId}
+                  data-selected={selected ? "" : undefined}
                   className={cn(
-                    "flex items-center gap-2 rounded-xl border px-3 py-2",
-                    selected
-                      ? "border-primary bg-primary/5"
-                      : "border-foreground/12",
+                    "flex items-center gap-2 rounded-xl px-3 py-2",
+                    selectableVariants(),
                   )}
                 >
                   <button

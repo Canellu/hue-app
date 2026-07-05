@@ -1,6 +1,7 @@
 import { Switch } from "@/components/ui/switch";
+import { selectableVariants } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
-import { Check, Minus, Monitor, Moon, Sun, X } from "lucide-react";
+import { Minus, Monitor, Moon, Sun, X } from "lucide-react";
 import type { ThemeMode } from "../../../context/ThemeContext";
 import {
   SegmentedControl,
@@ -70,34 +71,23 @@ function CloseButtonChoiceList({
               type="button"
               role="radio"
               aria-checked={selected}
+              data-selected={selected ? "" : undefined}
               disabled={disabled}
               onClick={() => onValueChange(optionValue)}
               className={cn(
-                "relative grid content-start gap-4 rounded-xl border p-4 text-left transition-colors",
+                "relative grid content-start gap-4 rounded-xl p-4 text-left",
+                selectableVariants(),
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 "disabled:cursor-not-allowed disabled:opacity-60",
-                selected
-                  ? "border-foreground/10 bg-white shadow-sm dark:bg-primary/14"
-                  : "border-foreground/8 bg-transparent hover:bg-foreground/4.5",
               )}
             >
-              <span className="grid min-h-14 min-w-0 content-start gap-1 pr-7">
+              <span className="grid min-h-14 min-w-0 content-start gap-1">
                 <span className="text-sm font-semibold text-foreground">
                   {label}
                 </span>
                 <span className="min-h-10 text-xs leading-5 text-muted-foreground">
                   {summary}
                 </span>
-              </span>
-
-              <span
-                aria-hidden
-                className={cn(
-                  "absolute right-4 top-4 flex size-7 items-center justify-center rounded-full bg-foreground/10 text-foreground transition-opacity dark:bg-foreground/12 dark:text-primary",
-                  selected ? "opacity-100" : "opacity-0",
-                )}
-              >
-                <Check size={15} />
               </span>
 
               <dl className="grid gap-2 text-sm">

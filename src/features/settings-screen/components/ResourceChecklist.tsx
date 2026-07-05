@@ -1,5 +1,8 @@
+import { Checkbox } from "@/components/ui/checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { blinkableLightIds, useBlinkLights } from "@/hooks/useBlinkLights";
+import { selectableVariants } from "@/lib/selection-styles";
+import { cn } from "@/lib/utils";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HueLight, HueSettingsDevice } from "@/types/hue";
 import { EmptyText } from "./EmptyText";
@@ -55,13 +58,15 @@ export const ResourceChecklist = ({
         {options.map((option) => (
           <label
             key={option.id}
-            className="flex min-w-0 cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-muted/60"
+            data-selected={selected.has(option.id) ? "" : undefined}
+            className={cn(
+              "flex min-w-0 cursor-pointer items-center gap-3 rounded-lg px-2 py-2 text-sm",
+              selectableVariants({ treatment: "row" }),
+            )}
           >
-            <input
-              type="checkbox"
-              className="size-4 shrink-0 accent-primary"
+            <Checkbox
               checked={selected.has(option.id)}
-              onChange={() => toggle(option)}
+              onCheckedChange={() => toggle(option)}
             />
             <span className="min-w-0 flex-1">
               <span className="block truncate font-medium">{option.name}</span>

@@ -1,3 +1,4 @@
+import { selectableVariants } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
 import { groupTabs, settingsGroups } from "../settingsTabs";
 
@@ -23,10 +24,7 @@ export const SettingsSidebar = ({
           <p className="px-2.5 pb-1.5 text-[0.6875rem] font-semibold tracking-wider text-muted-foreground/60 uppercase">
             {group.label}
           </p>
-          <nav
-            aria-label={group.label}
-            className="flex flex-col gap-0.5"
-          >
+          <nav aria-label={group.label} className="flex flex-col gap-0.5">
             {groupTabs(group.value).map(({ value, label, icon: Icon }) => {
               const isActive = activeTab === value;
               return (
@@ -36,10 +34,9 @@ export const SettingsSidebar = ({
                   aria-current={isActive ? "page" : undefined}
                   onClick={() => onSelect(value)}
                   className={cn(
-                    "flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium transition-colors",
-                    isActive
-                      ? "bg-[oklch(0.95_0_0)] text-foreground dark:bg-[oklch(0.33_0_0)]"
-                      : "text-foreground/80 hover:bg-[oklch(0.97_0_0)] hover:text-foreground dark:hover:bg-[oklch(0.30_0_0)]",
+                    "flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium text-foreground/80",
+                    selectableVariants({ treatment: "navigation" }),
+                    isActive && "text-foreground",
                   )}
                 >
                   <Icon size={16} className="shrink-0" />

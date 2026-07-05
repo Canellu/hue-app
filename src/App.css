@@ -25,6 +25,10 @@
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);
+  --color-interactive-hover: var(--interactive-hover);
+  --color-selection-surface: var(--selection-surface);
+  --color-selection-border: var(--selection-border);
+  --color-selection-ring: var(--selection-ring);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
   --color-info: var(--info);
@@ -134,6 +138,13 @@
   --settings-surface-hover: oklch(0.99 0 0);
   --settings-control-hover: oklch(0.95 0 0);
   --settings-control-open: oklch(0.97 0 0);
+  /* Persistent selections use a subtle neutral fill and a thicker, quiet edge.
+     Overlay selection is reserved for edit/canvas content whose own fill must
+     remain visible. Focus continues to use the separate --ring token. */
+  --interactive-hover: color-mix(in oklch, var(--foreground) 5%, transparent);
+  --selection-surface: color-mix(in oklch, var(--foreground) 8%, transparent);
+  --selection-border: color-mix(in oklch, var(--foreground) 20%, transparent);
+  --selection-ring: color-mix(in oklch, var(--foreground) 50%, transparent);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -466,7 +477,6 @@
 /* Space edit mode selection is applied by id so existing interactive tiles do
    not need a second, parallel selected-state API. */
 [data-edit-selected] {
-  box-shadow:
-    0 0 0 2px var(--background),
-    0 0 0 4px var(--primary);
+  border-color: transparent;
+  box-shadow: 0 0 0 2px var(--selection-ring);
 }

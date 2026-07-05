@@ -18,16 +18,21 @@ import {
 } from "@/lib/tile-theme";
 import { UI_EASE_MS } from "@/lib/transitions";
 import { isSceneActive } from "@/features/space-screen/utils/scene-status";
+import { SceneTile } from "@/features/space-screen/components/SceneTile";
 import { cn } from "@/lib/utils";
 import type { HueLight, HueRoomZone, HueScene } from "@/types/hue";
+import { invoke } from "@tauri-apps/api/core";
 import { Lightbulb } from "lucide-react";
 import type { CSSProperties } from "react";
+import { SceneCardRail, SceneRailItem, WidgetSceneCard } from "./SceneCardRail";
 import {
-  SceneCardRail,
-  SceneRailItem,
-  WidgetSceneCard,
-} from "./SceneCardRail";
-import type { WidgetControl, WidgetSizeMode } from "../types";
+  toggleAction,
+  type SingleWidgetControl,
+  type ToggleTarget,
+  type TogglesWidgetControl,
+  type WidgetControl,
+  type WidgetSizeMode,
+} from "../types";
 
 /** A compact, pill-shaped scene button used in the rail when the control is compact. */
 const SceneButton = ({
@@ -89,6 +94,7 @@ export const ControlView = ({
   sizeMode = "default",
   syncedCount = 0,
   totalCount = 0,
+  onOpen,
   onToggle,
   onBrightness,
   onActivateScene,
@@ -113,6 +119,12 @@ export const ControlView = ({
   /** How many of the target's lights are locked by an active light sync. */
   syncedCount?: number;
   totalCount?: number;
+  /**
+   * Opens the target's Space screen in the main app. Wired for room/zone
+   * targets only (a light has no Space), and invoked on a double-click of the
+   * header surface — clicks on the toggle/slider are left to those controls.
+   */
+  onOpen?: () => void;
   onToggle: (next: boolean) => void;
   onBrightness: (pct: number, phase: "live" | "final") => void;
   onActivateScene: (scene: HueScene) => void;
@@ -151,7 +163,28 @@ export const ControlView = ({
               ? "gap-3 p-3.5"
               : "gap-2.5 p-3",
           TILE_INTERACTION_TRANSITION_CLASS,
+          // A double-click on the header surface jumps to the space in the app;
+          // hint that with a select-none surface so the label text doesn't get
+          // highlighted mid double-click.
+          onOpen && "cursor-default select-none",
         )}
+        title={onOpen ? `Double-click to open ${name} in the app` : undefined}
+        onDoubleClick={
+          onOpen
+            ? (event) => {
+                // Leave the toggle and brightness slider to own their clicks;
+                // only a double-click on the bare header opens the space.
+                if (
+                  (event.target as HTMLElement).closest(
+                    'button,input,a,[role="slider"],[role="switch"]',
+                  )
+                ) {
+                  return;
+                }
+                onOpen();
+              }
+            : undefined
+        }
         style={
           lit
             ? ({
@@ -295,16 +328,218 @@ const UnavailableCard = ({ label }: { label: string }) => (
   </Card>
 );
 
+/** The live display state a single toggle chip needs, resolved from the store. */
+interface ToggleItem {
+  key: string;
+  name: string;
+  icon: React.ReactNode;
+  isOn: boolean;
+  /** The chip's live color when on, or null (renders neutral). */
+  background: string | null;
+  glow: string | null;
+  brightness: number | null;
+  onToggle: () => void;
+}
+
 /**
- * One configured control on the widget. Resolves its target from the shared Hue
- * store and renders the constrained control: a power toggle, an optional
- * brightness slider, and (for room/zone targets) the chosen scene buttons.
+ * One on/off toggle chip inside a {@link TogglesCard}. Wears the scene-tile look
+ * — a circled icon over a two-line name — but taps to power its target on/off,
+ * tinting the whole tile with the target's live color while on (matching the
+ * real Home/Space tiles) and sitting neutral while off.
  */
-export const ControlCard = ({
+const ToggleTile = ({
+  item,
+  sizeMode,
+}: {
+  item: ToggleItem;
+  sizeMode: WidgetSizeMode;
+}) => {
+  const lit = item.isOn && item.background != null;
+  const size = sizeMode === "large" ? "sm" : "xs";
+  return (
+    <SceneTile
+      size={size}
+      name={item.name}
+      ariaPressed={item.isOn}
+      activeBackground={lit}
+      onActivate={item.onToggle}
+      // On-without-a-color (e.g. a sync-locked light) still reads as "on" via a
+      // faint fill, so the chip doesn't look identical to its off state.
+      className={cn(!lit && item.isOn && "bg-foreground/10")}
+      style={
+        lit && item.background
+          ? activeTileTheme(
+              item.background,
+              item.glow ?? item.background,
+              item.brightness ?? undefined,
+            )
+          : undefined
+      }
+      visual={
+        <span
+          className={cn(
+            "flex items-center justify-center rounded-full bg-foreground/10 ring-1 ring-foreground/10",
+            size === "xs" ? "size-7" : "size-10",
+            item.isOn ? "text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {item.icon}
+        </span>
+      }
+    />
+  );
+};
+
+/**
+ * A compact multi-target card: a horizontal rail of on/off toggle chips, one per
+ * configured room/zone/light. It's the widget's scene strip repurposed for quick
+ * power toggles — no header, no brightness, no scenes.
+ */
+const TogglesCard = ({
   control,
   sizeMode = "default",
 }: {
-  control: WidgetControl;
+  control: TogglesWidgetControl;
+  sizeMode?: WidgetSizeMode;
+}) => {
+  const iconSize = sizeMode === "small" ? 16 : sizeMode === "large" ? 20 : 18;
+  const roomZones = useHueResourcesStore((state) => state.roomZones);
+  const lights = useHueResourcesStore((state) => state.lights);
+  const scenes = useHueResourcesStore((state) => state.scenes);
+  const setRoomZoneState = useHueResourcesStore(
+    (state) => state.setRoomZoneState,
+  );
+  const setLightState = useHueResourcesStore((state) => state.setLightState);
+  const activateScene = useHueResourcesStore((state) => state.activateScene);
+  const syncedLightIds = useEntertainmentStore((state) => state.syncedLightIds);
+  const syncedIds = new Set(syncedLightIds);
+
+  const resolveItem = (item: ToggleTarget): ToggleItem | null => {
+    if (item.kind === "light") {
+      const light = lights.find((candidate) => candidate.id === item.id);
+      if (!light) return null;
+      const hex =
+        light.isOn && !syncedIds.has(light.id) ? lightColorHex(light) : null;
+      return {
+        key: `light:${light.id}`,
+        name: light.name,
+        icon: <Lightbulb size={iconSize} strokeWidth={2.5} />,
+        isOn: light.isOn,
+        background: hex,
+        glow: hex,
+        brightness: light.brightness,
+        onToggle: () => setLightState(light, !light.isOn, null),
+      };
+    }
+
+    const roomZone = roomZones.find((candidate) => candidate.id === item.id);
+    if (!roomZone) return null;
+    // Color the chip from the lights the widget can actually drive: a sync-locked
+    // light ignores commands, so leaving it out keeps the chip's tint honest.
+    const controllable = lights.filter(
+      (light) =>
+        roomZone.lightIds.includes(light.id) && !syncedIds.has(light.id),
+    );
+    const tile = roomZoneTileColor(controllable);
+    const Icon = getRoomZoneIcon(roomZone.class);
+
+    // A "scene" chip launches a saved scene: it reads as on while that scene is
+    // the live one, and tapping it while active powers the space back off.
+    if (toggleAction(item) === "scene") {
+      const scene = scenes.find((candidate) => candidate.id === item.sceneId);
+      if (scene) {
+        const active = isSceneActive(scene);
+        const bubble = sceneBubbleCss(scene);
+        return {
+          key: `scene:${roomZone.id}:${scene.id}`,
+          name: scene.name,
+          icon: (
+            <span
+              aria-hidden
+              className="size-4 shrink-0 rounded-full ring-1 ring-foreground/20"
+              style={{ background: bubble ?? "var(--muted-foreground)" }}
+            />
+          ),
+          isOn: active,
+          background: active ? tile.background : null,
+          glow: active ? tile.glow : null,
+          brightness: roomZone.brightness,
+          onToggle: () => {
+            if (active) setRoomZoneState(roomZone, false, null);
+            else void activateScene(scene);
+          },
+        };
+      }
+      // The chosen scene was deleted on the bridge — fall back to a power chip.
+    }
+
+    return {
+      key: `${item.kind}:${roomZone.id}`,
+      name: roomZone.name,
+      icon: <Icon size={iconSize} strokeWidth={2.5} />,
+      isOn: roomZone.anyOn,
+      background: tile.background,
+      glow: tile.glow,
+      brightness: roomZone.brightness,
+      onToggle: () => setRoomZoneState(roomZone, !roomZone.anyOn, null),
+    };
+  };
+
+  // Guard against a card persisted before `targets` was always serialized.
+  const items = (control.targets ?? [])
+    .map(resolveItem)
+    .filter((item): item is ToggleItem => item != null);
+
+  return (
+    <Card
+      size="sm"
+      className="flex h-full flex-col gap-0 overflow-hidden border border-tile-border bg-card bg-clip-padding p-0 ring-0"
+    >
+      {control.label ? (
+        <p
+          className={cn(
+            "truncate font-medium text-muted-foreground",
+            sizeMode === "small"
+              ? "px-2.5 pt-2 text-xs"
+              : sizeMode === "large"
+                ? "px-3.5 pt-3 text-sm"
+                : "px-3 pt-2.5 text-[13px]",
+          )}
+        >
+          {control.label}
+        </p>
+      ) : null}
+      <div
+        className={cn("flex-1 px-2", control.label ? "pt-1 pb-1.5" : "py-2")}
+      >
+        {items.length > 0 ? (
+          <SceneCardRail>
+            {items.map((item) => (
+              <SceneRailItem key={item.key}>
+                <ToggleTile item={item} sizeMode={sizeMode} />
+              </SceneRailItem>
+            ))}
+          </SceneCardRail>
+        ) : (
+          <p className="px-1 py-6 text-center text-xs text-muted-foreground">
+            No toggles yet — add rooms or lights in Settings.
+          </p>
+        )}
+      </div>
+    </Card>
+  );
+};
+
+/**
+ * A single-target control: resolves its target from the shared Hue store and
+ * renders the constrained control — a power toggle, an optional brightness
+ * slider, and (for room/zone targets) the chosen scene buttons.
+ */
+const SingleControlCard = ({
+  control,
+  sizeMode = "default",
+}: {
+  control: SingleWidgetControl;
   sizeMode?: WidgetSizeMode;
 }) => {
   const iconSize = sizeMode === "small" ? 20 : sizeMode === "large" ? 24 : 22;
@@ -408,6 +643,12 @@ export const ControlCard = ({
       sizeMode={sizeMode}
       syncedCount={syncedMemberCount}
       totalCount={members.length}
+      onOpen={() =>
+        void invoke("open-widget-target", {
+          kind: control.target.kind,
+          id: control.target.id,
+        }).catch(() => undefined)
+      }
       onToggle={(next) => setRoomZoneState(roomZone, next, null)}
       onBrightness={(pct, phase) =>
         setRoomZoneState(roomZone, true, pct, phase)
@@ -417,3 +658,22 @@ export const ControlCard = ({
     />
   );
 };
+
+/**
+ * One configured card on the widget. A "toggles" card renders the multi-target
+ * {@link TogglesCard}; every other card renders the single-target
+ * {@link SingleControlCard}. Both branches are components (not inline hook
+ * calls), so each card's hooks run unconditionally within its own component.
+ */
+export const ControlCard = ({
+  control,
+  sizeMode = "default",
+}: {
+  control: WidgetControl;
+  sizeMode?: WidgetSizeMode;
+}) =>
+  control.type === "toggles" ? (
+    <TogglesCard control={control} sizeMode={sizeMode} />
+  ) : (
+    <SingleControlCard control={control} sizeMode={sizeMode} />
+  );

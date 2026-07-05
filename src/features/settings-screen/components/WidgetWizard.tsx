@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -10,13 +11,17 @@ import {
 } from "@/components/ui/tooltip";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
 import { ControlCard } from "@/features/widget-screen/components/ControlCard";
+import { TogglesControlBody } from "@/features/widget-screen/components/ManageControls";
 import {
   SceneCardRail,
   SceneRailItem,
   SelectableSceneCard,
 } from "@/features/widget-screen/components/SceneCardRail";
 import {
+  isTogglesControl,
   newControlId,
+  type SingleWidgetControl,
+  type TogglesWidgetControl,
   type WidgetControl,
   type WidgetThemeMode,
 } from "@/features/widget-screen/types";
@@ -28,6 +33,7 @@ import {
   widgetShellStyle,
 } from "@/features/widget-screen/widgetShell";
 import { useBlinkLights } from "@/hooks/useBlinkLights";
+import { selectableVariants } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HueLight, HueRoomZone, HueScene } from "@/types/hue";
@@ -47,13 +53,14 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import {
-  Check,
   ChevronDown,
   GripVertical,
   Lightbulb,
   Search,
   Sparkles,
   Spotlight,
+  ToggleRight,
+  Trash2,
 } from "lucide-react";
 import type React from "react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -222,7 +229,9 @@ export const WidgetWizard = ({
   const [themeMode, setThemeMode] = useState<WidgetThemeMode>("system");
   const [maxUnlockedStep, setMaxUnlockedStep] = useState(initialStep);
   // Editable list of controls, seeded from the step-1 selection. Held as state
-  // (not derived) so it can be reordered and configured per-control.
+  // (not derived) so it can be reordered and configured per-control. Single-
+  // target cards mirror the step-1 selection; toggles cards are added directly
+  // on the Configure step and live alongside them.
   const [controls, setControls] = useState<WidgetControl[]>([]);
   const { blinkingKeys: blinkingTargets, blink } = useBlinkLights();
 
@@ -275,16 +284,23 @@ export const WidgetWizard = ({
   useEffect(() => {
     setControls((current) => {
       const selectedSet = new Set(selected);
-      const kept = current.filter((control) =>
-        selectedSet.has(targetKey(control.target.kind, control.target.id)),
+      // Toggles cards aren't tied to the step-1 selection — keep them as-is and
+      // only reconcile single-target cards against what's selected.
+      const kept = current.filter(
+        (control) =>
+          isTogglesControl(control) ||
+          selectedSet.has(targetKey(control.target.kind, control.target.id)),
       );
       const keptKeys = new Set(
-        kept.map((control) =>
-          targetKey(control.target.kind, control.target.id),
-        ),
+        kept
+          .filter(
+            (control): control is SingleWidgetControl =>
+              !isTogglesControl(control),
+          )
+          .map((control) => targetKey(control.target.kind, control.target.id)),
       );
 
-      const additions: WidgetControl[] = [];
+      const additions: SingleWidgetControl[] = [];
       for (const target of roomZoneOptions) {
         const key = targetKey(target.resourceType, target.id);
         if (!selectedSet.has(key) || keptKeys.has(key)) continue;
@@ -323,14 +339,16 @@ export const WidgetWizard = ({
   const setControlCompact = (id: string, compact: boolean) =>
     setControls((current) =>
       current.map((control) =>
-        control.id === id ? { ...control, compact } : control,
+        control.id === id && !isTogglesControl(control)
+          ? { ...control, compact }
+          : control,
       ),
     );
 
   const toggleControlScene = (id: string, sceneId: string) =>
     setControls((current) =>
       current.map((control) => {
-        if (control.id !== id) return control;
+        if (control.id !== id || isTogglesControl(control)) return control;
         if (control.sceneIds.includes(sceneId)) {
           return {
             ...control,
@@ -340,6 +358,25 @@ export const WidgetWizard = ({
         return { ...control, sceneIds: [...control.sceneIds, sceneId] };
       }),
     );
+
+  const addTogglesCard = () => {
+    const control: TogglesWidgetControl = {
+      id: newControlId(),
+      type: "toggles",
+      targets: [],
+      label: null,
+      hotkey: null,
+    };
+    setControls((current) => [...current, control]);
+  };
+
+  const updateControl = (next: WidgetControl) =>
+    setControls((current) =>
+      current.map((control) => (control.id === next.id ? next : control)),
+    );
+
+  const removeControl = (id: string) =>
+    setControls((current) => current.filter((control) => control.id !== id));
 
   const reorderControls = (from: number, to: number) =>
     setControls((current) => arrayMove(current, from, to));
@@ -397,7 +434,7 @@ export const WidgetWizard = ({
       onContinue={nextStep}
       finalAction={{
         label: "Create Widget",
-        disabled: !title.trim() || !selected.length,
+        disabled: !title.trim() || controls.length === 0,
         onClick: create,
       }}
     >
@@ -584,11 +621,20 @@ export const WidgetWizard = ({
                 >
                   {controls.length === 0 ? (
                     <p className="rounded-lg border border-dashed border-border/60 px-3 py-6 text-center text-sm text-muted-foreground">
-                      Go back and choose at least one control to configure it
-                      here.
+                      Go back and choose a control, or add a toggles card below.
                     </p>
                   ) : (
                     controls.map((control) => {
+                      if (isTogglesControl(control)) {
+                        return (
+                          <TogglesConfigRow
+                            key={control.id}
+                            control={control}
+                            onChange={updateControl}
+                            onRemove={() => removeControl(control.id)}
+                          />
+                        );
+                      }
                       const isLight = control.target.kind === "light";
                       const Icon = isLight
                         ? Lightbulb
@@ -616,6 +662,17 @@ export const WidgetWizard = ({
                       );
                     })
                   )}
+
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={addTogglesCard}
+                    className="self-start"
+                  >
+                    <ToggleRight size={16} />
+                    Add toggles card
+                  </Button>
                 </TabsContent>
                 <TabsContent value="appearance" className="space-y-5">
                   <PickerGroup title="Theme">
@@ -722,29 +779,14 @@ const TargetRow = ({
   onFlash: () => void;
 }) => (
   <div
+    data-selected={checked ? "" : undefined}
     className={cn(
-      "group flex items-center gap-2 px-4 py-2.5 transition-colors",
-      checked ? "bg-primary/5" : "hover:bg-foreground/3",
+      "group flex items-center gap-2 px-4 py-2.5",
+      selectableVariants({ treatment: "row" }),
     )}
   >
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={checked}
-      onClick={onToggle}
-      className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",
-          checked
-            ? "border-primary bg-primary text-primary-foreground"
-            : "border-foreground/30",
-        )}
-      >
-        {checked ? <Check size={14} /> : null}
-      </span>
+    <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left">
+      <Checkbox checked={checked} onCheckedChange={onToggle} />
       <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-muted-foreground">
         {icon}
       </span>
@@ -754,7 +796,7 @@ const TargetRow = ({
           {meta}
         </span>
       </span>
-    </button>
+    </label>
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger
@@ -804,11 +846,11 @@ const OptionButton = ({
   <button
     type="button"
     onClick={onClick}
+    aria-pressed={active}
+    data-selected={active ? "" : undefined}
     className={cn(
-      "flex min-h-12 items-start gap-3 rounded-lg border p-3 text-left transition-colors",
-      active
-        ? "border-foreground/35 bg-foreground/10"
-        : "border-border hover:bg-muted/50",
+      "flex min-h-12 items-start gap-3 rounded-lg p-3 text-left",
+      selectableVariants(),
       compact && "min-h-0 py-2.5",
     )}
   >
@@ -816,7 +858,6 @@ const OptionButton = ({
     <span className="min-w-0 flex-1">
       <span className="flex items-center gap-2 text-sm font-medium">
         {title}
-        {active ? <Check size={14} /> : null}
       </span>
       {description ? (
         <span className="mt-1 block text-xs text-muted-foreground">
@@ -851,7 +892,7 @@ const ControlConfigRow = ({
   onCompactChange,
   onToggleScene,
 }: {
-  control: WidgetControl;
+  control: SingleWidgetControl;
   icon: React.ReactNode;
   groupScenes: HueScene[];
   onCompactChange: (compact: boolean) => void;
@@ -869,7 +910,7 @@ const ControlConfigRow = ({
         <p className="min-w-0 flex-1 truncate text-sm font-medium">
           {control.label ?? (isLight ? "Light" : "Room")}
         </p>
-        <div className="flex shrink-0 items-center rounded-lg bg-foreground/5 p-0.5">
+        <div className="flex shrink-0 items-center rounded-full bg-muted p-1">
           {(
             [
               { value: false, label: "Full" },
@@ -882,9 +923,9 @@ const ControlConfigRow = ({
               onClick={() => onCompactChange(option.value)}
               aria-pressed={compact === option.value}
               className={cn(
-                "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                "rounded-full border border-transparent px-2.5 py-1 text-xs font-medium transition-colors",
                 compact === option.value
-                  ? "bg-background text-foreground shadow-sm"
+                  ? "border-foreground/12 bg-background text-foreground shadow-sm dark:border-foreground/8 dark:bg-input/30 dark:shadow-none"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
@@ -920,6 +961,53 @@ const ControlConfigRow = ({
           ) : null}
         </div>
       ) : null}
+    </div>
+  );
+};
+
+/**
+ * One row in the Configure → Controls tab for a toggles card: a header with the
+ * chip count and a Remove action, over the shared {@link TogglesControlBody}
+ * editor so chips are configured exactly as they are in the widget's settings.
+ */
+const TogglesConfigRow = ({
+  control,
+  onChange,
+  onRemove,
+}: {
+  control: TogglesWidgetControl;
+  onChange: (control: WidgetControl) => void;
+  onRemove: () => void;
+}) => {
+  const count = control.targets.length;
+  return (
+    <div className="space-y-3 rounded-xl border border-border/60 bg-card p-3">
+      <div className="flex items-center gap-3">
+        <span className="flex size-8 shrink-0 items-center justify-center text-muted-foreground">
+          <ToggleRight size={18} strokeWidth={2.5} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">
+            {control.label ?? "Toggles"}
+          </p>
+          <p className="truncate text-xs text-muted-foreground">
+            {count === 0
+              ? "No chips yet"
+              : `${count} chip${count === 1 ? "" : "s"}`}
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="ghost"
+          className="shrink-0 text-destructive hover:text-destructive"
+          onClick={onRemove}
+        >
+          <Trash2 size={15} />
+          Remove
+        </Button>
+      </div>
+      <TogglesControlBody control={control} onChange={onChange} />
     </div>
   );
 };

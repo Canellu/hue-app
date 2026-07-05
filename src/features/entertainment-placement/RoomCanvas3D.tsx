@@ -1,4 +1,5 @@
 import { useTheme } from "@/context/ThemeContext";
+import { overlaySelectionClassName } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
 import type { HostSyncDisplay } from "@/types/host-sync";
 import type { HuePosition } from "@/types/hue";
@@ -668,9 +669,8 @@ export const RoomCanvas3D = ({
                 ? "border-white/80 text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.45)]"
                 : "bg-background",
               active
-                ? "border-primary ring-4 ring-primary/15"
+                ? overlaySelectionClassName
                 : !pin.color && "border-foreground/20",
-              active && pin.color && "border-white",
             )}
           >
             {pin.label}

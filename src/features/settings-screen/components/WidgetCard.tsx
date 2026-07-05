@@ -292,7 +292,7 @@ export const WidgetCard = ({
           />
 
           <div className="mt-5 flex border-t border-border/60 pt-4">
-            <span className="mr-auto">
+            <span className="ml-auto">
               <DeleteResourceButton
                 label="widget"
                 description="This permanently removes the widget and its saved controls. This can't be undone."

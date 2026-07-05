@@ -582,6 +582,26 @@ export const RootLayout: React.FC = () => {
     };
   }, [navigate]);
 
+  // Double-clicking a widget control card jumps here: open the targeted
+  // room/zone's Space screen. We land on the space itself (no inspector pane) —
+  // the same view you'd get tapping the space on Home. The backend only ever
+  // sends room/zone kinds, so `inspect` stays clear.
+  useEffect(() => {
+    const unlisten = listen<{ kind: string; id: string }>(
+      "open-widget-target",
+      (event) => {
+        void navigate({
+          to: "/space/$spaceId",
+          params: { spaceId: event.payload.id },
+          search: {},
+        });
+      },
+    );
+    return () => {
+      void unlisten.then((dispose) => dispose());
+    };
+  }, [navigate]);
+
   return (
     <>
       <HueResourcesStoreEffects />

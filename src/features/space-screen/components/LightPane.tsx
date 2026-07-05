@@ -29,6 +29,7 @@ import {
   getLightIcon,
   LIGHT_ICON_OPTIONS,
 } from "@/features/space-screen/utils/light-icons";
+import { selectableVariants } from "@/lib/selection-styles";
 import { activeTileTheme } from "@/lib/tile-theme";
 import { cn } from "@/lib/utils";
 import {
@@ -745,10 +746,11 @@ const EditPane: React.FC<{
                   setIcon(option.value);
                   setPickerOpen(false);
                 }}
+                data-selected={option.value === icon ? "" : undefined}
                 className={cn(
-                  "flex flex-col items-center gap-2 rounded-2xl border border-border p-3 text-center text-xs text-muted-foreground transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-                  option.value === icon &&
-                    "border-primary bg-accent text-foreground ring-1 ring-primary",
+                  "flex flex-col items-center gap-2 rounded-2xl p-3 text-center text-xs text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+                  selectableVariants(),
+                  option.value === icon && "text-foreground",
                 )}
               >
                 <option.Icon size={26} className="text-foreground" />

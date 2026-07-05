@@ -1,11 +1,13 @@
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
 import { blinkableLightIds, useBlinkLights } from "@/hooks/useBlinkLights";
+import { selectableVariants } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HueLight, HueSettingsDevice } from "@/types/hue";
-import { Check, Home, Layers3, Lightbulb, Search } from "lucide-react";
+import { Home, Layers3, Lightbulb, Search } from "lucide-react";
 import type React from "react";
 import { useState } from "react";
 import { SPACE_ARCHETYPES } from "../constants";
@@ -247,11 +249,11 @@ export const RoomZoneWizard = ({
                       title={option.label}
                       aria-label={option.label}
                       aria-pressed={isActive}
+                      data-selected={isActive ? "" : undefined}
                       className={cn(
-                        "flex size-11 items-center justify-center rounded-xl border transition-colors",
-                        isActive
-                          ? "border-primary bg-primary/10 text-foreground"
-                          : "border-foreground/15 text-muted-foreground hover:bg-foreground/5",
+                        "flex size-11 items-center justify-center rounded-xl text-muted-foreground",
+                        selectableVariants(),
+                        isActive && "text-foreground",
                       )}
                     >
                       <Icon size={20} />
@@ -351,17 +353,16 @@ const TypeOption = ({
     type="button"
     onClick={onClick}
     aria-pressed={active}
+    data-selected={active ? "" : undefined}
     className={cn(
-      "flex items-start gap-4 rounded-2xl border p-4 text-left transition-colors",
-      active
-        ? "border-primary bg-primary/5"
-        : "border-foreground/15 hover:bg-foreground/5",
+      "flex items-start gap-4 rounded-2xl p-4 text-left",
+      selectableVariants(),
     )}
   >
     <span
       className={cn(
         "flex size-11 shrink-0 items-center justify-center rounded-xl",
-        active ? "bg-primary/15 text-foreground" : "bg-foreground/5",
+        active ? "bg-foreground/10 text-foreground" : "bg-foreground/5",
       )}
     >
       {icon}
@@ -369,7 +370,6 @@ const TypeOption = ({
     <span className="min-w-0 flex-1">
       <span className="flex items-center gap-2 text-base font-semibold">
         {title}
-        {active ? <Check size={16} className="text-primary" /> : null}
       </span>
       <span className="mt-1 block text-sm text-muted-foreground">
         {description}
@@ -392,27 +392,13 @@ const MemberRow = ({
   onToggle: () => void;
 }) => (
   <label
+    data-selected={checked ? "" : undefined}
     className={cn(
-      "relative flex cursor-pointer items-center gap-3 px-4 py-2.5 transition-colors",
-      checked ? "bg-primary/5" : "hover:bg-foreground/3",
+      "relative flex cursor-pointer items-center gap-3 px-4 py-2.5",
+      selectableVariants({ treatment: "row" }),
     )}
   >
-    <input
-      type="checkbox"
-      checked={checked}
-      onChange={onToggle}
-      className="sr-only"
-    />
-    <span
-      className={cn(
-        "flex size-5 shrink-0 items-center justify-center rounded-md border transition-colors",
-        checked
-          ? "border-primary bg-primary text-primary-foreground"
-          : "border-foreground/30",
-      )}
-    >
-      {checked ? <Check size={14} /> : null}
-    </span>
+    <Checkbox checked={checked} onCheckedChange={onToggle} />
     <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-foreground/5 text-muted-foreground">
       {icon}
     </span>

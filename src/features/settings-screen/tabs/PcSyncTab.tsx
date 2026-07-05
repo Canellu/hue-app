@@ -15,6 +15,7 @@ import {
   stopBehaviors,
 } from "@/features/host-sync/constants";
 import { useHostSync } from "@/features/host-sync/useHostSync";
+import { selectableVariants } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
 import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import type { HostSyncDisplay } from "@/types/host-sync";
@@ -443,14 +444,13 @@ const DisplayTopology = ({
             type="button"
             disabled={disabled || automatic}
             aria-pressed={isCaptured(display)}
+            data-selected={isCaptured(display) ? "" : undefined}
             aria-label={`${display.name}, ${display.width}×${display.height}${display.hdrEnabled ? ", HDR" : ""}${display.isPrimary ? ", primary display" : ""}`}
             title={`${display.name} · ${display.width}×${display.height}${display.hdrEnabled ? " · HDR" : ""}`}
             onClick={() => onToggle(display)}
             className={cn(
-              "absolute flex flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg border text-xs transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
-              isCaptured(display)
-                ? "border-primary bg-primary/15 text-primary"
-                : "border-border bg-background text-muted-foreground",
+              "absolute flex flex-col items-center justify-center gap-0.5 overflow-hidden rounded-lg bg-background text-xs text-muted-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 data-[selected]:text-foreground",
+              selectableVariants(),
               !automatic && !disabled && "cursor-pointer hover:bg-accent",
             )}
             style={{

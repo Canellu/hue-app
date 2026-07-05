@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { overlaySelectionClassName } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
 import type { SelectBridgeStepProps } from "@/types/setup-wizard";
 import { BridgeThumb } from "../components/BridgeThumb";
@@ -73,14 +74,23 @@ export const SelectBridgeStep = ({
             <Card
               key={bridge.bridgeId}
               size="sm"
+              role="button"
+              tabIndex={0}
+              aria-pressed={isSelected}
+              data-selected={isSelected ? "" : undefined}
               className={cn(
                 "w-48 cursor-pointer border border-foreground/10 transition-[box-shadow,background-color]",
                 "bg-[oklch(0.99_0_0)] hover:bg-[oklch(0.96_0_0)]",
                 "dark:bg-[oklch(0.24_0_0)] dark:hover:bg-[oklch(0.25_0_0)]",
-                isSelected &&
-                  "ring-4 ring-foreground/10 hover:bg-[oklch(0.99_0_0)] dark:hover:bg-[oklch(0.24_0_0)]",
+                isSelected && overlaySelectionClassName,
               )}
               onClick={() => onSelectBridge(bridge.bridgeIp)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelectBridge(bridge.bridgeIp);
+                }
+              }}
             >
               <CardContent className="flex min-w-0 flex-col items-center gap-2 text-center">
                 <BridgeThumb kind={kind} />

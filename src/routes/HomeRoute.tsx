@@ -14,6 +14,7 @@ export const HomeRoute: React.FC = () => {
     isEditLayoutMode,
     hueEventRevision,
     setDraftLayout,
+    setAllLightsState,
     setRoomZoneState,
     isCreatingSection,
     createLayoutSection,
@@ -30,6 +31,7 @@ export const HomeRoute: React.FC = () => {
       isEditLayoutMode: state.isEditLayoutMode,
       hueEventRevision: state.hueEventRevision,
       setDraftLayout: state.setDraftLayout,
+      setAllLightsState: state.setAllLightsState,
       setRoomZoneState: state.setRoomZoneState,
       isCreatingSection: state.isCreatingSection,
       createLayoutSection: state.createLayoutSection,
@@ -52,6 +54,7 @@ export const HomeRoute: React.FC = () => {
       onOpenSpace={(id) =>
         void navigate({ to: "/space/$spaceId", params: { spaceId: id } })
       }
+      onAllLightsToggle={setAllLightsState}
       onRoomZoneToggle={(roomZone, on) => setRoomZoneState(roomZone, on, null)}
       onRoomZoneBrightness={(roomZone, pct, phase) =>
         setRoomZoneState(roomZone, pct > 0, pct, phase)

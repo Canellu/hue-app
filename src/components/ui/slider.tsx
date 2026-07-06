@@ -14,6 +14,7 @@ function Slider({
   min = 0,
   max = 100,
   size = "default",
+  dimWhenDisabled = true,
   style,
   // Base UI reads the accessible name from the thumb's hidden input, not the
   // root, so route aria-label to every thumb.
@@ -21,6 +22,7 @@ function Slider({
   ...props
 }: SliderPrimitive.Root.Props & {
   size?: "default" | "lg" | "xl";
+  dimWhenDisabled?: boolean;
 }) {
   const _values = Array.isArray(value)
     ? value
@@ -52,7 +54,12 @@ function Slider({
       }
       {...props}
     >
-      <SliderPrimitive.Control className="relative flex w-full touch-none items-center select-none data-disabled:opacity-50 data-vertical:h-full data-vertical:min-h-40 data-vertical:w-auto data-vertical:flex-col">
+      <SliderPrimitive.Control
+        className={cn(
+          "relative flex w-full touch-none items-center select-none data-vertical:h-full data-vertical:min-h-40 data-vertical:w-auto data-vertical:flex-col",
+          dimWhenDisabled && "data-disabled:opacity-50",
+        )}
+      >
         <SliderPrimitive.Track
           data-slot="slider-track"
           className="relative grow overflow-hidden rounded-4xl select-none data-horizontal:h-[var(--slider-track-size)] data-horizontal:w-full data-vertical:h-full data-vertical:w-[var(--slider-track-size)]"
@@ -76,7 +83,10 @@ function Slider({
             data-slot="slider-thumb"
             key={index}
             aria-label={ariaLabel}
-            className="block size-[var(--slider-thumb-size)] shrink-0 rounded-4xl border border-foreground/30 bg-background shadow-sm ring-ring/50 transition-[color,background-color,border-color,inset-inline-start,inset-inline-end,left,right,width,transform,translate] duration-[var(--paced-ease,0ms)] ease-out select-none hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50 dark:border-foreground/25"
+            className={cn(
+              "block size-[var(--slider-thumb-size)] shrink-0 rounded-4xl border border-foreground/30 bg-background shadow-sm ring-ring/50 transition-[color,background-color,border-color,inset-inline-start,inset-inline-end,left,right,width,transform,translate] duration-[var(--paced-ease,0ms)] ease-out select-none hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden disabled:pointer-events-none dark:border-foreground/25",
+              dimWhenDisabled && "disabled:opacity-50",
+            )}
           />
         ))}
       </SliderPrimitive.Control>

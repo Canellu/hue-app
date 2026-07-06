@@ -155,6 +155,8 @@ pub struct SyncBoxHdmiInput {
     pub status: Option<String>,
     #[serde(rename = "type", default)]
     pub input_type: Option<String>,
+    #[serde(default)]
+    pub last_sync_mode: Option<String>,
 }
 
 struct MdnsSyncBox {
@@ -490,6 +492,43 @@ impl SyncBoxClient {
 
         if !response.status().is_success() {
             return Err(sync_box_response_error(response, "Sync Box execution update").await);
+        }
+
+        self.get_state(&sync_box, &access_token).await
+    }
+
+    pub async fn update_saved_source_mode<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        source: &str,
+        mode: &str,
+    ) -> Result<SyncBoxState, String> {
+        if !matches!(source, "input1" | "input2" | "input3" | "input4") {
+            return Err("Invalid Sync Box HDMI source.".to_string());
+        }
+        if !matches!(mode, "video" | "game" | "music") {
+            return Err("Invalid Sync Box mode.".to_string());
+        }
+
+        let sync_box =
+            load_sync_box_info(app)?.ok_or_else(|| "No Sync Box is configured.".to_string())?;
+        let access_token = load_access_token()?.ok_or_else(|| {
+            "The saved Sync Box access token is missing. Pair it again.".to_string()
+        })?;
+        let client =
+            self.secure_client(&sync_box.unique_id, &sync_box.ip_address, sync_box.port)?;
+        let path = format!("/api/v1/hdmi/{source}");
+        let url = secure_endpoint(&sync_box.unique_id, sync_box.port, &path)?;
+        let response = client
+            .put(url)
+            .bearer_auth(&access_token)
+            .json(&json!({ "lastSyncMode": mode }))
+            .send()
+            .await
+            .map_err(|error| format!("Unable to update the Sync Box source mode: {error}"))?;
+
+        if !response.status().is_success() {
+            return Err(sync_box_response_error(response, "Sync Box source mode update").await);
         }
 
         self.get_state(&sync_box, &access_token).await

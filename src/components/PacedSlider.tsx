@@ -10,6 +10,7 @@ interface PacedSliderProps {
   max?: number;
   step?: number;
   disabled?: boolean;
+  dimWhenDisabled?: boolean;
   ariaLabel: string;
   className?: string;
   /** Extra inline styles merged onto the slider root (e.g. a track gradient). */
@@ -104,6 +105,7 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
   max = 100,
   step,
   disabled,
+  dimWhenDisabled,
   ariaLabel,
   className = "w-full",
   style,
@@ -307,6 +309,7 @@ export const PacedSlider: React.FC<PacedSliderProps> = ({
       max={max}
       step={step}
       disabled={disabled}
+      dimWhenDisabled={dimWhenDisabled}
       aria-label={ariaLabel}
       className={cn(PACED_SLIDER_CLASS, showTicks ? "w-full" : className)}
       size={size}

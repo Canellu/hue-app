@@ -21,6 +21,7 @@ import { TRANSITION_MS } from "@/lib/transitions";
 import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 import type { HomeGroupingMode, HomeLayout } from "@/types/app-layout";
 import type {
+  HueAccessoryService,
   HueEventUpdate,
   HueLight,
   HueRoom,
@@ -63,6 +64,15 @@ export interface HueResourcesState extends LayoutState {
   roomZones: HueRoomZone[];
   lights: HueLight[];
   scenes: HueScene[];
+  /**
+   * Live sensor/switch readings (motion, temperature, light level, battery,
+   * button events) keyed nowhere yet — the UI groups them by owning device.
+   * Loaded once with the rest of the resources so a space opens with its
+   * accessory tiles already sized (no async grow-in), and kept current by the
+   * SSE stream in {@link HueResourcesState.applyHueEvents} so motion reflects
+   * reality rather than a stale snapshot from page load.
+   */
+  accessoryServices: HueAccessoryService[];
   /**
    * The bridge's user-given name, shown as the home/house label in the Home
    * header. `null` until fetched (or when the bridge carries no name); the UI
@@ -112,8 +122,10 @@ export interface HueResourcesState extends LayoutState {
   loadLights: () => Promise<void>;
   loadScenes: () => Promise<void>;
   loadHomeName: () => Promise<void>;
+  loadAccessoryServices: () => Promise<void>;
   loadAll: () => Promise<void>;
   applyHueEvents: (updates: HueEventUpdate[]) => void;
+  setAllLightsState: (nextOn: boolean) => void;
   setRoomZoneState: (
     roomZone: HueRoomZone,
     nextOn: boolean,
@@ -593,9 +605,9 @@ const coalesceHueEvents = (updates: HueEventUpdate[]): HueEventUpdate[] => {
       speed: update.speed ?? previous.speed,
       autoDynamic: update.autoDynamic ?? previous.autoDynamic,
       status: update.status ?? previous.status,
-      activeStreamerId:
-        update.activeStreamerId ?? previous.activeStreamerId,
+      activeStreamerId: update.activeStreamerId ?? previous.activeStreamerId,
       value: update.value ?? previous.value,
+      updated: update.updated ?? previous.updated,
     });
   }
 
@@ -606,6 +618,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
   roomZones: [],
   lights: [],
   scenes: [],
+  accessoryServices: [],
   homeName: null,
   isLoading: true,
   hasLoaded: false,
@@ -691,6 +704,21 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
     }
   },
 
+  // Live sensor/switch readings, fetched alongside the rest of the resources so
+  // accessory tiles render at their final size from the first paint. Best
+  // effort: a failure leaves the last-known readings in place (or none) and the
+  // SSE stream still updates whatever is present.
+  loadAccessoryServices: async () => {
+    try {
+      const result = await invoke<HueAccessoryService[]>(
+        "get-hue-accessory-services",
+      );
+      set({ accessoryServices: result });
+    } catch {
+      // Non-fatal — accessory readings just won't refresh until the next load.
+    }
+  },
+
   // The home/house name shown in the Home header. Best effort: a failure (or a
   // bridge with no name) leaves it null, and the header falls back accordingly.
   loadHomeName: async () => {
@@ -719,6 +747,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
         invoke<HueScene[]>("get-hue-scenes").catch(() => [] as HueScene[]),
         get().loadLights(),
         get().loadHomeName(),
+        get().loadAccessoryServices(),
       ]);
       const roomZones = [...rooms, ...zones].sort((a, b) =>
         a.name.localeCompare(b.name),
@@ -898,10 +927,32 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
               };
             });
 
+      // Accessory readings (motion, temperature, light level, battery, button
+      // events) carry a pre-formatted `value` on their SSE events. Patch only
+      // when a value actually changed so light/scene traffic doesn't churn the
+      // array identity and re-render every sensor tile.
+      let accessoryChanged = false;
+      const accessoryServices = state.accessoryServices.map((service) => {
+        const change = changes.find(
+          (u) =>
+            u.id === service.id &&
+            u.type === service.resourceType &&
+            u.value != null,
+        );
+        if (!change || change.value === service.value) return service;
+        accessoryChanged = true;
+        return {
+          ...service,
+          value: change.value,
+          updated: change.updated ?? service.updated,
+        };
+      });
+
       return {
         lights,
         roomZones,
         scenes,
+        ...(accessoryChanged ? { accessoryServices } : {}),
         hueEventRevision: state.hueEventRevision + 1,
       };
     });
@@ -909,6 +960,60 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
     if (shouldRefreshScenes) {
       scheduleSceneEventRefresh(() => get().loadScenes());
     }
+  },
+
+  setAllLightsState: (nextOn) => {
+    const state = get();
+    const lightIds = state.lights.map((light) => light.id);
+    if (lightIds.length === 0 || isSyncLocked(lightIds)) return;
+
+    const lockOptions = {
+      durationMs: GROUP_TOGGLE_SETTLE_MS,
+      releaseOnConfirm: false,
+    };
+    for (const id of lightIds) {
+      lockResource(id, { on: nextOn }, lockOptions);
+    }
+    for (const roomZone of state.roomZones) {
+      if (roomZone.groupedLightId) {
+        lockResource(roomZone.groupedLightId, { on: nextOn }, lockOptions);
+      }
+    }
+
+    set((current) => {
+      const lights = current.lights.map((light) => ({
+        ...light,
+        isOn: nextOn,
+      }));
+      const lightById = new Map(lights.map((light) => [light.id, light]));
+      const roomZones = current.roomZones.map((roomZone) => {
+        const members = roomZone.lightIds
+          .map((id) => lightById.get(id))
+          .filter((light): light is HueLight => light != null);
+        return {
+          ...roomZone,
+          anyOn: nextOn && members.length > 0,
+          allOn: nextOn && members.length > 0,
+        };
+      });
+      return {
+        lights,
+        roomZones,
+        hueEventRevision: current.hueEventRevision + 1,
+      };
+    });
+
+    void invoke("set-all-lights-state", {
+      on: nextOn,
+      transitionMs: GROUP_TOGGLE_TRANSITION_MS,
+    }).catch((error) => {
+      clearResourceLocks([
+        ...lightIds,
+        ...state.roomZones.map((roomZone) => roomZone.groupedLightId),
+      ]);
+      set({ error: String(error) || "Unable to update all lights." });
+      void get().loadAll();
+    });
   },
 
   setRoomZoneState: (roomZone, nextOn, brightnessPct, phase = "final") => {

@@ -213,6 +213,8 @@ export interface HueSettingsDevice {
 export interface HueAccessoryService {
   id: string;
   resourceType: HueResourceType;
+  /** Logical control identifier within the owning switch device. */
+  controlId: number | null;
   deviceId: string | null;
   deviceName: string | null;
   productName: string | null;
@@ -255,4 +257,6 @@ export interface HueEventUpdate {
   /** Application id currently owning an entertainment configuration. */
   activeStreamerId: string | null;
   value: string | null;
+  /** ISO timestamp of an accessory reading's last change, when carried. */
+  updated: string | null;
 }

@@ -31,7 +31,11 @@ export const SyncIndicator: React.FC<{
               role="status"
               aria-label={label}
               className={cn(
-                "inline-flex h-5 min-w-5 items-center justify-center gap-1 rounded-full border border-primary/25 bg-background/85 px-1 text-[10px] font-semibold text-primary shadow-sm backdrop-blur-sm",
+                // Fixed, theme-independent colors: the badge always overlays a
+                // color-tinted (often lit) tile, so it must keep the same look
+                // in light and dark mode instead of inheriting palette tokens
+                // (which flip and can go icon-on-same-tone — invisible).
+                "inline-flex h-5 min-w-5 items-center justify-center gap-1 rounded-full border border-black/15 bg-white/85 px-1 text-[10px] font-semibold text-neutral-900 shadow-sm backdrop-blur-sm",
                 className,
               )}
             >

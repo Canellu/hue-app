@@ -1,5 +1,6 @@
-import { GripVertical } from "lucide-react";
+import { GripVertical, House } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import {
   Dialog,
   DialogClose,
@@ -11,6 +12,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 import type { HomeLayout } from "@/types/app-layout";
 import type { HueLight, HueRoomZone } from "@/types/hue";
 import {
@@ -51,6 +54,7 @@ interface HomeScreenProps {
   hueEventRevision: number;
   onLayoutChange: (next: HomeLayout) => void;
   onOpenSpace: (id: string) => void;
+  onAllLightsToggle: (nextOn: boolean) => void;
   onRoomZoneToggle: (roomZone: HueRoomZone, nextOn: boolean) => void;
   onRoomZoneBrightness: (
     roomZone: HueRoomZone,
@@ -74,6 +78,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   hueEventRevision,
   onLayoutChange,
   onOpenSpace,
+  onAllLightsToggle,
   onRoomZoneToggle,
   onRoomZoneBrightness,
   isCreatingSection,
@@ -84,6 +89,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [activeSpaceId, setActiveSpaceId] = useState<string | null>(null);
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
+  const syncedLightIds = useEntertainmentStore((state) => state.syncedLightIds);
 
   // Hysteresis for cross-container dragging: remember the last resolved target
   // and freeze re-evaluation for one frame right after a move. Without this the
@@ -287,6 +293,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const activeSectionCountText =
     activeSection && String(activeSection.roomZones.length);
+  const lightsOn = lights.filter((light) => light.isOn).length;
+  const anyLightOn = lightsOn > 0;
+  const syncActive = syncedLightIds.length > 0;
 
   const content = (
     <div className="flex flex-col gap-8">
@@ -311,6 +320,31 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   return (
     <div className="mx-auto flex w-full flex-col gap-6">
       {error && <p className="text-sm text-destructive">{error}</p>}
+
+      {lights.length > 0 && (
+        <Card size="sm" className="border border-tile-border bg-card py-5">
+          <div className="flex items-center gap-4 px-(--card-spacing)">
+            <span className="flex size-12 shrink-0 items-center justify-center text-muted-foreground">
+              <House size={27} strokeWidth={2.25} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-medium">All lights</p>
+              <p className="text-sm text-muted-foreground">
+                {syncActive
+                  ? "Unavailable while light sync is active"
+                  : `${lightsOn} of ${lights.length} on`}
+              </p>
+            </div>
+            <Switch
+              size="xl"
+              checked={anyLightOn}
+              disabled={editing || isLoading || syncActive}
+              aria-label="Toggle all lights"
+              onCheckedChange={onAllLightsToggle}
+            />
+          </div>
+        </Card>
+      )}
 
       {roomZones.length === 0 && !isLoading ? (
         <p className="text-sm text-muted-foreground">

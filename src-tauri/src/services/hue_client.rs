@@ -393,6 +393,8 @@ pub struct HueSettingsDevice {
 pub struct HueAccessoryService {
     pub id: String,
     pub resource_type: String,
+    /// Logical button/dial identifier within the owning switch device.
+    pub control_id: Option<u8>,
     pub device_id: Option<String>,
     pub device_name: Option<String>,
     pub product_name: Option<String>,
@@ -474,6 +476,9 @@ pub struct HueEventUpdate {
     pub active_streamer_id: Option<String>,
     /// Compact display value for accessory/sensor events.
     pub value: Option<String>,
+    /// ISO timestamp of an accessory reading's last change, when the event
+    /// carries one (e.g. a motion report's `changed`). Used to show "when".
+    pub updated: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -505,6 +510,8 @@ struct HueMetadata {
     name: String,
     #[serde(default)]
     archetype: Option<String>,
+    #[serde(default)]
+    control_id: Option<u8>,
     /// Light function: one of `functional`, `decorative`, `mixed`, `unknown`.
     #[serde(default)]
     function: Option<String>,
@@ -645,6 +652,12 @@ struct HueRoomZoneResource {
     metadata: HueMetadata,
     #[serde(default)]
     children: Vec<HueResourceRef>,
+    #[serde(default)]
+    services: Vec<HueResourceRef>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HueBridgeHomeResource {
     #[serde(default)]
     services: Vec<HueResourceRef>,
 }
@@ -1907,6 +1920,34 @@ impl HueClient {
         .await
     }
 
+    /// Controls the grouped_light service owned by the bridge_home resource.
+    pub async fn set_all_lights_state(
+        &self,
+        ip: &str,
+        application_key: &str,
+        on: bool,
+        transition_ms: Option<u32>,
+    ) -> Result<(), String> {
+        let homes: Vec<HueBridgeHomeResource> =
+            self.get_v2(ip, application_key, "bridge_home").await?;
+        let grouped_light_id = homes
+            .iter()
+            .flat_map(|home| home.services.iter())
+            .find(|service| service.rtype == "grouped_light")
+            .map(|service| service.rid.as_str())
+            .ok_or_else(|| "The Hue bridge has no whole-home light control.".to_string())?;
+
+        self.set_grouped_light_state(
+            ip,
+            application_key,
+            grouped_light_id,
+            Some(on),
+            None,
+            transition_ms,
+        )
+        .await
+    }
+
     // ---- Scenes -------------------------------------------------------------
 
     pub async fn get_scenes(
@@ -2509,6 +2550,10 @@ impl HueClient {
             for resource in resources {
                 let device_id = resource.owner.as_ref().map(|owner| owner.rid.clone());
                 let device = device_id.as_ref().and_then(|id| device_map.get(id));
+                let control_id = resource
+                    .metadata
+                    .as_ref()
+                    .and_then(|metadata| metadata.control_id);
                 let reachable = device_id
                     .as_ref()
                     .and_then(|id| reachable_map.get(id).copied())
@@ -2517,6 +2562,7 @@ impl HueClient {
                 services.push(HueAccessoryService {
                     id: resource.id,
                     resource_type: resource_type.to_string(),
+                    control_id,
                     device_id,
                     device_name: device.map(|entry| entry.0.clone()),
                     product_name: device.and_then(|entry| entry.1.clone()),
@@ -3636,12 +3682,12 @@ fn summarize_resource_value(raw: &Value) -> Option<String> {
             .or_else(|| find_nested_string(raw, "action"))
             .map(humanize_hue_value),
         "motion" | "camera_motion" => find_nested_bool(raw, "motion")
-            .map(|motion| if motion { "Motion" } else { "No motion" }.to_string()),
+            .map(|motion| if motion { "Motion detected" } else { "No motion" }.to_string()),
         "temperature" => find_nested_number(raw, "temperature")
             .map(|value| format!("{:.1} °C", normalize_temperature(value))),
         "light_level" => find_nested_number(raw, "light_level")
             .or_else(|| find_nested_number(raw, "light_level_report"))
-            .map(|value| format!("{value:.0}")),
+            .map(|value| format!("{:.0} lx", light_level_to_lux(value))),
         "contact" => find_nested_string(raw, "state").or_else(|| {
             find_nested_bool(raw, "contact").map(|closed| {
                 if closed {
@@ -3661,7 +3707,7 @@ fn summarize_resource_value(raw: &Value) -> Option<String> {
             })
         }),
         "device_power" => find_nested_number(raw, "battery_level")
-            .map(|value| format!("Battery {value:.0}%"))
+            .map(|value| format!("{value:.0}%"))
             .or_else(|| find_nested_string(raw, "battery_state").map(humanize_hue_value)),
         "scene" => raw
             .get("status")
@@ -3677,7 +3723,19 @@ fn summarize_resource_value(raw: &Value) -> Option<String> {
 fn extract_updated(raw: &Value) -> Option<String> {
     find_nested_string(raw, "last_updated")
         .or_else(|| find_nested_string(raw, "updated"))
+        // v2 motion/light-level reports timestamp their reading as `changed`.
+        .or_else(|| find_nested_string(raw, "changed"))
         .or_else(|| find_nested_string(raw, "time"))
+}
+
+/// Hue reports ambient brightness on a logarithmic scale (`10000 * log10(lux) +
+/// 1`). Convert it back to lux so the tile shows a number people recognize
+/// instead of the raw ~14000-range sensor value.
+fn light_level_to_lux(level: f64) -> f64 {
+    if level <= 0.0 {
+        return 0.0;
+    }
+    10f64.powf((level - 1.0) / 10_000.0)
 }
 
 fn extract_mode(raw: &Value) -> Option<String> {
@@ -3907,6 +3965,7 @@ fn parse_event_block(block: &str) -> Option<Vec<HueEventUpdate>> {
                     .and_then(Value::as_str)
                     .map(ToString::to_string),
                 value: summarize_resource_value(&resource),
+                updated: extract_updated(&resource),
             });
         }
     }

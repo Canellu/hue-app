@@ -72,6 +72,7 @@ export interface SyncBoxHdmiInput {
   name: string;
   status: string | null;
   type: string | null;
+  lastSyncMode: SyncBoxMode | null;
 }
 
 export type SyncBoxExecutionUpdate =
@@ -81,7 +82,10 @@ export type SyncBoxExecutionUpdate =
   | { hdmiSource: SyncBoxHdmiSource }
   | { hueTarget: string }
   | { brightness: number }
-  | { intensity: SyncBoxIntensity };
+  | { intensity: SyncBoxIntensity }
+  | { video: { intensity: SyncBoxIntensity } }
+  | { game: { intensity: SyncBoxIntensity } }
+  | { music: { intensity: SyncBoxIntensity } };
 
 export type SyncBoxOnboardingState =
   | { type: "welcome" }

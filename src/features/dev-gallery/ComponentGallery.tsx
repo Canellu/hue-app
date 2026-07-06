@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button, type buttonVariants } from "@/components/ui/button";
+import { SensorReadingPill } from "@/components/SensorReadingPill";
 import {
   ButtonGroup,
   ButtonGroupSeparator,
@@ -152,6 +153,8 @@ const BADGE_VARIANTS = [
   "ghost",
   "link",
 ] as const;
+
+const BATTERY_LEVELS = [0, 1, 20, 21, 49, 50, 51, 75, 99, 100] as const;
 
 /**
  * Surface tokens from App.css, grouped by role:
@@ -446,6 +449,42 @@ export const ComponentGallery = () => {
                   );
                 })()}
               </CardFooter>
+            </Card>
+
+            <Card className="lg:col-span-2">
+              <CardHeader>
+                <CardTitle>Battery levels</CardTitle>
+                <CardDescription>
+                  Critical, warning, and healthy fills at their boundaries
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-4">
+                {BATTERY_LEVELS.map((level) => (
+                  <div
+                    key={level}
+                    className="flex min-w-12 flex-col items-center gap-1.5"
+                  >
+                    <SensorReadingPill
+                      service={{
+                        id: `battery-${level}`,
+                        resourceType: "device_power",
+                        controlId: null,
+                        deviceId: null,
+                        deviceName: "Battery preview",
+                        productName: null,
+                        reachable: true,
+                        enabled: true,
+                        value: `${level}%`,
+                        updated: null,
+                        raw: null,
+                      }}
+                    />
+                    <span className="text-[10px] text-muted-foreground">
+                      {level}%
+                    </span>
+                  </div>
+                ))}
+              </CardContent>
             </Card>
           </div>
         </GallerySection>

@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -69,6 +68,7 @@ export const SpaceRoute: React.FC = () => {
     roomZones,
     lights,
     scenes,
+    accessoryServices,
     error,
     hueEventRevision,
     setRoomZoneState,
@@ -84,6 +84,7 @@ export const SpaceRoute: React.FC = () => {
       roomZones: state.roomZones,
       lights: state.lights,
       scenes: state.scenes,
+      accessoryServices: state.accessoryServices,
       error: state.error,
       hueEventRevision: state.hueEventRevision,
       setRoomZoneState: state.setRoomZoneState,
@@ -97,27 +98,9 @@ export const SpaceRoute: React.FC = () => {
     })),
   );
 
-  const [accessoryServices, setAccessoryServices] = useState<
-    HueAccessoryService[]
-  >([]);
-
-  // Live sensor/switch readings (motion, temperature, battery, button events)
-  // aren't part of the room payload, so fetch them once per visit and key them
-  // by their owning device to enrich the accessory tiles below.
-  useEffect(() => {
-    let active = true;
-    void invoke<HueAccessoryService[]>("get-hue-accessory-services")
-      .then((services) => {
-        if (active) setAccessoryServices(services);
-      })
-      .catch(() => {
-        if (active) setAccessoryServices([]);
-      });
-    return () => {
-      active = false;
-    };
-  }, [spaceId]);
-
+  // Sensor/switch readings live in the store (loaded with the rest of the
+  // resources and kept live by the SSE stream), so tiles open already sized and
+  // motion/battery/button values stay current. Group them by owning device.
   const readingsByDevice = useMemo(() => {
     const map = new Map<string, HueAccessoryService[]>();
     for (const service of accessoryServices) {

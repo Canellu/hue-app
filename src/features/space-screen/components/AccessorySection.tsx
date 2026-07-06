@@ -14,7 +14,10 @@ import {
   rectSortingStrategy,
 } from "@dnd-kit/sortable";
 
-import { SensorReadingPill } from "@/components/SensorReadingPill";
+import {
+  SensorBatteryGauge,
+  SensorReadingPill,
+} from "@/components/SensorReadingPill";
 import { Card } from "@/components/ui/card";
 import type { HueAccessory, HueAccessoryService } from "@/types/hue";
 import { SectionGrip } from "./SectionDragHandle";
@@ -57,28 +60,50 @@ export const AccessorySection: React.FC<{
 
   const renderCard = (accessory: HueAccessory) => {
     const readings = readingsByDevice.get(accessory.id) ?? [];
+    // Light level in lux isn't something people act on, so hide it. Battery
+    // sits in the card's top-right corner rather than in a reading row.
+    const primaryReadings = readings.filter(
+      (service) =>
+        service.resourceType !== "light_level" &&
+        service.resourceType !== "device_power",
+    );
+    primaryReadings.sort((a, b) => {
+      if (a.resourceType === "button" && b.resourceType !== "button") return -1;
+      if (a.resourceType !== "button" && b.resourceType === "button") return 1;
+      if (a.resourceType !== "button") return 0;
+      return (
+        (a.controlId ?? Number.MAX_SAFE_INTEGER) -
+        (b.controlId ?? Number.MAX_SAFE_INTEGER)
+      );
+    });
+    const battery = readings.find(
+      (service) => service.resourceType === "device_power",
+    );
+    const deviceType =
+      accessory.productName ??
+      (accessory.kind === "switch" ? "Switch" : "Sensor");
     return (
       <Card data-edit-id={accessory.id} className="gap-3 bg-tile px-4 py-3">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between gap-3">
           <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
             <Icon size={18} />
           </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-medium">{accessory.name}</p>
-            <p className="truncate text-sm text-muted-foreground">
-              {accessory.productName ??
-                (accessory.kind === "switch" ? "Switch" : "Sensor")}
-            </p>
-          </div>
-          {!accessory.reachable && (
-            <span className="shrink-0 text-xs font-medium text-destructive">
-              Offline
-            </span>
-          )}
+          <span className="flex shrink-0 items-center gap-2">
+            {!accessory.reachable && (
+              <span className="text-xs font-medium text-destructive">
+                Offline
+              </span>
+            )}
+            {battery && <SensorBatteryGauge service={battery} />}
+          </span>
         </div>
-        {readings.length > 0 && (
+        <div className="min-w-0">
+          <p className="line-clamp-2 font-medium">{accessory.name}</p>
+          <p className="truncate text-sm text-muted-foreground">{deviceType}</p>
+        </div>
+        {primaryReadings.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
-            {readings.map((service) => (
+            {primaryReadings.map((service) => (
               <SensorReadingPill key={service.id} service={service} />
             ))}
           </div>

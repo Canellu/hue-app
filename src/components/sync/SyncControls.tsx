@@ -84,18 +84,23 @@ export const SyncToggleButton = ({
   active,
   busy,
   disabled,
+  locked,
   onClick,
 }: {
   active: boolean;
   busy: boolean;
   disabled?: boolean;
+  locked?: boolean;
   onClick: () => void;
 }) => (
   <Button
     size="xl"
     variant={active ? "secondary" : "default"}
-    className="min-w-44 gap-2 rounded-full"
-    disabled={disabled}
+    className={cn(
+      "min-w-44 gap-2 rounded-full",
+      locked && !disabled && "disabled:opacity-100",
+    )}
+    disabled={disabled || locked}
     onClick={onClick}
   >
     {busy ? (
@@ -105,7 +110,7 @@ export const SyncToggleButton = ({
     ) : (
       <Play className="fill-current" />
     )}
-    {active ? "Stop light sync" : "Start light sync"}
+    {active ? "Stop sync" : "Sync"}
   </Button>
 );
 
@@ -114,18 +119,26 @@ export const SyncHeroChip = ({
   icon: Icon,
   label,
   caption,
+  active = false,
   control,
 }: {
   icon: IconComponent;
   label: string;
   caption: string;
+  active?: boolean;
   control?: React.ReactNode;
 }) => (
   <div className="flex items-center gap-3 rounded-full border border-border bg-background/70 py-2 pl-2.5 pr-4 backdrop-blur-sm dark:border-foreground/8">
     <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-      <Icon className="size-4.5" />
+      <Icon
+        className={cn(
+          "size-4.5 transition-[color,filter] duration-300",
+          active &&
+            "text-emerald-600 drop-shadow-[0_0_5px_#34d399] [stroke-width:2.5] dark:text-emerald-300 dark:drop-shadow-[0_0_6px_#34d399]",
+        )}
+      />
     </span>
-    <div className="min-w-0">
+    <div className="w-12 shrink-0">
       <p className="text-sm font-medium leading-tight">{label}</p>
       <p className="mt-0.5 text-xs leading-tight text-muted-foreground">
         {caption}
@@ -142,6 +155,7 @@ export const OptionTile = ({
   caption,
   selected,
   disabled,
+  locked,
   vertical = false,
   onSelect,
 }: {
@@ -150,6 +164,7 @@ export const OptionTile = ({
   caption?: React.ReactNode;
   selected: boolean;
   disabled?: boolean;
+  locked?: boolean;
   /** Icon above the text — reads square-ish; default puts the icon inline. */
   vertical?: boolean;
   onSelect: () => void;
@@ -158,10 +173,11 @@ export const OptionTile = ({
     type="button"
     aria-pressed={selected}
     data-selected={selected ? "" : undefined}
-    disabled={disabled}
+    disabled={disabled || locked}
     onClick={onSelect}
     className={cn(
-      "flex min-w-0 items-center gap-3 rounded-xl bg-muted/50 p-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 dark:bg-foreground/3",
+      "flex min-w-0 items-center gap-3 rounded-xl bg-muted/50 p-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none dark:bg-foreground/3",
+      disabled && "opacity-50",
       selectableVariants(),
       vertical && "flex-col items-start gap-2.5",
     )}
@@ -195,12 +211,14 @@ export function SegmentedOptions<T extends string>({
   onValueChange,
   options,
   disabled,
+  locked,
   ariaLabel,
 }: {
   value: T;
   onValueChange: (value: T) => void;
   options: ReadonlyArray<{ value: T; label: string }>;
   disabled?: boolean;
+  locked?: boolean;
   ariaLabel: string;
 }) {
   return (
@@ -216,10 +234,11 @@ export function SegmentedOptions<T extends string>({
             key={option.value}
             type="button"
             aria-pressed={selected}
-            disabled={disabled}
+            disabled={disabled || locked}
             onClick={() => onValueChange(option.value)}
             className={cn(
-              "h-8 rounded-full border border-transparent px-3.5 text-sm font-medium text-foreground/60 transition-colors outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 dark:text-muted-foreground",
+              "h-8 rounded-full border border-transparent px-3.5 text-sm font-medium text-foreground/60 transition-colors outline-none hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none dark:text-muted-foreground",
+              disabled && "opacity-50",
               selected &&
                 "border-foreground/12 bg-background text-foreground shadow-sm dark:border-foreground/8 dark:bg-input/30 dark:text-foreground dark:shadow-none",
             )}

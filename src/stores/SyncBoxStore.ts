@@ -1,4 +1,8 @@
-import type { SyncBoxExecutionUpdate, SyncBoxState } from "@/types/sync-box";
+import type {
+  SyncBoxExecutionUpdate,
+  SyncBoxMode,
+  SyncBoxState,
+} from "@/types/sync-box";
 import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 
@@ -23,6 +27,7 @@ interface SyncBoxStore {
   refresh: () => Promise<void>;
   loadAreaLights: () => Promise<void>;
   updateExecution: (update: SyncBoxExecutionUpdate) => Promise<void>;
+  updateMode: (mode: SyncBoxMode) => Promise<void>;
   /**
    * Starts light sync on `areaId`, taking over the bridge's entertainment
    * stream first when another app owns it. The box never steals the stream on
@@ -153,6 +158,26 @@ export const useSyncBoxStore = create<SyncBoxStore>((set, get) => ({
       const state = await invoke<SyncBoxState>("set-sync-box-execution", {
         update,
       });
+      set({ state });
+    } catch (error) {
+      set({ error: String(error) });
+    } finally {
+      set({ isUpdating: false });
+    }
+  },
+  updateMode: async (mode) => {
+    set({ isUpdating: true, error: null });
+    try {
+      const current = get().state;
+      if (!current) throw new Error("Sync Box state is unavailable.");
+      const state = current.execution.syncActive
+        ? await invoke<SyncBoxState>("set-sync-box-execution", {
+            update: { mode },
+          })
+        : await invoke<SyncBoxState>("set-sync-box-source-mode", {
+            source: current.execution.hdmiSource,
+            mode,
+          });
       set({ state });
     } catch (error) {
       set({ error: String(error) });

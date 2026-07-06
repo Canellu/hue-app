@@ -26,7 +26,6 @@ import {
   SyncHeroChip,
   SyncToggleButton,
 } from "@/components/sync/SyncControls";
-import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { roomZoneTileColor } from "@/features/space-screen/utils/color-state";
 import {
@@ -42,6 +41,7 @@ import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import { useSyncBoxStore } from "@/stores/SyncBoxStore";
 import type { HueLight } from "@/types/hue";
 import type {
+  SyncBoxExecutionUpdate,
   SyncBoxIntensity,
   SyncBoxMode,
   SyncBoxSession,
@@ -188,12 +188,15 @@ export const SyncBoxConnectedView = ({
     refresh,
     loadAreaLights,
     updateExecution,
+    updateMode,
     startSync,
     clear,
   } = useSyncBoxStore();
   useSyncBoxPolling();
   const hasState = state !== null;
   const [takeoverOpen, setTakeoverOpen] = useState(false);
+  const [isTogglingSync, setIsTogglingSync] = useState(false);
+  const [effectBrightness, setEffectBrightness] = useState<number | null>(null);
 
   useEffect(() => {
     if (hasState) void loadAreaLights();
@@ -255,14 +258,20 @@ export const SyncBoxConnectedView = ({
     (conflictingStream != null || state.hue.connectionState === "busy");
   const conflictOwner = conflictingStream?.[1].owner ?? "another app";
   const sources = ["input1", "input2", "input3", "input4"] as const;
-  const displayedMode =
-    modeOptions.find(({ mode }) => mode === execution.mode)?.mode ??
-    modeOptions.find(({ mode }) => mode === execution.lastSyncMode)?.mode ??
-    "video";
-  const currentIntensity = state.execution[displayedMode]?.intensity;
   const selectedSource = sources.find(
     (source) => source === execution.hdmiSource,
   );
+  const displayedMode =
+    modeOptions.find(({ mode }) => mode === execution.mode)?.mode ??
+    modeOptions.find(
+      ({ mode }) =>
+        mode ===
+        (selectedSource
+          ? state.hdmi[selectedSource].lastSyncMode
+          : execution.lastSyncMode),
+    )?.mode ??
+    "video";
+  const currentIntensity = state.execution[displayedMode]?.intensity;
   const selectedSourceUnplugged =
     selectedSource != null && state.hdmi[selectedSource].status === "unplugged";
   const groups = Object.entries(state.hue.groups).sort(([, a], [, b]) =>
@@ -512,11 +521,17 @@ export const SyncBoxConnectedView = ({
   }
 
   const toggleSync = async () => {
-    if (syncingHere) {
-      await updateExecution({ syncActive: false });
-      return;
+    if (isTogglingSync) return;
+    setIsTogglingSync(true);
+    try {
+      if (syncingHere) {
+        await updateExecution({ syncActive: false });
+        return;
+      }
+      if (resolvedAreaId) await startSync(resolvedAreaId);
+    } finally {
+      setIsTogglingSync(false);
     }
-    if (resolvedAreaId) await startSync(resolvedAreaId);
   };
 
   return (
@@ -559,12 +574,14 @@ export const SyncBoxConnectedView = ({
               icon={Power}
               label="Power"
               caption={execution.hdmiActive ? "On" : "Standby"}
+              active={execution.hdmiActive}
               control={
                 <Switch
                   size="lg"
                   aria-label="Toggle Sync Box power"
                   checked={execution.hdmiActive}
                   disabled={isUpdating}
+                  dimWhenDisabled={false}
                   onCheckedChange={(checked) =>
                     void updateExecution({ hdmiActive: checked })
                   }
@@ -573,9 +590,9 @@ export const SyncBoxConnectedView = ({
             />
             <SyncToggleButton
               active={syncingHere}
-              busy={isUpdating}
+              busy={isTogglingSync}
+              locked={isUpdating}
               disabled={
-                isUpdating ||
                 syncingElsewhere ||
                 (!syncingHere && (!hueConnected || !resolvedAreaId))
               }
@@ -626,7 +643,7 @@ export const SyncBoxConnectedView = ({
                   </span>
                 }
                 selected={execution.hdmiSource === source}
-                disabled={isUpdating}
+                locked={isUpdating}
                 onSelect={() => void updateExecution({ hdmiSource: source })}
               />
             );
@@ -639,9 +656,7 @@ export const SyncBoxConnectedView = ({
           <CardHeader>
             <CardTitle>Sync style</CardTitle>
             <CardDescription>
-              {execution.syncActive
-                ? "How the lights interpret your content."
-                : "Start light sync to change the style."}
+              How the lights interpret your content.
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-5">
@@ -654,10 +669,8 @@ export const SyncBoxConnectedView = ({
                   label={label}
                   caption={description}
                   selected={displayedMode === mode}
-                  disabled={
-                    isUpdating || !hueConnected || !execution.syncActive
-                  }
-                  onSelect={() => void updateExecution({ mode })}
+                  locked={isUpdating}
+                  onSelect={() => void updateMode(mode)}
                 />
               ))}
             </div>
@@ -670,7 +683,7 @@ export const SyncBoxConnectedView = ({
                 <SegmentedOptions
                   ariaLabel="Sync intensity"
                   value={currentIntensity}
-                  disabled={isUpdating || !execution.syncActive}
+                  locked={isUpdating}
                   options={(
                     ["subtle", "moderate", "high", "intense"] as const
                   ).map((intensity) => ({
@@ -678,11 +691,16 @@ export const SyncBoxConnectedView = ({
                     label:
                       intensity.charAt(0).toUpperCase() + intensity.slice(1),
                   }))}
-                  onValueChange={(intensity) =>
-                    void updateExecution({
-                      intensity: intensity as SyncBoxIntensity,
-                    })
-                  }
+                  onValueChange={(intensity) => {
+                    const value = intensity as SyncBoxIntensity;
+                    const update: SyncBoxExecutionUpdate =
+                      displayedMode === "video"
+                        ? { video: { intensity: value } }
+                        : displayedMode === "game"
+                          ? { game: { intensity: value } }
+                          : { music: { intensity: value } };
+                    void updateExecution(update);
+                  }}
                 />
               </SettingRow>
             )}
@@ -703,21 +721,27 @@ export const SyncBoxConnectedView = ({
               description="50% is neutral; higher values boost the effect."
             >
               <span className="rounded-lg bg-muted px-2.5 py-1 font-mono text-sm">
-                {brightnessPercent}%
+                {effectBrightness ?? brightnessPercent}%
               </span>
             </SettingRow>
-            <Slider
-              aria-label="Effect brightness"
+            <PacedSlider
+              ariaLabel="Effect brightness"
               min={0}
               max={100}
               step={1}
-              value={[brightnessPercent]}
+              value={brightnessPercent}
               disabled={isUpdating}
-              onValueCommitted={(value) =>
-                void updateExecution({
-                  brightness: (Array.isArray(value) ? value[0] : value) * 2,
-                })
-              }
+              dimWhenDisabled={false}
+              isGroup={false}
+              onInput={setEffectBrightness}
+              onCommit={(value, phase) => {
+                setEffectBrightness(value);
+                if (phase === "final") {
+                  void updateExecution({ brightness: value * 2 }).finally(() =>
+                    setEffectBrightness(null),
+                  );
+                }
+              }}
             />
             <div className="flex justify-between text-xs text-muted-foreground">
               <span>Dimmer</span>

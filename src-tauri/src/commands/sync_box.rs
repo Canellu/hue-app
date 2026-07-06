@@ -55,3 +55,15 @@ pub async fn set_sync_box_execution(
 ) -> Result<SyncBoxState, String> {
     client.update_saved_execution(&app, update).await
 }
+
+#[tauri::command(rename = "set-sync-box-source-mode")]
+pub async fn set_sync_box_source_mode(
+    app: AppHandle,
+    client: State<'_, SyncBoxClient>,
+    source: String,
+    mode: String,
+) -> Result<SyncBoxState, String> {
+    client
+        .update_saved_source_mode(&app, &source, &mode)
+        .await
+}

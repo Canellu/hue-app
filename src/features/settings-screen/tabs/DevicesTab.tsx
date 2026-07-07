@@ -34,7 +34,10 @@ import {
   powerupSummary,
   samePowerOnDraft,
 } from "@/features/light-settings/powerOn";
-import { LIGHT_ICON_OPTIONS } from "@/features/space-screen/utils/light-icons";
+import {
+  getLightIcon,
+  LIGHT_ICON_OPTIONS,
+} from "@/features/space-screen/utils/light-icons";
 import { cn } from "@/lib/utils";
 import type {
   HueAccessoryService,
@@ -565,10 +568,16 @@ const EditableLightRow = ({
     }
   };
 
+  const iconOptions =
+    icon && !LIGHT_ICON_OPTIONS.some((option) => option.value === icon)
+      ? [
+          ...LIGHT_ICON_OPTIONS,
+          { value: icon, label: humanize(icon), Icon: getLightIcon(icon) },
+        ]
+      : LIGHT_ICON_OPTIONS;
   const iconItems = Object.fromEntries(
-    LIGHT_ICON_OPTIONS.map((option) => [option.value, option.label]),
+    iconOptions.map((option) => [option.value, option.label]),
   );
-  if (icon && !iconItems[icon]) iconItems[icon] = humanize(icon);
 
   return (
     <EditableResourceRow
@@ -599,12 +608,33 @@ const EditableLightRow = ({
                     disabled={isSaving}
                   >
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Choose icon" />
+                      <SelectValue placeholder="Choose icon">
+                        {(value: string | null) => {
+                          const option = iconOptions.find(
+                            (item) => item.value === value,
+                          );
+                          if (!option) return "Choose icon";
+                          const Icon = option.Icon;
+                          return (
+                            <>
+                              <Icon
+                                className="size-4.5 text-muted-foreground"
+                                strokeWidth={2.25}
+                              />
+                              <span>{option.label}</span>
+                            </>
+                          );
+                        }}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent>
-                      {Object.entries(iconItems).map(([value, label]) => (
+                      {iconOptions.map(({ value, label, Icon }) => (
                         <SelectItem key={value} value={value}>
-                          {label}
+                          <Icon
+                            className="size-4.5 text-muted-foreground"
+                            strokeWidth={2.25}
+                          />
+                          <span>{label}</span>
                         </SelectItem>
                       ))}
                     </SelectContent>

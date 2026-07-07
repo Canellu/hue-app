@@ -152,6 +152,7 @@ const makeDummyLight = (
   swVersion: null,
   uniqueId: null,
   function: "functional",
+  powerup: null,
 });
 
 const DUMMY_ROOM_ZONES: HueRoomZone[] = [

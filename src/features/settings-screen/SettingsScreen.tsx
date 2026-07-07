@@ -384,6 +384,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   onRename={renameResource}
                   onDelete={deleteResource}
                   onSaveSwitchConfig={saveSwitchConfig}
+                  onRefresh={refreshSettings}
                 />
               </TabsContent>
 

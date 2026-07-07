@@ -30,6 +30,7 @@ import { Switch } from "@/components/ui/switch";
 import { roomZoneTileColor } from "@/features/space-screen/utils/color-state";
 import {
   activeTileTheme,
+  LIT_TILE_FLAT_EDGE,
   TILE_BRIGHTNESS_SLIDER_CLASS,
   TILE_INTERACTION_TRANSITION_CLASS,
   TILE_POWER_SWITCH_CLASS,
@@ -382,11 +383,14 @@ export const SyncBoxConnectedView = ({
                   {
                     "--tile-ease": `${UI_EASE_MS.tileBackground}ms`,
                     ...(tile.active && tile.background
-                      ? activeTileTheme(
-                          tile.background,
-                          tile.glow ?? tile.background,
-                          brightness,
-                        )
+                      ? {
+                          ...activeTileTheme(
+                            tile.background,
+                            tile.glow ?? tile.background,
+                            brightness,
+                          ),
+                          ...LIT_TILE_FLAT_EDGE,
+                        }
                       : null),
                   } as React.CSSProperties
                 }

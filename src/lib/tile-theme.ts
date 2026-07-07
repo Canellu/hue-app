@@ -242,14 +242,33 @@ export function activeTileTheme(
     ...LIGHT_THEME,
     background:
       brightness == null ? background : brightnessShade(background, brightness),
+    // Gradients must cover the border positioning area and never repeat into
+    // it. Otherwise a transparent border can paint the dark bottom stop along
+    // the top edge and the bright top stop along the bottom edge.
+    backgroundOrigin: "border-box",
+    backgroundRepeat: "no-repeat",
+    backgroundSize: "100% 100%",
     "--foreground": foreground,
     "--card-foreground": foreground,
-    // A solid neutral edge that tracks the app theme: gray in light mode, a
-    // dark step in dark mode (`--tile-border-lit` is left out of `LIGHT_THEME`
-    // on purpose, so it inherits the real `:root`/`.dark` value rather than the
-    // pinned-light one). Must stay solid — a translucent border lets the
-    // saturated fill bleed through and reads as the fill's complement
-    // (simultaneous contrast), so a whitish edge looks green over orange.
+    // Lit surfaces inherit their edge treatment from the component displaying
+    // them. Large control tiles use LIT_TILE_FLAT_EDGE; small previews and chips
+    // retain the normal theme border/shadow.
     "--tile-border": "var(--tile-border-lit)",
   } as React.CSSProperties;
 }
+
+/**
+ * Spread onto large lit control tiles alongside `activeTileTheme`. Their
+ * top-light → bottom-dark fill makes one neutral border look dark at the top
+ * and light at the bottom. A transparent border still produces a wrapped edge
+ * pixel on WebView-composited sortable cards, so remove the border entirely and
+ * replace its vertical space with padding. Removing the elevation layer leaves
+ * the surface flat while preserving Tailwind's separate focus/selection outline.
+ * This stays component-specific because smaller previews and chips still benefit
+ * from their normal edge and elevation.
+ */
+export const LIT_TILE_FLAT_EDGE = {
+  borderWidth: 0,
+  paddingBlock: "calc(var(--card-spacing) + 1px)",
+  "--tw-shadow": "0 0 #0000",
+} as React.CSSProperties;

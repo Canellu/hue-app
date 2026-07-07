@@ -268,6 +268,17 @@ pub struct HueLight {
     pub unique_id: Option<String>,
     /// Light function: one of `functional`, `decorative`, `mixed`, `unknown`.
     pub function: Option<String>,
+    /// Behavior configured for a physical power cycle.
+    pub powerup: Option<HueLightPowerup>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HueLightPowerup {
+    pub preset: String,
+    pub brightness: Option<f64>,
+    pub mirek: Option<u16>,
+    pub xy: Option<[f64; 2]>,
 }
 
 /// A non-light accessory (switch/remote or sensor) belonging to a room. Rooms
@@ -581,6 +592,29 @@ struct HueEffectsV2Feature {
     effect_values: Vec<String>,
 }
 
+#[derive(Debug, Default, Deserialize)]
+struct HuePowerupDimming {
+    #[serde(default)]
+    dimming: Option<HueDimming>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct HuePowerupColor {
+    #[serde(default)]
+    color_temperature: Option<HueColorTemperature>,
+    #[serde(default)]
+    color: Option<HueColor>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HuePowerup {
+    preset: String,
+    #[serde(default)]
+    dimming: Option<HuePowerupDimming>,
+    #[serde(default)]
+    color: Option<HuePowerupColor>,
+}
+
 #[derive(Debug, Deserialize)]
 struct HueLightResource {
     id: String,
@@ -597,6 +631,8 @@ struct HueLightResource {
     effects: Option<HueEffectsFeature>,
     #[serde(default)]
     effects_v2: Option<HueEffectsV2Feature>,
+    #[serde(default)]
+    powerup: Option<HuePowerup>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1550,6 +1586,30 @@ impl HueClient {
 
                 let archetype = light.metadata.archetype.clone();
                 let function = light.metadata.function.clone();
+                let powerup = light.powerup.as_ref().map(|powerup| {
+                    let brightness = powerup
+                        .dimming
+                        .as_ref()
+                        .and_then(|value| value.dimming.as_ref())
+                        .map(|value| value.brightness);
+                    let mirek = powerup
+                        .color
+                        .as_ref()
+                        .and_then(|value| value.color_temperature.as_ref())
+                        .and_then(|value| value.mirek);
+                    let xy = powerup
+                        .color
+                        .as_ref()
+                        .and_then(|value| value.color.as_ref())
+                        .map(|value| [value.xy.x, value.xy.y]);
+
+                    HueLightPowerup {
+                        preset: powerup.preset.clone(),
+                        brightness,
+                        mirek,
+                        xy,
+                    }
+                });
 
                 HueLight {
                     id: light.id,
@@ -1577,6 +1637,7 @@ impl HueClient {
                     sw_version: product.and_then(|p| p.software_version.clone()),
                     unique_id: mac,
                     function,
+                    powerup,
                 }
             })
             .collect())

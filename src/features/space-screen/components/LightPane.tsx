@@ -1,10 +1,4 @@
 import { PacedSlider } from "@/components/PacedSlider";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,6 +18,19 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PowerOnFields } from "@/features/light-settings/PowerOnFields";
+import {
+  roomForLight,
+  sameIds,
+  updateRoomPlacement,
+  updateZonesPlacement,
+  zonesForLight,
+} from "@/features/light-settings/lightPlacement";
+import {
+  buildPowerOnBody,
+  powerOnDraftFromLight,
+  samePowerOnDraft,
+} from "@/features/light-settings/powerOn";
 import { lightColorHex } from "@/features/space-screen/utils/color-state";
 import {
   getLightIcon,
@@ -307,17 +314,6 @@ export const LightPane: React.FC<LightPaneProps> = ({
   );
 };
 
-const MetaRow: React.FC<{ label: string; value: string | null }> = ({
-  label,
-  value,
-}) =>
-  value ? (
-    <div className="flex items-center justify-between gap-4">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="truncate text-right font-medium">{value}</dd>
-    </div>
-  ) : null;
-
 /**
  * Editing pane shown inside the side pane (slid in from the right when the
  * pencil is tapped). Mirrors the read-only view's icon → name layout, but the
@@ -341,6 +337,7 @@ const EditPane: React.FC<{
   const [name, setName] = useState(light.name);
   const [icon, setIcon] = useState(light.typeName ?? "");
   const [func, setFunc] = useState(light.function ?? "");
+  const [powerOn, setPowerOn] = useState(() => powerOnDraftFromLight(light));
   const [room, setRoom] = useState<string | null>(
     roomForLight(light, roomZones),
   );
@@ -357,6 +354,7 @@ const EditPane: React.FC<{
     setName(light.name);
     setIcon(light.typeName ?? "");
     setFunc(light.function ?? "");
+    setPowerOn(powerOnDraftFromLight(light));
     setRoom(roomForLight(light, roomZones));
     setZoneIds(zonesForLight(light, roomZones));
     setError(null);
@@ -435,20 +433,29 @@ const EditPane: React.FC<{
     setIsSaving(true);
     setError(null);
     try {
-      if (
+      const metadataChanged =
         trimmed !== light.name ||
         icon !== (light.typeName ?? "") ||
-        func !== (light.function ?? "")
-      ) {
+        func !== (light.function ?? "");
+      const originalPowerOn = powerOnDraftFromLight(light);
+      const powerOnChanged =
+        light.powerup != null && !samePowerOnDraft(powerOn, originalPowerOn);
+
+      if (metadataChanged || powerOnChanged) {
         await invoke("update-hue-resource", {
           resourceType: "light",
           id: light.id,
           body: {
-            metadata: {
-              name: trimmed,
-              ...(icon ? { archetype: icon } : null),
-              ...(func ? { function: func } : null),
-            },
+            ...(metadataChanged
+              ? {
+                  metadata: {
+                    name: trimmed,
+                    ...(icon ? { archetype: icon } : null),
+                    ...(func ? { function: func } : null),
+                  },
+                }
+              : null),
+            ...(powerOnChanged ? buildPowerOnBody(powerOn) : null),
           },
         });
       }
@@ -478,17 +485,20 @@ const EditPane: React.FC<{
 
   const originalRoom = roomForLight(light, roomZones);
   const originalZones = zonesForLight(light, roomZones);
+  const originalPowerOn = powerOnDraftFromLight(light);
   guardRef.current = {
     dirty:
       name !== light.name ||
       icon !== (light.typeName ?? "") ||
       func !== (light.function ?? "") ||
+      !samePowerOnDraft(powerOn, originalPowerOn) ||
       room !== originalRoom ||
       !sameIds(zoneIds, originalZones),
     discard: () => {
       setName(light.name);
       setIcon(light.typeName ?? "");
       setFunc(light.function ?? "");
+      setPowerOn(originalPowerOn);
       setRoom(originalRoom);
       setZoneIds(originalZones);
     },
@@ -653,26 +663,12 @@ const EditPane: React.FC<{
               </Select>
             </div>
 
-            <Accordion>
-              <AccordionItem value="device-info">
-                <AccordionTrigger>Device information</AccordionTrigger>
-                <AccordionContent>
-                  <dl className="flex flex-col gap-2 text-sm">
-                    <MetaRow label="Type" value={light.typeName} />
-                    <MetaRow label="Product" value={light.productName} />
-                    <MetaRow label="Model ID" value={light.modelId} />
-                    <MetaRow label="Firmware" value={light.swVersion} />
-                    <MetaRow
-                      label="Connection"
-                      value={light.reachable ? "Reachable" : "Unreachable"}
-                    />
-                    <MetaRow label="Zigbee MAC" value={light.uniqueId} />
-                    <MetaRow label="Light ID" value={light.id} />
-                    <MetaRow label="Device ID" value={light.deviceId} />
-                  </dl>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
+            <PowerOnFields
+              light={light}
+              value={powerOn}
+              onChange={setPowerOn}
+              disabled={isSaving}
+            />
 
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
@@ -768,92 +764,5 @@ const EditPane: React.FC<{
 // a null value alongside string ids.
 const NONE = "__none__";
 
-const roomForLight = (
-  light: HueLight,
-  roomZones: HueRoomZone[],
-): string | null =>
-  roomZones.find(
-    (space) =>
-      space.resourceType === "room" &&
-      light.deviceId != null &&
-      space.deviceIds.includes(light.deviceId),
-  )?.id ?? null;
-
-const zonesForLight = (light: HueLight, roomZones: HueRoomZone[]): string[] =>
-  roomZones
-    .filter(
-      (space) =>
-        space.resourceType === "zone" && space.lightIds.includes(light.id),
-    )
-    .map((space) => space.id);
-
-// Rooms own devices, so membership is keyed by deviceId. A device lives in at
-// most one room; clear any other room before assigning the new one.
-const updateRoomPlacement = async (
-  light: HueLight,
-  roomZones: HueRoomZone[],
-  roomId: string | null,
-) => {
-  const deviceId = light.deviceId;
-  if (!deviceId) return;
-
-  await Promise.all(
-    roomZones
-      .filter(
-        (space) =>
-          space.resourceType === "room" &&
-          space.id !== roomId &&
-          space.deviceIds.includes(deviceId),
-      )
-      .map((space) =>
-        invoke("update-room-members", {
-          roomId: space.id,
-          deviceIds: space.deviceIds.filter((id) => id !== deviceId),
-        }),
-      ),
-  );
-
-  if (roomId) {
-    await invoke("assign-device-to-room", { deviceId, roomId });
-  }
-};
-
-// Zones reference lights directly. A light may belong to several zones at once,
-// so diff the chosen set against the current one: drop it from de-selected zones
-// and add it to newly selected ones, leaving untouched memberships alone.
-const updateZonesPlacement = async (
-  light: HueLight,
-  roomZones: HueRoomZone[],
-  zoneIds: string[],
-) => {
-  const deviceId = light.deviceId;
-  if (!deviceId) return;
-
-  const target = new Set(zoneIds);
-  const current = roomZones.filter(
-    (space) =>
-      space.resourceType === "zone" && space.lightIds.includes(light.id),
-  );
-  const currentIds = new Set(current.map((space) => space.id));
-
-  const removals = current
-    .filter((space) => !target.has(space.id))
-    .map((space) =>
-      invoke("update-zone-members", {
-        zoneId: space.id,
-        lightIds: space.lightIds.filter((id) => id !== light.id),
-      }),
-    );
-
-  const additions = zoneIds
-    .filter((zoneId) => !currentIds.has(zoneId))
-    .map((zoneId) => invoke("assign-device-to-zone", { deviceId, zoneId }));
-
-  await Promise.all([...removals, ...additions]);
-};
-
 const labelFromHueId = (id: string): string =>
   id.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-
-const sameIds = (left: string[], right: string[]): boolean =>
-  left.length === right.length && left.every((id) => right.includes(id));

@@ -105,6 +105,21 @@ export interface HueLight {
   uniqueId: string | null;
   /** What the light is used for: "functional", "decorative", "mixed", or "unknown". */
   function: string | null;
+  /** Behavior configured for a physical power cycle. */
+  powerup: HueLightPowerup | null;
+}
+
+export type HuePowerupPreset =
+  | "safety"
+  | "last_on_state"
+  | "powerfail"
+  | "custom";
+
+export interface HueLightPowerup {
+  preset: HuePowerupPreset;
+  brightness: number | null;
+  mirek: number | null;
+  xy: [number, number] | null;
 }
 
 export interface HuePosition {

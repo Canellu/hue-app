@@ -1,4 +1,7 @@
-import { SensorReadingPill } from "@/components/SensorReadingPill";
+import {
+  SensorBatteryGauge,
+  SensorReadingPill,
+} from "@/components/SensorReadingPill";
 import {
   Accordion,
   AccordionContent,
@@ -9,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -16,6 +20,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PowerOnFields } from "@/features/light-settings/PowerOnFields";
+import {
+  roomForLight,
+  sameIds,
+  updateRoomPlacement,
+  updateZonesPlacement,
+  zonesForLight,
+} from "@/features/light-settings/lightPlacement";
+import {
+  buildPowerOnBody,
+  powerOnDraftFromLight,
+  powerupSummary,
+  samePowerOnDraft,
+} from "@/features/light-settings/powerOn";
+import { LIGHT_ICON_OPTIONS } from "@/features/space-screen/utils/light-icons";
 import { cn } from "@/lib/utils";
 import type {
   HueAccessoryService,
@@ -25,8 +44,15 @@ import type {
   HueSettingsSummary,
   HueSwitchInputConfiguration,
 } from "@/types/hue";
-import { CircleX, FilterX, Loader2, Search, SlidersHorizontal } from "lucide-react";
+import {
+  CircleX,
+  FilterX,
+  Loader2,
+  Search,
+  SlidersHorizontal,
+} from "lucide-react";
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { CollapsibleSection } from "../components/CollapsibleSection";
 import { DeleteResourceButton } from "../components/DeleteResourceButton";
 import { EditableResourceRow } from "../components/EditableResourceRow";
@@ -55,6 +81,7 @@ const SECTION_KEYS = ["Lights", "Switches", "Sensors", "Other Devices"];
 
 /** Bucket key for devices/lights not placed in any room. */
 const UNASSIGNED_KEY = "__unassigned";
+const NO_ROOM = "__none__";
 
 /** A by-room bucket of items, used to subdivide each type section. */
 interface RoomGroup<T> {
@@ -89,9 +116,15 @@ const groupByRoom = <T,>(
     else unassigned.push(item);
   }
 
-  const groups = [...buckets.values()].filter((group) => group.items.length > 0);
+  const groups = [...buckets.values()].filter(
+    (group) => group.items.length > 0,
+  );
   if (unassigned.length > 0) {
-    groups.push({ key: UNASSIGNED_KEY, title: "Unassigned", items: unassigned });
+    groups.push({
+      key: UNASSIGNED_KEY,
+      title: "Unassigned",
+      items: unassigned,
+    });
   }
   return groups;
 };
@@ -104,6 +137,7 @@ export const DevicesTab = ({
   onRename,
   onDelete,
   onSaveSwitchConfig,
+  onRefresh,
 }: {
   summary: HueSettingsSummary | null;
   isLoadingSummary: boolean;
@@ -112,6 +146,7 @@ export const DevicesTab = ({
   onRename: RenameResource;
   onDelete: DeleteResource;
   onSaveSwitchConfig: SaveSwitchConfig;
+  onRefresh: () => Promise<void>;
 }) => {
   const [deviceQuery, setDeviceQuery] = useState("");
   const [deviceStatus, setDeviceStatus] = useState<DeviceStatusFilter>("all");
@@ -342,8 +377,10 @@ export const DevicesTab = ({
                   {(light) => (
                     <EditableLightRow
                       light={light}
+                      roomZones={roomZones}
                       onRename={onRename}
                       onDelete={onDelete}
+                      onRefresh={onRefresh}
                     />
                   )}
                 </RoomGroupedList>
@@ -413,8 +450,7 @@ function RoomGroupedList<T>({
   getKey: (item: T) => string;
   children: (item: T) => React.ReactNode;
 }) {
-  const showHeadings =
-    groups.length > 1 || groups[0]?.key !== UNASSIGNED_KEY;
+  const showHeadings = groups.length > 1 || groups[0]?.key !== UNASSIGNED_KEY;
   return (
     <div className="grid gap-5">
       {groups.map((group) => (
@@ -442,28 +478,274 @@ function RoomGroupedList<T>({
 
 const EditableLightRow = ({
   light,
+  roomZones,
   onRename,
   onDelete,
+  onRefresh,
 }: {
   light: HueLight;
+  roomZones: HueRoomZone[];
   onRename: RenameResource;
   onDelete: DeleteResource;
-}) => (
-  <EditableResourceRow
-    id={light.id}
-    resourceType="light"
-    name={light.name}
-    eyebrow={light.productName ?? light.typeName ?? "Hue light"}
-    meta={[
-      light.modelId,
-      light.swVersion ? `Firmware ${light.swVersion}` : null,
-      light.reachable ? "Reachable" : "Unreachable",
-    ]}
-    onRename={onRename}
-    onDelete={onDelete}
-    deleteDescription={`Delete light "${light.name}" from the bridge.`}
-  />
-);
+  onRefresh: () => Promise<void>;
+}) => {
+  const [icon, setIcon] = useState(light.typeName ?? "");
+  const [func, setFunc] = useState(light.function ?? "");
+  const [room, setRoom] = useState<string | null>(
+    roomForLight(light, roomZones),
+  );
+  const [zoneIds, setZoneIds] = useState<string[]>(
+    zonesForLight(light, roomZones),
+  );
+  const [powerOn, setPowerOn] = useState(() => powerOnDraftFromLight(light));
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIcon(light.typeName ?? "");
+    setFunc(light.function ?? "");
+    setRoom(roomForLight(light, roomZones));
+    setZoneIds(zonesForLight(light, roomZones));
+    setPowerOn(powerOnDraftFromLight(light));
+    setError(null);
+  }, [light, roomZones]);
+
+  const rooms = roomZones.filter((space) => space.resourceType === "room");
+  const zones = roomZones.filter((space) => space.resourceType === "zone");
+  const originalRoom = roomForLight(light, roomZones);
+  const originalZones = zonesForLight(light, roomZones);
+  const originalPowerOn = powerOnDraftFromLight(light);
+  const metadataChanged =
+    icon !== (light.typeName ?? "") || func !== (light.function ?? "");
+  const powerOnChanged =
+    light.powerup != null && !samePowerOnDraft(powerOn, originalPowerOn);
+  const placementChanged =
+    room !== originalRoom || !sameIds(zoneIds, originalZones);
+  const dirty = metadataChanged || powerOnChanged || placementChanged;
+
+  const save = async () => {
+    if (!dirty) return;
+    if (placementChanged && !light.deviceId) {
+      setError("This light is missing its owning device id.");
+      return;
+    }
+
+    setIsSaving(true);
+    setError(null);
+    try {
+      if (metadataChanged || powerOnChanged) {
+        await invoke("update-hue-resource", {
+          resourceType: "light",
+          id: light.id,
+          body: {
+            ...(metadataChanged
+              ? {
+                  metadata: {
+                    name: light.name,
+                    ...(icon ? { archetype: icon } : null),
+                    ...(func ? { function: func } : null),
+                  },
+                }
+              : null),
+            ...(powerOnChanged ? buildPowerOnBody(powerOn) : null),
+          },
+        });
+      }
+      if (room !== originalRoom) {
+        await updateRoomPlacement(light, roomZones, room);
+      }
+      if (!sameIds(zoneIds, originalZones)) {
+        await updateZonesPlacement(light, roomZones, zoneIds);
+      }
+      await onRefresh();
+    } catch (saveError) {
+      setError(String(saveError) || "Unable to save light settings.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const iconItems = Object.fromEntries(
+    LIGHT_ICON_OPTIONS.map((option) => [option.value, option.label]),
+  );
+  if (icon && !iconItems[icon]) iconItems[icon] = humanize(icon);
+
+  return (
+    <EditableResourceRow
+      id={light.id}
+      resourceType="light"
+      name={light.name}
+      eyebrow={light.productName ?? light.typeName ?? "Hue light"}
+      meta={[
+        !light.reachable ? "Offline" : null,
+        light.powerup ? `Power on: ${powerupSummary(light.powerup)}` : null,
+      ]}
+      onRename={onRename}
+      onDelete={onDelete}
+      deleteDescription={`Delete light "${light.name}" from the bridge.`}
+    >
+      <Accordion className="mt-3 rounded-xl border-border/60">
+        <AccordionItem value="settings">
+          <AccordionTrigger className="p-3">Light settings</AccordionTrigger>
+          <AccordionContent className="px-3">
+            <div className="grid gap-4">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label>Icon</Label>
+                  <Select
+                    items={iconItems}
+                    value={icon || null}
+                    onValueChange={(value) => setIcon(value ?? "")}
+                    disabled={isSaving}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Choose icon" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(iconItems).map(([value, label]) => (
+                        <SelectItem key={value} value={value}>
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid gap-1.5">
+                  <Label>Function</Label>
+                  <Select
+                    items={{
+                      functional: "Task",
+                      decorative: "Decorative",
+                      mixed: "Mixed",
+                    }}
+                    value={func || null}
+                    onValueChange={(value) => setFunc(value ?? "")}
+                    disabled={isSaving}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Choose function" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="functional">Task</SelectItem>
+                      <SelectItem value="decorative">Decorative</SelectItem>
+                      <SelectItem value="mixed">Mixed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label>Room</Label>
+                  <Select
+                    items={{
+                      [NO_ROOM]: "No room",
+                      ...Object.fromEntries(
+                        rooms.map((space) => [space.id, space.name]),
+                      ),
+                    }}
+                    value={room ?? NO_ROOM}
+                    onValueChange={(value) =>
+                      setRoom(value === NO_ROOM ? null : value)
+                    }
+                    disabled={isSaving}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_ROOM}>No room</SelectItem>
+                      {rooms.map((space) => (
+                        <SelectItem key={space.id} value={space.id}>
+                          {space.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="grid gap-1.5">
+                  <Label>Zones</Label>
+                  <Select
+                    multiple
+                    items={Object.fromEntries(
+                      zones.map((space) => [space.id, space.name]),
+                    )}
+                    value={zoneIds}
+                    onValueChange={setZoneIds}
+                    disabled={isSaving}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="No zones">
+                        {(value: string[]) =>
+                          value.length === 0
+                            ? "No zones"
+                            : value
+                                .map(
+                                  (id) =>
+                                    zones.find((space) => space.id === id)
+                                      ?.name ?? id,
+                                )
+                                .join(", ")
+                        }
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {zones.map((space) => (
+                        <SelectItem
+                          key={space.id}
+                          value={space.id}
+                          indicator="checkbox"
+                        >
+                          {space.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <PowerOnFields
+                light={light}
+                value={powerOn}
+                onChange={setPowerOn}
+                disabled={isSaving}
+              />
+
+              {error && <p className="text-sm text-destructive">{error}</p>}
+              <div className="flex justify-end">
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={!dirty || isSaving}
+                  onClick={() => void save()}
+                >
+                  {isSaving && <Loader2 className="animate-spin" />}
+                  Save changes
+                </Button>
+              </div>
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+        <AccordionItem value="details">
+          <AccordionTrigger className="p-3">Device details</AccordionTrigger>
+          <AccordionContent className="px-3">
+            <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+              <DeviceField
+                label="Product"
+                value={light.productName ?? light.typeName}
+              />
+              <DeviceField label="Model" value={light.modelId} />
+              <DeviceField label="Firmware" value={light.swVersion} />
+              <DeviceField label="Zigbee ID" value={light.uniqueId} mono />
+            </dl>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    </EditableResourceRow>
+  );
+};
 
 const DeviceGroupPanel = ({
   title,
@@ -531,101 +813,138 @@ const DeviceRow = ({
   switchConfigs: HueSwitchInputConfiguration[];
   onDelete: DeleteResource;
   onSaveSwitchConfig: SaveSwitchConfig;
-}) => (
-  <Card size="sm" className={cn("bg-background/70", FLAT_CARD)}>
-    <CardContent>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs text-muted-foreground">
-            {device.productArchetype
-              ? humanize(device.productArchetype)
-              : "Hue device"}
-          </p>
-          <p className="truncate font-medium">{device.name}</p>
-        </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <Badge variant={device.reachable ? "secondary" : "destructive"}>
-            {device.reachable ? "Reachable" : "Unreachable"}
-          </Badge>
-          {!isBridgeDevice(device) && (
-            <DeleteResourceButton
-              label={device.name}
-              description={`Delete device "${device.name}" from the bridge.`}
-              onDelete={() => onDelete("device", device.id)}
-            />
-          )}
-        </div>
-      </div>
+}) => {
+  const battery = services.find(
+    (service) => service.resourceType === "device_power",
+  );
+  const primaryReadings = services.filter(
+    (service) =>
+      service.value &&
+      service.resourceType !== "button" &&
+      service.resourceType !== "relative_rotary" &&
+      service.resourceType !== "device_power" &&
+      service.resourceType !== "zigbee_connectivity" &&
+      service.resourceType !== "light_level",
+  );
+  const serviceTypes = [...new Set(device.serviceTypes)];
 
-      {(() => {
-        const readings = services.filter((service) => service.value);
-        if (readings.length === 0) return null;
-        return (
+  return (
+    <Card size="sm" className={cn("bg-background/70", FLAT_CARD)}>
+      <CardContent>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate font-medium">{device.name}</p>
+            <p className="truncate text-sm text-muted-foreground">
+              {device.productName ?? friendlyDeviceType(device)}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {!device.reachable && <Badge variant="destructive">Offline</Badge>}
+            {battery && <SensorBatteryGauge service={battery} />}
+          </div>
+        </div>
+
+        {primaryReadings.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
-            {readings.map((service) => (
+            {primaryReadings.map((service) => (
               <SensorReadingPill key={service.id} service={service} />
             ))}
           </div>
-        );
-      })()}
+        )}
 
-      <dl className="mt-3 grid gap-x-6 gap-y-2 sm:grid-cols-2">
-        <DeviceField label="Product" value={device.productName} />
-        <DeviceField label="Model" value={device.modelId} />
-        <DeviceField label="Firmware" value={device.swVersion} />
-        <DeviceField label="Zigbee ID" value={device.uniqueId} mono />
-      </dl>
+        <Accordion className="mt-3 rounded-xl border-border/60">
+          <AccordionItem value="details">
+            <AccordionTrigger className="p-3">Device details</AccordionTrigger>
+            <AccordionContent className="px-3">
+              <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
+                <DeviceField label="Product" value={device.productName} />
+                <DeviceField label="Model" value={device.modelId} />
+                <DeviceField label="Firmware" value={device.swVersion} />
+                <DeviceField label="Zigbee ID" value={device.uniqueId} mono />
+              </dl>
 
-      {device.serviceTypes.length > 0 && (
-        <div className="mt-3">
-          <p className="mb-1.5 text-xs font-medium text-muted-foreground">
-            Capabilities
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {device.serviceTypes.map((serviceType) => (
-              <Badge key={serviceType} variant="outline">
-                {humanize(serviceType)}
-              </Badge>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {(services.length > 0 || switchConfigs.length > 0) && (
-        <Accordion className="mt-3">
-          {services.length > 0 && (
-            <AccordionItem value="services">
-              <AccordionTrigger>Accessory state</AccordionTrigger>
-              <AccordionContent>
-                <div className="grid gap-2">
-                  {services.map((service) => (
-                    <AccessoryServiceRow key={service.id} service={service} />
-                  ))}
+              {serviceTypes.length > 0 && (
+                <div className="mt-4">
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                    Services
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {serviceTypes.map((serviceType) => (
+                      <Badge key={serviceType} variant="outline">
+                        {humanize(serviceType)}
+                      </Badge>
+                    ))}
+                  </div>
                 </div>
-              </AccordionContent>
-            </AccordionItem>
-          )}
-          {switchConfigs.length > 0 && (
-            <AccordionItem value="switch-config">
-              <AccordionTrigger>Switch input configuration</AccordionTrigger>
-              <AccordionContent>
-                <div className="grid gap-2">
-                  {switchConfigs.map((config) => (
-                    <SwitchConfigEditor
-                      key={config.id}
-                      config={config}
-                      onSave={onSaveSwitchConfig}
-                    />
-                  ))}
+              )}
+
+              {(services.length > 0 || switchConfigs.length > 0) && (
+                <Accordion className="mt-4 rounded-xl border-border/60">
+                  {services.length > 0 && (
+                    <AccordionItem value="services">
+                      <AccordionTrigger className="p-3">
+                        Service diagnostics
+                      </AccordionTrigger>
+                      <AccordionContent className="px-3">
+                        <div className="grid gap-2">
+                          {services.map((service) => (
+                            <AccessoryServiceRow
+                              key={service.id}
+                              service={service}
+                            />
+                          ))}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  )}
+                  {switchConfigs.length > 0 && (
+                    <AccordionItem value="switch-config">
+                      <AccordionTrigger className="p-3">
+                        Advanced switch configuration
+                      </AccordionTrigger>
+                      <AccordionContent className="px-3">
+                        <p className="mb-3 text-xs text-muted-foreground">
+                          Raw bridge configuration for troubleshooting and
+                          custom switch behavior.
+                        </p>
+                        <div className="grid gap-2">
+                          {switchConfigs.map((config) => (
+                            <SwitchConfigEditor
+                              key={config.id}
+                              config={config}
+                              onSave={onSaveSwitchConfig}
+                            />
+                          ))}
+                        </div>
+                      </AccordionContent>
+                    </AccordionItem>
+                  )}
+                </Accordion>
+              )}
+
+              {!isBridgeDevice(device) && (
+                <div className="mt-4 flex flex-col items-start gap-2 border-t border-border/60 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Remove device</p>
+                    <p className="text-xs text-muted-foreground">
+                      Disconnect this device from the Hue Bridge.
+                    </p>
+                  </div>
+                  <DeleteResourceButton
+                    label={device.name}
+                    description={`Delete device "${device.name}" from the bridge.`}
+                    triggerLabel="Remove device"
+                    onDelete={() => onDelete("device", device.id)}
+                  />
                 </div>
-              </AccordionContent>
-            </AccordionItem>
-          )}
+              )}
+            </AccordionContent>
+          </AccordionItem>
         </Accordion>
-      )}
-    </CardContent>
-  </Card>
-);
+      </CardContent>
+    </Card>
+  );
+};
 
 const AccessoryServiceRow = ({ service }: { service: HueAccessoryService }) => (
   <div className="rounded-lg bg-muted/45 px-3 py-2 text-sm">
@@ -749,6 +1068,14 @@ const isBridgeDevice = (device: HueSettingsDevice) =>
   [device.name, device.productName, device.productArchetype]
     .filter(Boolean)
     .some((value) => value?.toLowerCase().includes("bridge"));
+
+const friendlyDeviceType = (device: HueSettingsDevice) => {
+  const kind = classifyDevice(device);
+  if (kind === "switch") return "Switch";
+  if (kind === "sensor") return "Sensor";
+  if (kind === "light") return "Light";
+  return "Hue device";
+};
 
 const writableSwitchConfig = (raw: unknown): Record<string, unknown> => {
   if (!isRecord(raw)) return {};

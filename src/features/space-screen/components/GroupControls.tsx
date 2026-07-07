@@ -18,6 +18,7 @@ import {
 } from "@/lib/hue-speed";
 import {
   activeTileTheme,
+  LIT_TILE_FLAT_EDGE,
   TILE_BRIGHTNESS_SLIDER_CLASS,
   TILE_INTERACTION_TRANSITION_CLASS,
   TILE_POWER_SWITCH_CLASS,
@@ -146,6 +147,7 @@ export const GroupControls: React.FC<GroupControlsProps> = ({
                       tile.glow ?? tile.background,
                       brightnessPct,
                     ),
+                    ...LIT_TILE_FLAT_EDGE,
                   }
                 : null),
             } as React.CSSProperties

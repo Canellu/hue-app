@@ -19,6 +19,10 @@ export const selectableVariants = cva("transition-colors", {
   },
 });
 
-/** Selection that must sit over a variable or live-color surface. */
-export const overlaySelectionClassName =
-  "border-transparent ring-2 ring-selection-ring";
+/**
+ * Selection that must sit over a variable or live-color surface. Backed by the
+ * unlayered `.overlay-selected` rule in `App.css` (not Tailwind `ring-*`
+ * utilities) so it reliably replaces a lit tile's base card ring instead of
+ * fighting it — see the note there.
+ */
+export const overlaySelectionClassName = "overlay-selected";

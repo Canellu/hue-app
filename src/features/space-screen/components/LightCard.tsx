@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { PacedSlider } from "@/components/PacedSlider";
 import {
   activeTileTheme,
+  LIT_TILE_FLAT_EDGE,
   TILE_BRIGHTNESS_SLIDER_CLASS,
   TILE_INTERACTION_TRANSITION_CLASS,
   TILE_POWER_SWITCH_CLASS,
@@ -82,6 +83,7 @@ export const LightCard: React.FC<LightCardProps> = ({
           ...(active && color
             ? {
                 ...activeTileTheme(color, color, pct),
+                ...LIT_TILE_FLAT_EDGE,
               }
             : null),
         } as React.CSSProperties

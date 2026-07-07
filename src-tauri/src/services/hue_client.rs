@@ -14,8 +14,15 @@ use tokio::sync::Semaphore;
 
 const DISCOVERY_URL: &str = "https://discovery.meethue.com/";
 const STORE_FILE: &str = "hue-store.json";
+/// Legacy single-bridge store key. Read once for migration into the multi-bridge
+/// list, then deleted; never written again.
 const STORE_KEY: &str = "bridge";
+/// Multi-bridge store key: a `BridgeStore` holding every paired bridge plus the
+/// active one. Supersedes `STORE_KEY`.
+const STORE_KEY_BRIDGES: &str = "bridges";
 const KEYRING_SERVICE: &str = "com.anton.hue-app";
+/// Legacy single-bridge keyring account. New pairings key the application key
+/// per bridge (see `bridge_key_account`); this is only read during migration.
 const KEYRING_ACCOUNT: &str = "hue-application-key";
 const DEVICE_TYPE: &str = "hue-app#desktop";
 /// Devicetype for the separate entertainment credential provisioned on
@@ -95,6 +102,68 @@ pub struct StoredBridgeInfo {
     pub bridge_ip: String,
     #[serde(default)]
     pub application_key: Option<String>,
+    /// The bridge's user-given name, cached opportunistically (each time the
+    /// active bridge's home name is read) so the bridge switcher can label every
+    /// bridge without a network round-trip per entry.
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// The persisted set of paired bridges plus which one is active. Every command
+/// resolves "the bridge" to the active entry, so the whole app operates on one
+/// bridge at a time while the rest stay ready to switch to. Serialized under
+/// `STORE_KEY_BRIDGES`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BridgeStore {
+    /// Uppercased bridge id of the active bridge, or `None` when the list is
+    /// empty. `normalize` keeps this pointing at a real entry.
+    pub active_bridge_id: Option<String>,
+    pub bridges: Vec<StoredBridgeInfo>,
+}
+
+impl BridgeStore {
+    /// Uppercases every bridge id (so lookups are case-insensitive without
+    /// re-normalizing at each call site), drops duplicate bridges, and repairs a
+    /// dangling/absent active id by falling back to the first bridge.
+    fn normalize(&mut self) {
+        for bridge in &mut self.bridges {
+            bridge.bridge_id = bridge.bridge_id.to_uppercase();
+        }
+        let mut seen = std::collections::HashSet::new();
+        self.bridges.retain(|bridge| seen.insert(bridge.bridge_id.clone()));
+
+        self.active_bridge_id = self
+            .active_bridge_id
+            .take()
+            .map(|id| id.to_uppercase())
+            .filter(|id| self.bridges.iter().any(|bridge| &bridge.bridge_id == id));
+        if self.active_bridge_id.is_none() {
+            self.active_bridge_id = self.bridges.first().map(|bridge| bridge.bridge_id.clone());
+        }
+    }
+
+    /// The active bridge, or `None` when nothing is paired.
+    fn active(&self) -> Option<&StoredBridgeInfo> {
+        let id = self.active_bridge_id.as_ref()?;
+        self.bridges.iter().find(|bridge| &bridge.bridge_id == id)
+    }
+
+    /// Inserts or replaces `bridge` (matched by id) and marks it active.
+    fn upsert_active(&mut self, mut bridge: StoredBridgeInfo) {
+        bridge.bridge_id = bridge.bridge_id.to_uppercase();
+        let id = bridge.bridge_id.clone();
+        if let Some(existing) = self
+            .bridges
+            .iter_mut()
+            .find(|entry| entry.bridge_id == id)
+        {
+            *existing = bridge;
+        } else {
+            self.bridges.push(bridge);
+        }
+        self.active_bridge_id = Some(id);
+    }
 }
 
 /// Result of a successful link-button pairing. `client_key` is the
@@ -789,6 +858,11 @@ struct DiscoveryBridgeResponse {
 struct PublicBridgeConfig {
     #[serde(default)]
     modelid: Option<String>,
+    /// The full bridge id (same value as the v2 `bridge` resource's
+    /// `bridge_id`). mDNS only exposes its short 6-char suffix, so this is how
+    /// discovery recovers the authoritative id.
+    #[serde(default)]
+    bridgeid: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1141,31 +1215,38 @@ impl HueClient {
             .collect())
     }
 
-    /// Enriches discovered bridges with their hardware model by querying each
-    /// bridge's unauthenticated public config. Unreachable bridges keep their
-    /// existing (likely `None`) model so discovery never fails over this.
+    /// Enriches discovered bridges from each bridge's unauthenticated public
+    /// config: fills in the hardware model and, crucially, replaces the short
+    /// mDNS id with the authoritative full `bridgeid` so it matches the stored
+    /// (v2) id. Unreachable bridges keep whatever they already had, so discovery
+    /// never fails over this.
     async fn attach_models(&self, bridges: Vec<DiscoveredBridge>) -> Vec<DiscoveredBridge> {
         let mut enriched = Vec::with_capacity(bridges.len());
         for mut bridge in bridges {
-            if bridge.model_id.is_none() {
-                bridge.model_id = self.fetch_bridge_model(&bridge.bridge_ip).await;
+            if let Some(config) = self.fetch_bridge_public_config(&bridge.bridge_ip).await {
+                if bridge.model_id.is_none() {
+                    bridge.model_id = config.modelid;
+                }
+                if let Some(full_id) = config.bridgeid.filter(|id| !id.is_empty()) {
+                    bridge.bridge_id = full_id.to_uppercase();
+                }
             }
             enriched.push(bridge);
         }
         enriched
     }
 
-    /// Reads `modelid` from a bridge's public config. Tries plain HTTP first
+    /// Reads a bridge's public config (`/api/0/config`). Tries plain HTTP first
     /// (the v1 config endpoint every bridge still serves) then HTTPS, and
     /// swallows all errors into `None` since this is best-effort metadata.
-    async fn fetch_bridge_model(&self, ip: &str) -> Option<String> {
+    async fn fetch_bridge_public_config(&self, ip: &str) -> Option<PublicBridgeConfig> {
         let host = format_host(ip);
         for scheme in ["http", "https"] {
             let url = format!("{scheme}://{host}/api/0/config");
             if let Ok(response) = self.client.get(&url).send().await {
                 if let Ok(config) = response.json::<PublicBridgeConfig>().await {
-                    if config.modelid.is_some() {
-                        return config.modelid;
+                    if config.modelid.is_some() || config.bridgeid.is_some() {
+                        return Some(config);
                     }
                 }
             }
@@ -1215,6 +1296,7 @@ impl HueClient {
                 bridge_id: bridge_id.to_uppercase(),
                 bridge_ip: ip.to_string(),
                 application_key: Some(username.clone()),
+                name: None,
             },
             application_key: username,
             client_key,
@@ -1351,23 +1433,19 @@ impl HueClient {
         &self,
         app: &AppHandle<R>,
     ) -> Result<HueSession, String> {
-        let stored_bridge = match load_bridge_info(app)? {
+        let mut store = load_bridge_store(app)?;
+        let stored_bridge = match store.active().cloned() {
             Some(bridge) => bridge,
-            None => {
-                let _ = clear_application_key();
-                return Ok(disconnected_session(false, None, None, None, None));
-            }
+            None => return Ok(disconnected_session(false, None, None, None, None)),
         };
 
-        let application_key = match load_application_key() {
-            Ok(Some(key)) => key,
-            Ok(None) | Err(_) => match stored_bridge.application_key.clone() {
-                Some(key) => key,
-                None => {
-                    clear_bridge_info(app)?;
-                    return Ok(disconnected_session(false, None, None, None, None));
-                }
-            },
+        let application_key = match resolve_bridge_application_key(&stored_bridge) {
+            Some(key) => key,
+            None => {
+                // Active bridge has no usable key: drop it and fall back to
+                // whatever else is paired (remove_bridge returns that session).
+                return self.remove_bridge(app, &stored_bridge.bridge_id).await;
+            }
         };
 
         if let Ok(bridge_id) = self
@@ -1399,17 +1477,21 @@ impl HueClient {
                 .await
             {
                 if bridge_matches(&bridge_id, &stored_bridge.bridge_id) {
-                    let updated = StoredBridgeInfo {
-                        bridge_id: bridge_id.to_uppercase(),
-                        bridge_ip: bridge.bridge_ip.clone(),
-                        application_key: stored_bridge.application_key.clone(),
-                    };
-                    save_bridge_info(app, &updated)?;
+                    // Persist the bridge's new IP without disturbing the rest of
+                    // the list or which bridge is active.
+                    if let Some(entry) = store
+                        .bridges
+                        .iter_mut()
+                        .find(|entry| bridge_matches(&entry.bridge_id, &stored_bridge.bridge_id))
+                    {
+                        entry.bridge_ip = bridge.bridge_ip.clone();
+                    }
+                    save_bridge_store(app, &store)?;
                     return Ok(HueSession {
                         configured: true,
                         connected: true,
-                        bridge_id: Some(updated.bridge_id),
-                        bridge_ip: Some(updated.bridge_ip),
+                        bridge_id: Some(bridge_id.to_uppercase()),
+                        bridge_ip: Some(bridge.bridge_ip),
                         application_key: Some(application_key),
                         error: None,
                     });
@@ -1427,32 +1509,97 @@ impl HueClient {
         })
     }
 
+    /// Persists a paired bridge, adding it to the list (or updating it in place)
+    /// and marking it active. Pairing a second bridge therefore never evicts the
+    /// first.
     pub async fn save_session<R: Runtime>(
         &self,
         app: &AppHandle<R>,
         bridge: &StoredBridgeInfo,
         application_key: &str,
     ) -> Result<HueSession, String> {
-        save_bridge_info(app, bridge)?;
-        if let Err(error) = save_application_key(application_key) {
+        let mut store = load_bridge_store(app)?;
+        store.upsert_active(bridge.clone());
+        save_bridge_store(app, &store)?;
+        if let Err(error) = save_application_key(&bridge.bridge_id, application_key) {
             println!("WARN: Failed to save Hue application key in keyring: {error}");
         }
         Ok(HueSession {
             configured: true,
             connected: true,
-            bridge_id: Some(bridge.bridge_id.clone()),
+            bridge_id: Some(bridge.bridge_id.to_uppercase()),
             bridge_ip: Some(bridge.bridge_ip.clone()),
             application_key: Some(application_key.to_string()),
             error: None,
         })
     }
 
+    /// The full set of paired bridges plus which one is active.
+    pub fn list_bridges<R: Runtime>(&self, app: &AppHandle<R>) -> Result<BridgeStore, String> {
+        load_bridge_store(app)
+    }
+
+    /// Switches the active bridge and returns a fresh session for it. The caller
+    /// is responsible for restarting the event stream and reloading resources.
+    pub async fn set_active_bridge<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        bridge_id: &str,
+    ) -> Result<HueSession, String> {
+        let mut store = load_bridge_store(app)?;
+        let target = bridge_id.to_uppercase();
+        if !store.bridges.iter().any(|bridge| bridge.bridge_id == target) {
+            return Err("That bridge is not paired on this device.".to_string());
+        }
+        store.active_bridge_id = Some(target);
+        save_bridge_store(app, &store)?;
+        self.restore_session(app).await
+    }
+
+    /// Removes one bridge and its secrets. If it was active, the next paired
+    /// bridge (if any) becomes active. Returns the resulting session.
+    pub async fn remove_bridge<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        bridge_id: &str,
+    ) -> Result<HueSession, String> {
+        let mut store = load_bridge_store(app)?;
+        let target = bridge_id.to_uppercase();
+        store
+            .bridges
+            .retain(|bridge| bridge.bridge_id != target);
+        // If the removed bridge was active, normalize repoints to another.
+        if store.active_bridge_id.as_deref() == Some(target.as_str()) {
+            store.active_bridge_id = None;
+        }
+        store.normalize();
+        save_bridge_store(app, &store)?;
+
+        let _ = clear_application_key(&target);
+        // Entertainment credentials belong to that pairing; never let them
+        // outlive the bridge.
+        let _ = crate::services::entertainment::credentials::clear_credentials(&target);
+
+        if store.active().is_some() {
+            // Box the call to break the restore/remove async recursion cycle.
+            Box::pin(self.restore_session(app)).await
+        } else {
+            Ok(disconnected_session(false, None, None, None, None))
+        }
+    }
+
+    /// Removes every paired bridge and all of their secrets. Used for a full
+    /// reset (e.g. re-pairing from a disconnected state).
     pub fn clear_session<R: Runtime>(&self, app: &AppHandle<R>) -> Result<(), String> {
-        clear_bridge_info(app)?;
-        clear_application_key()?;
-        // Entertainment credentials belong to the same pairing; never let them
-        // outlive the bridge session.
-        crate::services::entertainment::credentials::clear_credentials()?;
+        let store = load_bridge_store(app)?;
+        for bridge in &store.bridges {
+            let _ = clear_application_key(&bridge.bridge_id);
+            let _ = crate::services::entertainment::credentials::clear_credentials(
+                &bridge.bridge_id,
+            );
+        }
+        let _ = clear_legacy_application_key();
+        save_bridge_store(app, &BridgeStore::default())?;
         Ok(())
     }
 
@@ -1468,7 +1615,7 @@ impl HueClient {
         &self,
         app: &AppHandle<R>,
     ) -> Result<StoredBridgeInfo, String> {
-        load_bridge_info(app)?.ok_or_else(|| {
+        load_bridge_store(app)?.active().cloned().ok_or_else(|| {
             "No stored bridge information found. Please pair a Hue bridge.".to_string()
         })
     }
@@ -1477,21 +1624,18 @@ impl HueClient {
         &self,
         app: &AppHandle<R>,
     ) -> Result<String, String> {
-        match load_application_key() {
-            Ok(Some(key)) => Ok(key),
-            Ok(None) | Err(_) => {
-                if let Err(error) = load_application_key() {
-                    println!(
-                        "WARN: keyring lookup failed while resolving application key: {error}"
-                    );
-                }
-                let stored_bridge = load_bridge_info(app)?.ok_or_else(|| {
-                    "No stored bridge information found. Please pair a Hue bridge.".to_string()
-                })?;
-                stored_bridge.application_key.ok_or_else(|| {
-                    "No Hue application key found. Please re-pair your Hue bridge.".to_string()
-                })
+        let stored_bridge = self.get_stored_bridge(app)?;
+        // Prefer the per-bridge keyring; fall back to the copy in the store
+        // file, lazily re-seeding the keyring so the fast path warms up.
+        if let Ok(Some(key)) = load_application_key(&stored_bridge.bridge_id) {
+            return Ok(key);
+        }
+        match stored_bridge.application_key.clone() {
+            Some(key) => {
+                let _ = save_application_key(&stored_bridge.bridge_id, &key);
+                Ok(key)
             }
+            None => Err("No Hue application key found. Please re-pair your Hue bridge.".to_string()),
         }
     }
 
@@ -2564,8 +2708,20 @@ impl HueClient {
         ip: &str,
         application_key: &str,
     ) -> Result<Option<String>, String> {
+        Ok(self.get_bridge_device(ip, application_key).await?.1)
+    }
+
+    /// Locates the bridge's own `device` resource and returns its id plus its
+    /// (non-empty) user-given name. The id is needed to rename the bridge; the
+    /// name is what the Home header shows. The bridge device is the one exposing
+    /// a `bridge` service, or failing that whose product name mentions "bridge".
+    pub async fn get_bridge_device(
+        &self,
+        ip: &str,
+        application_key: &str,
+    ) -> Result<(String, Option<String>), String> {
         let devices: Vec<HueDeviceResource> = self.get_v2(ip, application_key, "device").await?;
-        let name = devices
+        let device = devices
             .iter()
             .find(|device| {
                 device
@@ -2579,10 +2735,53 @@ impl HueClient {
                         .map(|name| name.to_lowercase().contains("bridge"))
                         .unwrap_or(false)
             })
-            .and_then(|device| device.metadata.as_ref())
+            .ok_or_else(|| "The bridge did not report its own device resource.".to_string())?;
+        let name = device
+            .metadata
+            .as_ref()
             .map(|metadata| metadata.name.clone())
             .filter(|name| !name.is_empty());
-        Ok(name)
+        Ok((device.id.clone(), name))
+    }
+
+    /// Renames the active bridge's device on the bridge itself, so the new name
+    /// syncs to the official Hue app and any other client. Returns the new name.
+    pub async fn rename_bridge(
+        &self,
+        ip: &str,
+        application_key: &str,
+        name: &str,
+    ) -> Result<String, String> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err("Name cannot be empty.".to_string());
+        }
+        let (device_id, _) = self.get_bridge_device(ip, application_key).await?;
+        self.rename_resource(ip, application_key, "device", &device_id, trimmed)
+            .await?;
+        Ok(trimmed.to_string())
+    }
+
+    /// Caches the active bridge's name into the store so the switcher can label
+    /// bridges without a network call. Best effort: a store failure is ignored.
+    pub fn cache_active_bridge_name<R: Runtime>(&self, app: &AppHandle<R>, name: Option<&str>) {
+        let Ok(mut store) = load_bridge_store(app) else {
+            return;
+        };
+        let Some(active_id) = store.active_bridge_id.clone() else {
+            return;
+        };
+        if let Some(entry) = store
+            .bridges
+            .iter_mut()
+            .find(|entry| entry.bridge_id == active_id)
+        {
+            let next = name.map(str::to_string);
+            if entry.name != next {
+                entry.name = next;
+                let _ = save_bridge_store(app, &store);
+            }
+        }
     }
 
     pub async fn get_accessory_services(
@@ -4035,6 +4234,90 @@ fn parse_event_block(block: &str) -> Option<Vec<HueEventUpdate>> {
 }
 
 #[cfg(test)]
+mod bridge_store_tests {
+    use super::{BridgeStore, StoredBridgeInfo};
+
+    fn bridge(id: &str) -> StoredBridgeInfo {
+        StoredBridgeInfo {
+            bridge_id: id.to_string(),
+            bridge_ip: format!("192.168.0.{}", id.len()),
+            application_key: Some("key".to_string()),
+            name: None,
+        }
+    }
+
+    #[test]
+    fn normalize_uppercases_ids_and_keeps_a_valid_active() {
+        let mut store = BridgeStore {
+            active_bridge_id: Some("abc".to_string()),
+            bridges: vec![bridge("abc"), bridge("def")],
+        };
+        store.normalize();
+        assert_eq!(store.active_bridge_id.as_deref(), Some("ABC"));
+        assert_eq!(store.bridges[0].bridge_id, "ABC");
+        assert_eq!(store.bridges[1].bridge_id, "DEF");
+        assert_eq!(store.active().map(|b| b.bridge_id.as_str()), Some("ABC"));
+    }
+
+    #[test]
+    fn normalize_repairs_a_dangling_active_to_the_first_bridge() {
+        let mut store = BridgeStore {
+            active_bridge_id: Some("GHOST".to_string()),
+            bridges: vec![bridge("aaa"), bridge("bbb")],
+        };
+        store.normalize();
+        assert_eq!(store.active_bridge_id.as_deref(), Some("AAA"));
+    }
+
+    #[test]
+    fn normalize_dedupes_by_id_case_insensitively() {
+        let mut store = BridgeStore {
+            active_bridge_id: None,
+            bridges: vec![bridge("abc"), bridge("ABC"), bridge("def")],
+        };
+        store.normalize();
+        assert_eq!(store.bridges.len(), 2);
+        assert_eq!(store.active_bridge_id.as_deref(), Some("ABC"));
+    }
+
+    #[test]
+    fn normalize_empty_store_has_no_active() {
+        let mut store = BridgeStore::default();
+        store.normalize();
+        assert!(store.active_bridge_id.is_none());
+        assert!(store.active().is_none());
+    }
+
+    #[test]
+    fn upsert_adds_a_new_bridge_and_makes_it_active() {
+        let mut store = BridgeStore {
+            active_bridge_id: Some("AAA".to_string()),
+            bridges: vec![bridge("AAA")],
+        };
+        store.upsert_active(bridge("bbb"));
+        assert_eq!(store.bridges.len(), 2);
+        assert_eq!(store.active_bridge_id.as_deref(), Some("BBB"));
+    }
+
+    #[test]
+    fn upsert_replaces_an_existing_bridge_in_place() {
+        let mut store = BridgeStore {
+            active_bridge_id: Some("BBB".to_string()),
+            bridges: vec![bridge("AAA"), bridge("bbb")],
+        };
+        let mut updated = bridge("aaa");
+        updated.bridge_ip = "10.0.0.9".to_string();
+        store.upsert_active(updated);
+        assert_eq!(store.bridges.len(), 2);
+        assert_eq!(store.active_bridge_id.as_deref(), Some("AAA"));
+        assert_eq!(
+            store.active().map(|b| b.bridge_ip.as_str()),
+            Some("10.0.0.9")
+        );
+    }
+}
+
+#[cfg(test)]
 mod event_tests {
     use super::parse_event_block;
 
@@ -4161,16 +4444,13 @@ fn extract_hue_credentials(value: &Value) -> Result<(String, Option<String>), St
     Err("Unexpected pairing response from bridge".to_string())
 }
 
-fn save_bridge_info<R: Runtime>(
-    app: &AppHandle<R>,
-    bridge: &StoredBridgeInfo,
-) -> Result<(), String> {
+fn save_bridge_store<R: Runtime>(app: &AppHandle<R>, bridges: &BridgeStore) -> Result<(), String> {
     let store = app
         .store(STORE_FILE)
         .map_err(|error| format!("Failed to open bridge store: {error}"))?;
     store.set(
-        STORE_KEY,
-        serde_json::to_value(bridge)
+        STORE_KEY_BRIDGES,
+        serde_json::to_value(bridges)
             .map_err(|error| format!("Invalid bridge store data: {error}"))?,
     );
     store
@@ -4178,60 +4458,103 @@ fn save_bridge_info<R: Runtime>(
         .map_err(|error| format!("Failed to save bridge store: {error}"))
 }
 
-fn load_bridge_info<R: Runtime>(app: &AppHandle<R>) -> Result<Option<StoredBridgeInfo>, String> {
+/// Loads the multi-bridge store, migrating a legacy single-bridge entry on
+/// first run. Always returns a normalized store (uppercased ids, valid active).
+fn load_bridge_store<R: Runtime>(app: &AppHandle<R>) -> Result<BridgeStore, String> {
     let store = app
         .store(STORE_FILE)
         .map_err(|error| format!("Failed to open bridge store: {error}"))?;
-    let Some(value) = store.get(STORE_KEY) else {
-        return Ok(None);
-    };
-    if value.is_null() {
-        return Ok(None);
+
+    if let Some(value) = store.get(STORE_KEY_BRIDGES) {
+        if !value.is_null() {
+            let mut parsed: BridgeStore = serde_json::from_value(value.clone())
+                .map_err(|error| format!("Failed to read bridge store: {error}"))?;
+            parsed.normalize();
+            return Ok(parsed);
+        }
     }
-    serde_json::from_value::<StoredBridgeInfo>(value.clone())
-        .map(Some)
-        .map_err(|error| format!("Failed to read bridge store: {error}"))
+
+    // Migration: fold a legacy single bridge into the list, set it active, and
+    // drop the old key so this only runs once.
+    if let Some(value) = store.get(STORE_KEY) {
+        if !value.is_null() {
+            if let Ok(mut legacy) = serde_json::from_value::<StoredBridgeInfo>(value.clone()) {
+                // Backfill the app key from the legacy keyring account when the
+                // stored struct lacks it, so the migrated bridge stays usable.
+                if legacy.application_key.is_none() {
+                    legacy.application_key = legacy_application_key().ok().flatten();
+                }
+                let mut migrated = BridgeStore {
+                    active_bridge_id: Some(legacy.bridge_id.to_uppercase()),
+                    bridges: vec![legacy.clone()],
+                };
+                migrated.normalize();
+                store.set(
+                    STORE_KEY_BRIDGES,
+                    serde_json::to_value(&migrated)
+                        .map_err(|error| format!("Invalid bridge store data: {error}"))?,
+                );
+                store.delete(STORE_KEY);
+                store
+                    .save()
+                    .map_err(|error| format!("Failed to migrate bridge store: {error}"))?;
+                // Mirror the app key into the per-bridge keyring account and drop
+                // the legacy global one. Best effort: the store-file copy is the
+                // durable fallback.
+                if let (Some(active_id), Some(key)) =
+                    (migrated.active_bridge_id.as_deref(), legacy.application_key.as_deref())
+                {
+                    let _ = save_application_key(active_id, key);
+                }
+                let _ = clear_legacy_application_key();
+                return Ok(migrated);
+            }
+        }
+    }
+
+    Ok(BridgeStore::default())
 }
 
-fn clear_bridge_info<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
-    let store = app
-        .store(STORE_FILE)
-        .map_err(|error| format!("Failed to open bridge store: {error}"))?;
-    store.delete(STORE_KEY);
-    store
-        .save()
-        .map_err(|error| format!("Failed to clear bridge store: {error}"))
-}
-
-fn keyring_entry() -> Result<Entry, String> {
-    Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
+fn keyring_entry(account: &str) -> Result<Entry, String> {
+    Entry::new(KEYRING_SERVICE, account)
         .map_err(|error| format!("Failed to access secure keyring: {error}"))
 }
 
-/// In-memory cache of the application key. The OS keyring read (Windows
-/// Credential Manager `CredRead`, etc.) is a blocking syscall, and control
-/// commands resolve the key on every call — caching keeps that off the hot path
-/// so dimming/toggling isn't gated on keyring latency.
-fn app_key_cache() -> &'static Mutex<Option<String>> {
-    static CACHE: OnceLock<Mutex<Option<String>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(None))
+/// Keyring account holding one bridge's application key, namespaced by bridge id
+/// so multiple bridges' keys coexist.
+fn bridge_key_account(bridge_id: &str) -> String {
+    format!("{KEYRING_ACCOUNT}:{}", bridge_id.to_uppercase())
 }
 
-fn save_application_key(application_key: &str) -> Result<(), String> {
-    keyring_entry()?
+/// In-memory cache of application keys, keyed by uppercased bridge id. The OS
+/// keyring read (Windows Credential Manager `CredRead`, etc.) is a blocking
+/// syscall, and control commands resolve the key on every call — caching keeps
+/// that off the hot path so dimming/toggling isn't gated on keyring latency.
+fn app_key_cache() -> &'static Mutex<HashMap<String, String>> {
+    static CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn save_application_key(bridge_id: &str, application_key: &str) -> Result<(), String> {
+    let id = bridge_id.to_uppercase();
+    keyring_entry(&bridge_key_account(&id))?
         .set_password(application_key)
         .map_err(|error| format!("Failed to save application key: {error}"))?;
-    *app_key_cache().lock().unwrap() = Some(application_key.to_string());
+    app_key_cache()
+        .lock()
+        .unwrap()
+        .insert(id, application_key.to_string());
     Ok(())
 }
 
-fn load_application_key() -> Result<Option<String>, String> {
-    if let Some(key) = app_key_cache().lock().unwrap().clone() {
+fn load_application_key(bridge_id: &str) -> Result<Option<String>, String> {
+    let id = bridge_id.to_uppercase();
+    if let Some(key) = app_key_cache().lock().unwrap().get(&id).cloned() {
         return Ok(Some(key));
     }
-    match keyring_entry()?.get_password() {
+    match keyring_entry(&bridge_key_account(&id))?.get_password() {
         Ok(password) => {
-            *app_key_cache().lock().unwrap() = Some(password.clone());
+            app_key_cache().lock().unwrap().insert(id, password.clone());
             Ok(Some(password))
         }
         Err(keyring::Error::NoEntry) => Ok(None),
@@ -4239,9 +4562,36 @@ fn load_application_key() -> Result<Option<String>, String> {
     }
 }
 
-fn clear_application_key() -> Result<(), String> {
-    *app_key_cache().lock().unwrap() = None;
-    match keyring_entry()?.delete_credential() {
+fn clear_application_key(bridge_id: &str) -> Result<(), String> {
+    let id = bridge_id.to_uppercase();
+    app_key_cache().lock().unwrap().remove(&id);
+    match keyring_entry(&bridge_key_account(&id))?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(format!("Failed to clear application key: {error}")),
+    }
+}
+
+/// Resolves a bridge's application key: per-bridge keyring first, then the copy
+/// persisted in the store file. `None` when neither has it.
+fn resolve_bridge_application_key(bridge: &StoredBridgeInfo) -> Option<String> {
+    if let Ok(Some(key)) = load_application_key(&bridge.bridge_id) {
+        return Some(key);
+    }
+    bridge.application_key.clone()
+}
+
+/// Reads the legacy global application-key keyring account (pre multi-bridge).
+/// Used only during migration.
+fn legacy_application_key() -> Result<Option<String>, String> {
+    match keyring_entry(KEYRING_ACCOUNT)?.get_password() {
+        Ok(password) => Ok(Some(password)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(error) => Err(format!("Failed to read application key: {error}")),
+    }
+}
+
+fn clear_legacy_application_key() -> Result<(), String> {
+    match keyring_entry(KEYRING_ACCOUNT)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(error) => Err(format!("Failed to clear application key: {error}")),
     }

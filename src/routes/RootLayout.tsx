@@ -250,6 +250,7 @@ const ShellHeader: React.FC = () => {
       openCreateSection: state.openCreateSection,
     })),
   );
+  const { bridges, switchBridge, beginAddBridge } = useHue();
   const navigate = useNavigate();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
@@ -430,6 +431,9 @@ const ShellHeader: React.FC = () => {
         window.dispatchEvent(new CustomEvent("hue-space-edit-save"))
       }
       homeName={homeName}
+      bridges={bridges}
+      onSwitchBridge={(bridgeId) => void switchBridge(bridgeId)}
+      onAddBridge={beginAddBridge}
       showSettings={onHome}
       onOpenSettings={() =>
         void navigate({ to: "/settings", search: { tab: undefined } })

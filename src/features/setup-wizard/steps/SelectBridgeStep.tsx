@@ -1,3 +1,4 @@
+import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -5,6 +6,7 @@ import { overlaySelectionClassName } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
 import type { SelectBridgeStepProps } from "@/types/setup-wizard";
 import { BridgeThumb } from "../components/BridgeThumb";
+import { bridgeIdIsPaired } from "../machine";
 import { bridgeKind, bridgeKindLabel } from "../utils/bridge";
 
 const CARD_WIDTH = 192; // w-48
@@ -49,17 +51,31 @@ export const SelectBridgeStep = ({
   const columns = useBalancedColumns(state.bridges.length);
   const rowWidth = columns * CARD_WIDTH + (columns - 1) * GAP;
 
+  const pairedIds = state.alreadyPairedIds ?? [];
+  const isPaired = (bridgeId: string) => bridgeIdIsPaired(bridgeId, pairedIds);
+  const allPaired =
+    state.bridges.length > 0 &&
+    state.bridges.every((bridge) => isPaired(bridge.bridgeId));
+  const singlePaired = isSingle && isPaired(state.bridges[0].bridgeId);
+
+  const heading = singlePaired
+    ? "Bridge already added"
+    : isSingle
+      ? "Hue Bridge found"
+      : "Choose your Hue Bridge";
+  const description = allPaired
+    ? isSingle
+      ? "This bridge is already connected on this device."
+      : "Every bridge found on your network is already added on this device."
+    : isSingle
+      ? "Press Continue to connect to this bridge."
+      : "Select a bridge to connect to. Bridges already added are marked.";
+
   return (
     <>
       <div className="flex flex-col gap-3">
-        <h1 className="font-heading text-3xl font-semibold">
-          {isSingle ? "Hue Bridge found" : "Choose your Hue Bridge"}
-        </h1>
-        <p className="text-lg text-muted-foreground">
-          {isSingle
-            ? "Press Continue to connect to this bridge."
-            : "Select the bridge you want to connect to."}
-        </p>
+        <h1 className="font-heading text-3xl font-semibold">{heading}</h1>
+        <p className="text-lg text-muted-foreground">{description}</p>
       </div>
 
       <div
@@ -67,34 +83,54 @@ export const SelectBridgeStep = ({
         style={{ width: rowWidth }}
       >
         {state.bridges.map((bridge) => {
-          const isSelected = bridge.bridgeIp === state.selectedBridgeIp;
+          const paired = isPaired(bridge.bridgeId);
+          const isSelected =
+            !paired && bridge.bridgeIp === state.selectedBridgeIp;
           const kind = bridgeKind(bridge.modelId);
 
           return (
             <Card
               key={bridge.bridgeId}
               size="sm"
-              role="button"
-              tabIndex={0}
-              aria-pressed={isSelected}
+              role={paired ? undefined : "button"}
+              tabIndex={paired ? undefined : 0}
+              aria-pressed={paired ? undefined : isSelected}
+              aria-disabled={paired || undefined}
               data-selected={isSelected ? "" : undefined}
               className={cn(
-                "w-48 cursor-pointer border border-foreground/10 transition-[box-shadow,background-color]",
-                "bg-[oklch(0.99_0_0)] hover:bg-[oklch(0.96_0_0)]",
-                "dark:bg-[oklch(0.24_0_0)] dark:hover:bg-[oklch(0.25_0_0)]",
+                "w-48 border border-foreground/10 transition-[box-shadow,background-color]",
+                paired
+                  ? "cursor-not-allowed opacity-55 bg-[oklch(0.97_0_0)] dark:bg-[oklch(0.22_0_0)]"
+                  : [
+                      "cursor-pointer",
+                      "bg-[oklch(0.99_0_0)] hover:bg-[oklch(0.96_0_0)]",
+                      "dark:bg-[oklch(0.24_0_0)] dark:hover:bg-[oklch(0.25_0_0)]",
+                    ],
                 isSelected && overlaySelectionClassName,
               )}
-              onClick={() => onSelectBridge(bridge.bridgeIp)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  onSelectBridge(bridge.bridgeIp);
-                }
-              }}
+              onClick={
+                paired ? undefined : () => onSelectBridge(bridge.bridgeIp)
+              }
+              onKeyDown={
+                paired
+                  ? undefined
+                  : (event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        onSelectBridge(bridge.bridgeIp);
+                      }
+                    }
+              }
             >
               <CardContent className="flex min-w-0 flex-col items-center gap-2 text-center">
                 <BridgeThumb kind={kind} />
                 <span className="font-medium">{bridgeKindLabel(kind)}</span>
+                {paired && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                    <Check size={12} />
+                    Already added
+                  </span>
+                )}
                 <div className="flex w-full min-w-0 flex-col">
                   <span className="truncate text-sm text-muted-foreground">
                     {bridge.bridgeIp}

@@ -19,12 +19,16 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import type { HomeGroupingMode } from "@/types/app-layout";
+import type { BridgeListItem } from "@/context/HueContext";
 import {
   ArrowLeft,
+  Check,
+  ChevronDown,
   ListChecks,
   Palette,
   Pencil,
   Plus,
+  Router,
   Settings,
   Tv,
 } from "lucide-react";
@@ -61,6 +65,12 @@ interface AppHeaderProps {
    * bridge carries no name — a neutral "Home" placeholder is shown instead.
    */
   homeName?: string | null;
+  /** Every paired bridge; when more than one, the Home title becomes a switcher. */
+  bridges?: BridgeListItem[];
+  /** Switches the active bridge (whole app reloads onto it). */
+  onSwitchBridge?: (bridgeId: string) => void;
+  /** Launches the add-a-bridge flow. */
+  onAddBridge?: () => void;
   /** Whether the Settings gear is shown (hidden on the Settings route itself). */
   showSettings: boolean;
   onOpenSettings: () => void;
@@ -76,6 +86,78 @@ interface AppHeaderProps {
   onSaveEditLayout: () => void;
   onCreateSection: () => void;
 }
+
+/** A stable label for a bridge that hasn't cached its name yet. */
+const bridgeLabel = (bridge: BridgeListItem) =>
+  bridge.name ?? `Bridge ${bridge.bridgeId.slice(-4).toUpperCase()}`;
+
+/**
+ * The Home screen's title. With a single bridge it's the plain home name; with
+ * several it becomes a switcher listing every paired bridge plus "Add bridge".
+ */
+const HomeTitle: React.FC<{
+  homeName?: string | null;
+  bridges?: BridgeListItem[];
+  onSwitchBridge?: (bridgeId: string) => void;
+  onAddBridge?: () => void;
+}> = ({ homeName, bridges, onSwitchBridge, onAddBridge }) => {
+  const activeBridge = bridges?.find((bridge) => bridge.active);
+  const label = homeName ?? (activeBridge ? bridgeLabel(activeBridge) : "Home");
+
+  // Single bridge (or none): a plain title, matching the original Home header.
+  if (!bridges || bridges.length <= 1) {
+    return (
+      <span className="font-heading text-3xl font-semibold">{label}</span>
+    );
+  }
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <button
+            type="button"
+            className="group flex items-center gap-1.5 rounded-lg font-heading text-3xl font-semibold outline-none"
+            aria-label="Switch bridge"
+          />
+        }
+      >
+        <span className="truncate">{label}</span>
+        <ChevronDown
+          size={22}
+          className="mt-1 text-muted-foreground transition-transform group-data-popup-open:rotate-180"
+        />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="min-w-60">
+        {bridges.map((bridge) => (
+          <DropdownMenuItem
+            key={bridge.bridgeId}
+            onClick={() =>
+              !bridge.active && onSwitchBridge?.(bridge.bridgeId)
+            }
+            className="gap-2 text-base [&_svg:not([class*='size-'])]:size-5"
+          >
+            <Router className="text-muted-foreground" />
+            <span className="flex-1 truncate">{bridgeLabel(bridge)}</span>
+            {bridge.active && <Check className="text-primary" />}
+          </DropdownMenuItem>
+        ))}
+        {onAddBridge && (
+          <>
+            <div className="my-1 h-px bg-border" />
+            <DropdownMenuItem
+              onClick={onAddBridge}
+              className="gap-2 text-base [&_svg:not([class*='size-'])]:size-5"
+            >
+              <Plus />
+              Add bridge
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
 
 /**
  * Minimal global header with a fixed height so swapping its contents (back
@@ -100,6 +182,9 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   onCancelTitleEdit,
   onSaveTitleEdit,
   homeName,
+  bridges,
+  onSwitchBridge,
+  onAddBridge,
   showSettings,
   onOpenSettings,
   showSync,
@@ -230,9 +315,12 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </motion.div>
         </div>
       ) : (
-        <span className="font-heading text-3xl font-semibold">
-          {homeName ?? "Home"}
-        </span>
+        <HomeTitle
+          homeName={homeName}
+          bridges={bridges}
+          onSwitchBridge={onSwitchBridge}
+          onAddBridge={onAddBridge}
+        />
       )}
 
       <div className="relative flex items-center justify-end gap-2">

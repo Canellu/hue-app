@@ -42,7 +42,6 @@ pub async fn get_host_sync_overview(
     engine: State<'_, HostSyncEngine>,
 ) -> Result<HostSyncOverview, String> {
     let status = engine.status();
-    let credential_status = credentials::credential_status();
     let capture_supported = cfg!(windows);
     let displays = displays::enumerate_displays().unwrap_or_default();
     #[cfg(windows)]
@@ -63,7 +62,7 @@ pub async fn get_host_sync_overview(
     let Ok(bridge) = client.get_stored_bridge(&app) else {
         return Ok(HostSyncOverview {
             bridge_configured: false,
-            credentials: credential_status,
+            credentials: credentials::empty_credential_status(),
             capture_supported,
             displays,
             audio_outputs,
@@ -73,8 +72,10 @@ pub async fn get_host_sync_overview(
             status,
         });
     };
+    // Credentials are scoped to the active bridge.
+    let credential_status = credentials::credential_status(&bridge.bridge_id);
 
-    let (areas, areas_error) = match resolve_streaming_rest_key(&app, &client) {
+    let (areas, areas_error) = match resolve_streaming_rest_key(&app, &client, &bridge.bridge_id) {
         Ok(rest_key) => match client
             .get_entertainment_areas(&bridge.bridge_ip, &rest_key)
             .await
@@ -135,9 +136,9 @@ pub async fn provision_host_sync_credentials(
     let (application_key, client_key) = client
         .pair_entertainment_credential(&bridge.bridge_ip)
         .await?;
-    credentials::save_application_key(&application_key)?;
-    credentials::save_client_key(&client_key)?;
-    Ok(credentials::credential_status())
+    credentials::save_application_key(&bridge.bridge_id, &application_key)?;
+    credentials::save_client_key(&bridge.bridge_id, &client_key)?;
+    Ok(credentials::credential_status(&bridge.bridge_id))
 }
 
 /// Streaming spike: solid color to every channel of an area. Drives physical

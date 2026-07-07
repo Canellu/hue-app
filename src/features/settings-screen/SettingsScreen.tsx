@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useHue } from "../../context/HueContext";
 import type { ThemeMode } from "../../context/ThemeContext";
+import { AddBridgeButton } from "./components/AddBridgeButton";
 import { AddDevicesButton } from "./components/AddDevicesButton";
 import { AddEntertainmentAreaButton } from "./components/AddEntertainmentAreaButton";
 import { AddSpaceButton } from "./components/AddSpaceButton";
@@ -47,8 +48,17 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
 }) => {
   const navigate = useNavigate();
   const search = useSearch({ from: "/settings" });
-  const { bridgeId, bridgeIp, connected, applicationKey, resetSession } =
-    useHue();
+  const {
+    bridgeId,
+    bridgeIp,
+    connected,
+    applicationKey,
+    bridges,
+    switchBridge,
+    removeBridge,
+    renameBridge,
+    beginAddBridge,
+  } = useHue();
   const lights = useHueResourcesStore((state) => state.lights);
   const roomZones = useHueResourcesStore((state) => state.roomZones);
   const scenes = useHueResourcesStore((state) => state.scenes);
@@ -159,10 +169,16 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
   };
 
   useEffect(() => {
-    void loadSettingsSummary();
     void loadAppSettings();
     void loadSyncBoxSession();
   }, []);
+
+  // Re-fetch the bridge summary whenever the active bridge changes (including
+  // the initial load) so Bridge Details always reflects the current bridge.
+  useEffect(() => {
+    setIsLoadingSummary(true);
+    void loadSettingsSummary();
+  }, [bridgeId]);
 
   const refreshSettings = async () => {
     if (isRefreshing) return;
@@ -306,6 +322,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                     </p>
                   )}
                 </div>
+                {activeTab === "bridge" && (
+                  <AddBridgeButton onClick={beginAddBridge} />
+                )}
                 {activeTab === "devices" && (
                   <AddDevicesButton
                     disabled={!summary?.deviceDiscoverySupported}
@@ -356,7 +375,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   fallbackBridgeId={bridgeId}
                   fallbackBridgeIp={bridgeIp}
                   applicationKey={applicationKey}
-                  onResetSession={resetSession}
+                  bridges={bridges}
+                  onSwitchBridge={switchBridge}
+                  onRemoveBridge={removeBridge}
+                  onRenameBridge={renameBridge}
                 />
               </TabsContent>
 

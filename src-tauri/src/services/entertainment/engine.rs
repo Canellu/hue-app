@@ -511,12 +511,14 @@ where
 }
 
 /// The REST credential whose `hue-application-id` owns the stream: the
-/// dedicated entertainment key when provisioned, otherwise the main pairing.
+/// dedicated entertainment key when provisioned for this bridge, otherwise the
+/// main pairing.
 pub fn resolve_streaming_rest_key<R: Runtime>(
     app: &AppHandle<R>,
     client: &HueClient,
+    bridge_id: &str,
 ) -> Result<String, String> {
-    if let Some(key) = credentials::load_application_key()? {
+    if let Some(key) = credentials::load_application_key(bridge_id)? {
         return Ok(key);
     }
     client.get_stored_application_key(app)
@@ -912,8 +914,8 @@ impl HostSyncEngine {
     ) -> Result<PreparedSession, String> {
         let client = HueClient::new()?;
         let bridge = client.get_stored_bridge(app)?;
-        let rest_key = resolve_streaming_rest_key(app, &client)?;
-        let client_key = credentials::load_client_key()?.ok_or_else(|| {
+        let rest_key = resolve_streaming_rest_key(app, &client, &bridge.bridge_id)?;
+        let client_key = credentials::load_client_key(&bridge.bridge_id)?.ok_or_else(|| {
             "No entertainment clientkey stored. Enable PC Sync in connection settings first."
                 .to_string()
         })?;
@@ -1089,7 +1091,7 @@ async fn resolve_music_palette<R: Runtime>(
         MusicPaletteChoice::Scene(reference) => {
             let client = HueClient::new()?;
             let bridge = client.get_stored_bridge(app)?;
-            let rest_key = resolve_streaming_rest_key(app, &client)?;
+            let rest_key = resolve_streaming_rest_key(app, &client, &bridge.bridge_id)?;
             let scenes = client.get_scenes(&bridge.bridge_ip, &rest_key).await?;
             let scene = scenes
                 .into_iter()

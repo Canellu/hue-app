@@ -15,6 +15,12 @@ export type SetupState =
       type: "selectBridge";
       bridges: DiscoveredBridge[];
       selectedBridgeIp: string;
+      /**
+       * Uppercased ids of bridges already paired on this device. Discovery still
+       * reports them, but they're shown as "already added" and can't be
+       * selected — so adding a second bridge can't re-pair an existing one.
+       */
+      alreadyPairedIds?: string[];
     }
   | { type: "pairing"; bridge: DiscoveredBridge }
   | { type: "success" }

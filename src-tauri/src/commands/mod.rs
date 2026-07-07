@@ -1,4 +1,5 @@
 pub mod app_settings;
+pub mod bridges;
 pub mod discovery;
 pub mod events;
 pub mod grouped_lights;

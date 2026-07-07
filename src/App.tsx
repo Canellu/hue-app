@@ -26,6 +26,7 @@ import {
 } from "@/features/setup-wizard/hooks/useDevViews";
 import { WidgetWizard } from "@/features/settings-screen/components/WidgetWizard";
 import { RouterProvider } from "@tanstack/react-router";
+import { invoke } from "@tauri-apps/api/core";
 import { motion, useReducedMotion, type Variants } from "motion/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { TitleBar } from "./components/TitleBar";
@@ -149,6 +150,8 @@ function App() {
     isLoading,
     refreshSession,
     resetSession,
+    isAddingBridge,
+    cancelAddBridge,
   } = useHue();
   const dev = useDevViews();
   const [pairNewBridge, setPairNewBridge] = useState(false);
@@ -283,6 +286,38 @@ function App() {
   const renderSessionContent = (): RenderedAppContent => {
     if (isLoading) {
       return { viewKey: "loading", content: <SplashView /> };
+    }
+
+    // Adding a bridge reuses the full wizard as an overlay over the current
+    // session, so pairing a second bridge never tears down the first. A Cancel
+    // control backs out to Home (the active bridge is untouched until pairing
+    // succeeds, at which point the new bridge becomes active).
+    if (isAddingBridge) {
+      return {
+        viewKey: "wizard",
+        content: (
+          <div className="relative h-full">
+            <WizardContainer
+              autoStartDiscovery
+              onPairingComplete={async () => {
+                // The new bridge is now active; stop the previous bridge's
+                // stream so Home restreams the new one when it remounts.
+                await invoke("stop-hue-events").catch(() => {});
+                cancelAddBridge();
+                await router.navigate({ to: "/", replace: true });
+              }}
+            />
+            <Button
+              variant="ghost"
+              size="xl"
+              className="absolute right-6 top-4 z-10"
+              onClick={cancelAddBridge}
+            >
+              Cancel
+            </Button>
+          </div>
+        ),
+      };
     }
 
     if (configured && connected) {

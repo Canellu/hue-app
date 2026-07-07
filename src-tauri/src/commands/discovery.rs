@@ -14,9 +14,12 @@ pub async fn pair_bridge(app: AppHandle, ip: String) -> Result<HueSession, Strin
     let client = HueClient::new()?;
     let paired = client.pair_bridge(&ip).await?;
     // New pairings carry the entertainment clientkey alongside the normal app
-    // credential; keep it for PC sync so no second link-button flow is needed.
+    // credential; keep it (per bridge) for PC sync so no second link-button flow
+    // is needed.
     if let Some(client_key) = &paired.client_key {
-        if let Err(error) = entertainment::credentials::save_client_key(client_key) {
+        if let Err(error) =
+            entertainment::credentials::save_client_key(&paired.bridge.bridge_id, client_key)
+        {
             println!("WARN: Failed to save entertainment clientkey: {error}");
         }
     }

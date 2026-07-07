@@ -2,6 +2,12 @@ import { PacedSlider } from "@/components/PacedSlider";
 import { SyncIndicator } from "@/components/SyncIndicator";
 import { Card } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { getRoomZoneIcon } from "@/features/home-screen/components/room-zone-icons";
 import {
   lightColorHex,
@@ -33,6 +39,10 @@ import {
   type WidgetControl,
   type WidgetSizeMode,
 } from "../types";
+
+/** Hover dwell (ms) before the "double-click to open" hint appears — long
+ * enough that it never flashes while the pointer is just passing over a tile. */
+const OPEN_HINT_DELAY_MS = 700;
 
 /** A compact, pill-shaped scene button used in the rail when the control is compact. */
 const SceneButton = ({
@@ -139,6 +149,41 @@ export const ControlView = ({
   // Any active sync makes scene changes pointless — the stream owns the colors.
   const scenesLocked = syncedCount > 0;
 
+  const rowGapClass =
+    sizeMode === "small" ? "gap-2" : sizeMode === "large" ? "gap-3" : "gap-2.5";
+  // The icon + name form the "open the space" affordance: the header's double-
+  // click target and the anchor for its hint tooltip. The power switch and
+  // brightness slider live outside it, so hovering a control never shows the hint.
+  const headerLabel = (
+    <>
+      <span
+        className={cn(
+          "flex shrink-0 items-center justify-center",
+          sizeMode === "small"
+            ? "size-8"
+            : sizeMode === "large"
+              ? "size-10"
+              : "size-9",
+          lit ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        {icon}
+      </span>
+      <p
+        className={cn(
+          "min-w-0 flex-1 truncate font-medium",
+          sizeMode === "small"
+            ? "text-sm"
+            : sizeMode === "large"
+              ? "text-base"
+              : "text-[15px]",
+        )}
+      >
+        {name}
+      </p>
+    </>
+  );
+
   return (
     <Card
       size="sm"
@@ -168,7 +213,6 @@ export const ControlView = ({
           // highlighted mid double-click.
           onOpen && "cursor-default select-none",
         )}
-        title={onOpen ? `Double-click to open ${name} in the app` : undefined}
         onDoubleClick={
           onOpen
             ? (event) => {
@@ -200,41 +244,30 @@ export const ControlView = ({
             : undefined
         }
       >
-        <div
-          className={cn(
-            "flex items-center",
-            sizeMode === "small"
-              ? "gap-2"
-              : sizeMode === "large"
-                ? "gap-3"
-                : "gap-2.5",
+        <div className={cn("flex items-center", rowGapClass)}>
+          {onOpen ? (
+            <TooltipProvider delay={OPEN_HINT_DELAY_MS}>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <div
+                      className={cn(
+                        "flex min-w-0 flex-1 items-center",
+                        rowGapClass,
+                      )}
+                    >
+                      {headerLabel}
+                    </div>
+                  }
+                />
+                <TooltipContent side="top">
+                  Double-click to open {name} in the app
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          ) : (
+            headerLabel
           )}
-        >
-          <span
-            className={cn(
-              "flex shrink-0 items-center justify-center",
-              sizeMode === "small"
-                ? "size-8"
-                : sizeMode === "large"
-                  ? "size-10"
-                  : "size-9",
-              lit ? "text-foreground" : "text-muted-foreground",
-            )}
-          >
-            {icon}
-          </span>
-          <p
-            className={cn(
-              "min-w-0 flex-1 truncate font-medium",
-              sizeMode === "small"
-                ? "text-sm"
-                : sizeMode === "large"
-                  ? "text-base"
-                  : "text-[15px]",
-            )}
-          >
-            {name}
-          </p>
           {partialSync && (
             <SyncIndicator
               syncedCount={syncedCount}

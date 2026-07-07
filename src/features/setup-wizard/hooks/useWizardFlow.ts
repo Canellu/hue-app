@@ -29,9 +29,15 @@ export const useWizardFlow = ({
   autoStartDiscovery = false,
   onPairingComplete,
 }: WizardFlowOptions): WizardController => {
-  const { applySession } = useHue();
+  const { applySession, bridges: pairedBridges } = useHue();
   const [state, setState] = useState<SetupState>({ type: "welcome" });
   const [isBusy, setIsBusy] = useState(false);
+  // Ids of bridges already paired on this device, kept fresh so re-showing the
+  // bridge list (after a cancel/retry) always reflects the current pairings.
+  const pairedIdsRef = useRef<string[]>([]);
+  pairedIdsRef.current = pairedBridges.map((bridge) =>
+    bridge.bridgeId.toUpperCase(),
+  );
   const knownBridgesRef = useRef<DiscoveredBridge[]>([]);
   const selectedBridgeRef = useRef<DiscoveredBridge | null>(null);
   const pendingSessionRef = useRef<HueSession | null>(null);
@@ -58,7 +64,7 @@ export const useWizardFlow = ({
 
   const showBridgeSelection = (bridges: DiscoveredBridge[]) => {
     knownBridgesRef.current = bridges;
-    setState(bridgeSelectionState(bridges));
+    setState(bridgeSelectionState(bridges, pairedIdsRef.current));
   };
 
   const startDiscovery = async () => {

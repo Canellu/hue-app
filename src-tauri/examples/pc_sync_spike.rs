@@ -48,8 +48,10 @@ async fn main() {
     }
 }
 
-/// Reads the bridge IP from the app's store file.
-fn bridge_ip() -> Result<String, String> {
+/// Reads the active bridge's (id, ip, application_key) from the app's store
+/// file. Understands the multi-bridge `bridges` shape and falls back to the
+/// legacy single-`bridge` key.
+fn active_bridge() -> Result<(String, String, Option<String>), String> {
     let appdata =
         std::env::var("APPDATA").map_err(|_| "APPDATA environment variable not set".to_string())?;
     let path = format!("{appdata}\\com.canellu.hue-desktop\\hue-store.json");
@@ -57,19 +59,62 @@ fn bridge_ip() -> Result<String, String> {
         .map_err(|error| format!("Failed to read {path}: {error}"))?;
     let json: serde_json::Value = serde_json::from_str(&text)
         .map_err(|error| format!("Invalid store file {path}: {error}"))?;
-    json.pointer("/bridge/bridge_ip")
-        .and_then(|value| value.as_str())
-        .map(ToString::to_string)
-        .ok_or_else(|| format!("No bridge_ip in {path}; pair the bridge in the app first."))
+
+    let read_entry = |entry: &serde_json::Value| {
+        let ip = entry.get("bridge_ip").and_then(|v| v.as_str())?.to_string();
+        let id = entry
+            .get("bridge_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let key = entry
+            .get("application_key")
+            .and_then(|v| v.as_str())
+            .map(ToString::to_string);
+        Some((id, ip, key))
+    };
+
+    if let Some(list) = json.pointer("/bridges/bridges").and_then(|v| v.as_array()) {
+        let active = json.pointer("/bridges/activeBridgeId").and_then(|v| v.as_str());
+        let entry = list
+            .iter()
+            .find(|entry| {
+                active
+                    .zip(entry.get("bridge_id").and_then(|v| v.as_str()))
+                    .map(|(a, b)| a.eq_ignore_ascii_case(b))
+                    .unwrap_or(false)
+            })
+            .or_else(|| list.first());
+        if let Some(found) = entry.and_then(read_entry) {
+            return Ok(found);
+        }
+    }
+
+    json.pointer("/bridge")
+        .and_then(read_entry)
+        .ok_or_else(|| format!("No bridge in {path}; pair the bridge in the app first."))
+}
+
+/// Reads the active bridge IP from the app's store file.
+fn bridge_ip() -> Result<String, String> {
+    active_bridge().map(|(_, ip, _)| ip)
+}
+
+/// The active bridge id, used to namespace entertainment credentials.
+fn bridge_id() -> Result<String, String> {
+    active_bridge().map(|(id, _, _)| id)
 }
 
 /// The REST key for CLIP calls: dedicated entertainment credential when
 /// provisioned, else the main app credential (keyring, then store fallback).
 fn rest_key() -> Result<String, String> {
-    if let Some(key) = credentials::load_application_key()? {
+    let (id, _, store_key) = active_bridge()?;
+    if let Some(key) = credentials::load_application_key(&id)? {
         return Ok(key);
     }
-    let main = keyring::Entry::new("com.anton.hue-app", "hue-application-key")
+    // Main app credential: per-bridge keyring account, then the copy in the
+    // store file.
+    let main = keyring::Entry::new("com.anton.hue-app", &format!("hue-application-key:{id}"))
         .map_err(|error| format!("Keyring access failed: {error}"))
         .and_then(|entry| {
             entry
@@ -79,25 +124,14 @@ fn rest_key() -> Result<String, String> {
     if let Ok(key) = main {
         return Ok(key);
     }
-    // Fall back to the copy the app keeps in the store file.
-    let appdata =
-        std::env::var("APPDATA").map_err(|_| "APPDATA environment variable not set".to_string())?;
-    let path = format!("{appdata}\\com.canellu.hue-desktop\\hue-store.json");
-    let json: serde_json::Value = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .ok_or_else(|| "No usable Hue application key found.".to_string())?;
-    json.pointer("/bridge/application_key")
-        .and_then(|value| value.as_str())
-        .map(ToString::to_string)
-        .ok_or_else(|| "No usable Hue application key found.".to_string())
+    store_key.ok_or_else(|| "No usable Hue application key found.".to_string())
 }
 
 async fn status() -> Result<(), String> {
     let ip = bridge_ip()?;
     println!("bridge ip: {ip}");
 
-    let creds = credentials::credential_status();
+    let creds = credentials::credential_status(&bridge_id()?);
     println!("entertainment clientkey stored: {}", creds.has_client_key);
     println!(
         "dedicated entertainment application key: {}",
@@ -141,8 +175,9 @@ async fn provision() -> Result<(), String> {
     loop {
         match client.pair_entertainment_credential(&ip).await {
             Ok((application_key, client_key)) => {
-                credentials::save_application_key(&application_key)?;
-                credentials::save_client_key(&client_key)?;
+                let id = bridge_id()?;
+                credentials::save_application_key(&id, &application_key)?;
+                credentials::save_client_key(&id, &client_key)?;
                 println!("provisioned and saved to keyring.");
                 return Ok(());
             }
@@ -181,7 +216,7 @@ async fn test(args: &[String]) -> Result<(), String> {
     let key = rest_key()?;
     let client = HueClient::new()?;
 
-    let client_key = credentials::load_client_key()?
+    let client_key = credentials::load_client_key(&bridge_id()?)?
         .ok_or_else(|| "no entertainment clientkey stored; run `provision` first.".to_string())?;
     let psk = credentials::decode_client_key(&client_key)?;
 
@@ -429,7 +464,7 @@ async fn video(args: &[String]) -> Result<(), String> {
     let key = rest_key()?;
     let client = HueClient::new()?;
 
-    let client_key = credentials::load_client_key()?
+    let client_key = credentials::load_client_key(&bridge_id()?)?
         .ok_or_else(|| "no entertainment clientkey stored; run `provision` first.".to_string())?;
     let psk = credentials::decode_client_key(&client_key)?;
     let application_id = client.fetch_application_id(&ip, &key).await?;
@@ -560,7 +595,7 @@ async fn latency(args: &[String]) -> Result<(), String> {
     let key = rest_key()?;
     let client = HueClient::new()?;
 
-    let client_key = credentials::load_client_key()?
+    let client_key = credentials::load_client_key(&bridge_id()?)?
         .ok_or_else(|| "no entertainment clientkey stored; run `provision` first.".to_string())?;
     let psk = credentials::decode_client_key(&client_key)?;
     let application_id = client.fetch_application_id(&ip, &key).await?;

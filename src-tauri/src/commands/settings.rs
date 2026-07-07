@@ -21,9 +21,12 @@ pub async fn get_hue_home_name(app: AppHandle) -> Result<Option<String>, String>
     let client = HueClient::new()?;
     let stored_bridge = client.get_stored_bridge(&app)?;
     let application_key = client.get_stored_application_key(&app)?;
-    client
+    let name = client
         .get_home_name(&stored_bridge.bridge_ip, &application_key)
-        .await
+        .await?;
+    // Cache it so the bridge switcher can label this bridge without a fetch.
+    client.cache_active_bridge_name(&app, name.as_deref());
+    Ok(name)
 }
 
 #[tauri::command(rename = "rename-hue-resource")]

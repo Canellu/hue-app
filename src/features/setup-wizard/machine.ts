@@ -11,25 +11,66 @@ import type {
 // logic, and new screens slot in by extending SetupState + these helpers.
 
 /**
- * A select-bridge state with a lone bridge pre-selected, so a single discovered
- * bridge only needs a Continue press (mirrors the hardware auto-select).
+ * Whether a discovered bridge id refers to an already-paired one. Tolerant of
+ * the short id mDNS exposes (a 6-char suffix of the full v2 bridge id), so a
+ * bridge is still recognised as paired even if discovery couldn't recover its
+ * full id from the public config.
+ */
+export const bridgeIdIsPaired = (
+  bridgeId: string,
+  pairedIds: string[],
+): boolean => {
+  const id = bridgeId.toUpperCase();
+  return pairedIds.some((paired) => {
+    const other = paired.toUpperCase();
+    return (
+      other === id ||
+      (id.length >= 6 &&
+        other.length >= 6 &&
+        (other.endsWith(id) || id.endsWith(other)))
+    );
+  });
+};
+
+const isPaired = (
+  bridge: DiscoveredBridge,
+  alreadyPairedIds: string[],
+): boolean => bridgeIdIsPaired(bridge.bridgeId, alreadyPairedIds);
+
+/**
+ * A select-bridge state. A lone, not-yet-paired bridge is pre-selected so it
+ * only needs a Continue press (mirrors the hardware auto-select). Bridges
+ * already paired on this device are recorded so they render as "already added"
+ * and stay unselectable.
  */
 export const bridgeSelectionState = (
   bridges: DiscoveredBridge[],
-): SelectBridgeState => ({
-  type: "selectBridge",
-  bridges,
-  selectedBridgeIp: bridges.length === 1 ? bridges[0].bridgeIp : "",
-});
+  alreadyPairedIds: string[] = [],
+): SelectBridgeState => {
+  const normalizedPaired = alreadyPairedIds.map((id) => id.toUpperCase());
+  const lone = bridges.length === 1 ? bridges[0] : undefined;
+  return {
+    type: "selectBridge",
+    bridges,
+    selectedBridgeIp:
+      lone && !isPaired(lone, normalizedPaired) ? lone.bridgeIp : "",
+    alreadyPairedIds: normalizedPaired,
+  };
+};
 
-/** Applies a radio selection, leaving non-select states untouched. */
+/**
+ * Applies a radio selection, leaving non-select states untouched. Selecting a
+ * bridge that's already paired is a no-op — it can't be re-paired.
+ */
 export const selectBridgeInState = (
   state: SetupState,
   bridgeIp: string,
-): SetupState =>
-  state.type === "selectBridge"
-    ? { ...state, selectedBridgeIp: bridgeIp }
-    : state;
+): SetupState => {
+  if (state.type !== "selectBridge") return state;
+  const target = state.bridges.find((bridge) => bridge.bridgeIp === bridgeIp);
+  if (target && isPaired(target, state.alreadyPairedIds ?? [])) return state;
+  return { ...state, selectedBridgeIp: bridgeIp };
+};
 
 /** The bridge the user has highlighted in a select-bridge state, if any. */
 export const highlightedBridge = (

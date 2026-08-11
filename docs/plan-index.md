@@ -9,6 +9,7 @@ The product name is tentative. Plans use “the app” and placeholders such as
 
 | Plan | Status | Owns |
 |---|---|---|
+| [Microsoft Store release](./microsoft-store-release-plan.md) | Proposed | Windows launch identity, packaging, signing, validation, listing, certification, and operations |
 | [Sync Box](./sync-box-plan.md) | Complete | Existing single-Sync-Box implementation record |
 | [PC Sync](./pc-sync-plan.md) | Complete for Windows launch | Screen/audio capture and entertainment streaming |
 | [Per-bridge Sync Box](./per-bridge-sync-box-plan.md) | Proposed | Multiple Sync Boxes and bridge association |

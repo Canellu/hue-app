@@ -157,7 +157,10 @@ impl GraphicsCaptureApiHandler for FrameSampler {
     fn on_closed(&mut self) -> Result<(), Self::Error> {
         self.config
             .board
-            .set_error("A captured display was disconnected.".to_string());
+            .set_error(
+                "The captured display was disconnected. Start sync again to use the current primary display."
+                    .to_string(),
+            );
         Ok(())
     }
 }

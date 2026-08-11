@@ -81,6 +81,31 @@ fn enumerate_on_com_thread() -> Result<Vec<AudioDeviceInfo>, String> {
     Ok(devices)
 }
 
+/// Resolves an active render endpoint by enumerating and matching its stable
+/// Windows endpoint ID. Avoid `DeviceEnumerator::get_device`: wasapi 0.23
+/// builds its `PCWSTR` from a temporary `HSTRING`, so the returned endpoint can
+/// survive lookup but fail later during `IMMDevice::Activate` with 0x80070002.
+fn get_active_render_device(
+    enumerator: &DeviceEnumerator,
+    device_id: &str,
+) -> Result<Device, String> {
+    let collection = enumerator
+        .get_device_collection(&Direction::Render)
+        .map_err(|error| format!("Failed to enumerate audio outputs: {error}"))?;
+
+    for entry in &collection {
+        let device = entry.map_err(|error| format!("Failed to read an audio output: {error}"))?;
+        let id = device
+            .get_id()
+            .map_err(|error| format!("Failed to read an audio output id: {error}"))?;
+        if id == device_id {
+            return Ok(device);
+        }
+    }
+
+    Err("The selected audio output is unavailable.".to_string())
+}
+
 /// Diagnostic: opens loopback on `device_id` (or the default render endpoint
 /// when `None`) for `duration` and returns the peak RMS observed. Lets a
 /// caller confirm which endpoint actually carries a given app's audio without
@@ -93,12 +118,11 @@ pub fn measure_loopback_peak_rms(
         .name("hue-audio-probe".to_string())
         .spawn(move || {
             let _com = ComGuard::initialize()?;
-            let enumerator = DeviceEnumerator::new()
-                .map_err(|error| format!("Failed to create the audio device enumerator: {error}"))?;
+            let enumerator = DeviceEnumerator::new().map_err(|error| {
+                format!("Failed to create the audio device enumerator: {error}")
+            })?;
             let device = match device_id.as_deref() {
-                Some(id) => enumerator
-                    .get_device(id)
-                    .map_err(|_| "The selected audio output is unavailable.".to_string())?,
+                Some(id) => get_active_render_device(&enumerator, id)?,
                 None => enumerator
                     .get_default_device(&Direction::Render)
                     .map_err(|error| format!("No default audio output is available: {error}"))?,
@@ -107,9 +131,9 @@ pub fn measure_loopback_peak_rms(
                 .get_friendlyname()
                 .unwrap_or_else(|_| "selected audio output".to_string());
             let client = create_loopback_client(&device)?;
-            let capture = client
-                .get_audiocaptureclient()
-                .map_err(|error| format!("Failed to create loopback capture for {name}: {error}"))?;
+            let capture = client.get_audiocaptureclient().map_err(|error| {
+                format!("Failed to create loopback capture for {name}: {error}")
+            })?;
             client
                 .start_stream()
                 .map_err(|error| format!("Failed to start loopback capture for {name}: {error}"))?;
@@ -162,18 +186,17 @@ pub fn diagnose_selected_device_capture(
         .name("hue-audio-diagnose".to_string())
         .spawn(move || {
             let _com = ComGuard::initialize()?;
-            let enumerator = DeviceEnumerator::new()
-                .map_err(|error| format!("Failed to create the audio device enumerator: {error}"))?;
-            let device = enumerator
-                .get_device(&device_id)
-                .map_err(|_| "The selected audio output is unavailable.".to_string())?;
+            let enumerator = DeviceEnumerator::new().map_err(|error| {
+                format!("Failed to create the audio device enumerator: {error}")
+            })?;
+            let device = get_active_render_device(&enumerator, &device_id)?;
             let name = device
                 .get_friendlyname()
                 .unwrap_or_else(|_| "selected audio output".to_string());
             let client = create_loopback_client(&device)?;
-            let capture = client
-                .get_audiocaptureclient()
-                .map_err(|error| format!("Failed to create loopback capture for {name}: {error}"))?;
+            let capture = client.get_audiocaptureclient().map_err(|error| {
+                format!("Failed to create loopback capture for {name}: {error}")
+            })?;
             client
                 .start_stream()
                 .map_err(|error| format!("Failed to start loopback capture for {name}: {error}"))?;
@@ -214,9 +237,12 @@ pub fn diagnose_selected_device_capture(
 
                 if Instant::now() >= next_check {
                     next_check = Instant::now() + interval;
-                    let state = enumerator
-                        .get_device(&device_id)
-                        .and_then(|device| device.get_state());
+                    let state =
+                        get_active_render_device(&enumerator, &device_id).and_then(|device| {
+                            device.get_state().map_err(|error| {
+                                format!("Failed to read audio output state: {error}")
+                            })
+                        });
                     let (state_text, active) = match state {
                         Ok(state) => (format!("{state:?}"), state == DeviceState::Active),
                         Err(error) => (format!("get_device/get_state ERROR: {error}"), false),
@@ -367,7 +393,10 @@ impl AudioRig {
 
     /// Loopback capture feeding only the loudness envelope, for
     /// audio-reactive Video.
-    pub fn start_energy(device_id: Option<String>, board: &Arc<EnergyBoard>) -> Result<Self, String> {
+    pub fn start_energy(
+        device_id: Option<String>,
+        board: &Arc<EnergyBoard>,
+    ) -> Result<Self, String> {
         Self::start(
             device_id,
             AudioSink::Energy {
@@ -471,9 +500,7 @@ fn capture_device(
     let enumerator = DeviceEnumerator::new()
         .map_err(|error| format!("Failed to create the audio device enumerator: {error}"))?;
     let device = match selected_id {
-        Some(id) => enumerator
-            .get_device(id)
-            .map_err(|_| "The selected audio output is unavailable.".to_string())?,
+        Some(id) => get_active_render_device(&enumerator, id)?,
         None => enumerator
             .get_default_device(&Direction::Render)
             .map_err(|error| format!("No default audio output is available: {error}"))?,
@@ -534,9 +561,12 @@ fn capture_device(
         if last_device_check.elapsed() >= DEVICE_CHECK_INTERVAL {
             last_device_check = Instant::now();
             if let Some(id) = selected_id {
-                let is_active = enumerator
-                    .get_device(id)
-                    .and_then(|device| device.get_state())
+                let is_active = get_active_render_device(&enumerator, id)
+                    .and_then(|device| {
+                        device
+                            .get_state()
+                            .map_err(|error| format!("Failed to read audio output state: {error}"))
+                    })
                     .is_ok_and(|state| state == DeviceState::Active);
                 if is_active {
                     unhealthy_checks = 0;

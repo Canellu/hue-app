@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { selectableVariants } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
-import { Loader2, Pause, Play } from "lucide-react";
+import { Loader2, Play, Square } from "lucide-react";
 
 type IconComponent = React.ComponentType<{
   size?: number;
@@ -106,7 +106,7 @@ export const SyncToggleButton = ({
     {busy ? (
       <Loader2 className="animate-spin" />
     ) : active ? (
-      <Pause />
+      <Square className="fill-current" />
     ) : (
       <Play className="fill-current" />
     )}
@@ -177,8 +177,9 @@ export const OptionTile = ({
     onClick={onSelect}
     className={cn(
       "flex min-w-0 items-center gap-3 rounded-xl bg-muted/50 p-3 text-left outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none dark:bg-foreground/3",
-      disabled && "opacity-50",
+      disabled && !selected && "opacity-50",
       selectableVariants(),
+      "data-[selected]:bg-background/90 data-[selected]:shadow-sm dark:data-[selected]:bg-foreground/10",
       vertical && "flex-col items-start gap-2.5",
     )}
   >

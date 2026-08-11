@@ -35,12 +35,7 @@ export const SyncBoxTab = ({
   // to run the onboarding wizard instead of an all-"Unknown" details table.
   if (!configured && !isLoadingSession) {
     return (
-      <div className="space-y-10">
-        <SyncBoxHeader
-          connected={connected}
-          name={syncBox?.name}
-          isLoading={isLoadingSession}
-        />
+      <div>
         <Panel title="Sync Box Details">
           <div className="flex flex-col items-center gap-4 py-7 text-center">
             <span className="flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">

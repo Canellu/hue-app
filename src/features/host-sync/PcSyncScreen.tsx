@@ -69,7 +69,7 @@ import {
   Music2,
   TriangleAlert,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   builtinPalettes,
   channelCounts,
@@ -409,7 +409,7 @@ export const PcSyncScreen = ({ areaId }: { areaId: string }) => {
                   label={label}
                   caption={description}
                   selected={prefs.mode === mode}
-                  disabled={busy}
+                  disabled={busy || prefs.mode === mode}
                   onSelect={() =>
                     void applyPreference({ mode }, { restart: true })
                   }
@@ -459,15 +459,10 @@ export const PcSyncScreen = ({ areaId }: { areaId: string }) => {
                   {Math.round(prefs.brightness)}%
                 </span>
               </SettingRow>
-              <Slider
-                aria-label="Effect brightness"
-                min={0}
-                max={100}
-                step={1}
-                value={[Math.round(prefs.brightness)]}
+              <EffectBrightnessSlider
+                value={prefs.brightness}
                 disabled={busy}
-                onValueCommitted={(value) => {
-                  const brightness = Array.isArray(value) ? value[0] : value;
+                onCommit={(brightness) => {
                   void applyPreference(
                     { brightness },
                     { live: { brightness } },
@@ -477,25 +472,46 @@ export const PcSyncScreen = ({ areaId }: { areaId: string }) => {
             </div>
 
             {prefs.mode === "video" && (
-              <SettingRow
-                icon={AudioLines}
-                title="Use audio for the effect"
-                description="Emphasize brightness with your PC's sound while watching."
-                className="border-t border-border pt-4"
-              >
-                <Switch
-                  size="lg"
-                  aria-label="Toggle audio-driven brightness for Video"
-                  checked={prefs.videoAudioReactive}
-                  disabled={busy}
-                  onCheckedChange={(checked) =>
-                    void applyPreference(
-                      { videoAudioReactive: checked },
-                      { restart: true },
-                    )
-                  }
-                />
-              </SettingRow>
+              <>
+                <SettingRow
+                  icon={AudioLines}
+                  title="Use audio for the effect"
+                  description="Emphasize brightness with your PC's sound while watching."
+                  className="border-t border-border pt-4"
+                >
+                  <Switch
+                    size="lg"
+                    aria-label="Toggle audio-driven brightness for Video"
+                    checked={prefs.videoAudioReactive}
+                    disabled={busy}
+                    onCheckedChange={(checked) =>
+                      void applyPreference(
+                        { videoAudioReactive: checked },
+                        { restart: true },
+                      )
+                    }
+                  />
+                </SettingRow>
+                {prefs.videoAudioReactive && (
+                  <SettingRow
+                    title="Audio input"
+                    description="Choose the output whose sound drives the brightness response."
+                    className="border-t border-border pt-4"
+                  >
+                    <AudioInputChip
+                      outputs={overview.audioOutputs}
+                      selectedId={prefs.audioDeviceId}
+                      disabled={busy}
+                      onChange={(audioDeviceId) =>
+                        void applyPreference(
+                          { audioDeviceId },
+                          { restart: true },
+                        )
+                      }
+                    />
+                  </SettingRow>
+                )}
+              </>
             )}
 
             {prefs.mode === "music" && (
@@ -632,6 +648,38 @@ const SelectedCheck = ({ checked }: { checked: boolean }) => (
   </span>
 );
 
+/** Keep the controlled slider responsive while persisting only on release. */
+const EffectBrightnessSlider = ({
+  value,
+  disabled,
+  onCommit,
+}: {
+  value: number;
+  disabled?: boolean;
+  onCommit: (value: number) => void;
+}) => {
+  const [draft, setDraft] = useState([Math.round(value)]);
+
+  useEffect(() => {
+    setDraft([Math.round(value)]);
+  }, [value]);
+
+  return (
+    <Slider
+      aria-label="Effect brightness"
+      min={0}
+      max={100}
+      step={1}
+      value={draft}
+      disabled={disabled}
+      onValueChange={(next) => setDraft(Array.isArray(next) ? next : [next])}
+      onValueCommitted={(next) =>
+        onCommit(Array.isArray(next) ? next[0] : next)
+      }
+    />
+  );
+};
+
 /**
  * Clickable hero-chip trigger shared by the source pickers (display capture,
  * audio input) so both read as the same control next to Start/Stop.
@@ -664,7 +712,10 @@ const SourceChipTrigger = ({
     </span>
     <span className="min-w-0 text-left">
       <span className="block text-sm leading-tight font-medium">{label}</span>
-      <span className="mt-0.5 block max-w-40 truncate text-xs leading-tight text-muted-foreground">
+      <span
+        className="mt-0.5 block max-w-40 truncate text-xs leading-tight text-muted-foreground"
+        title={caption}
+      >
         {caption}
       </span>
     </span>
@@ -716,7 +767,15 @@ const AudioInputChip = ({
           onClick={() => onChange(null)}
           className="items-start justify-between gap-2"
         >
-          <span className="min-w-0 flex-1">Default output</span>
+          <span className="min-w-0 flex-1">
+            <span className="block">Default output</span>
+            <span
+              className="mt-0.5 block truncate text-xs text-muted-foreground"
+              title={defaultOutput?.name}
+            >
+              {defaultOutput?.name ?? "System-selected output"}
+            </span>
+          </span>
           <SelectedCheck checked={selectedId == null} />
         </DropdownMenuItem>
         {outputs.length > 0 && <DropdownMenuSeparator />}
@@ -727,7 +786,10 @@ const AudioInputChip = ({
             onClick={() => onChange(output.id)}
             className="items-start justify-between gap-2"
           >
-            <span className="line-clamp-2 min-w-0 flex-1 whitespace-normal">
+            <span
+              className="line-clamp-2 min-w-0 flex-1 whitespace-normal"
+              title={output.name}
+            >
               {output.name}
             </span>
             <SelectedCheck checked={output.id === selectedId} />

@@ -6,6 +6,9 @@ summary: "Scope the paired HDMI Sync Box to the active bridge so switching bridg
 
 # Per-Bridge Sync Box Plan
 
+Status: **proposed / not started**. The current implementation still stores one
+global Sync Box configuration and credential; this plan describes its migration.
+
 ## Goal
 
 Today the app pairs and controls exactly **one** HDMI Sync Box, stored as a global

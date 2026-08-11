@@ -1,6 +1,6 @@
 # Plan: Accounts, Homes & Membership (Full Platform Vision)
 
-Status: **vision / mostly not started**. This is the umbrella design doc for the
+Status: **vision / not started**. This is the umbrella design doc for the
 "first-class Hue app experience": users sign in, create **homes**, invite
 **members**, and members who install the app are automatically recognised and can
 control the devices in the homes they belong to.
@@ -51,7 +51,7 @@ same time, because two of them require infrastructure we own.
 | 3 | **Homes** (top-level container over bridges) | Local app now; our backend when shared | Shared homes: **yes** |
 | 4 | **Members / invites / roles / auto-recognition** | Our backend | **Yes** |
 
-### What is possible *right now*, without an app backend
+### What can be implemented without an app backend
 
 - **Login with a Philips Hue account** (Hue OAuth2).
 - **Cloud device control** from anywhere — see
@@ -103,7 +103,7 @@ one.
 
 ```
 ┌──────────────────────────┐   our auth (pillar 1)   ┌───────────────────────────┐
-│  hue-app (Tauri)          │◄───────────────────────►│  Our backend (FUTURE)      │
+│  Tauri app                │◄───────────────────────►│  Our backend (FUTURE)      │
 │                           │  homes, members, roles, │  - app users / identity    │
 │  - app-native sign-in     │  invites, auto-recognise│  - homes (our concept)     │
 │  - home picker            │                         │  - membership + roles      │
@@ -180,8 +180,10 @@ That doc assumes one user controlling their own bridge(s). This plan adds:
 
 ## Open questions / decisions deferred to backend time
 
-- **Identity provider:** roll our own accounts, or federate (Sign in with
-  Hue/Apple/Google) and keep only a thin user record? Affects pillar 1 entirely.
+- **Identity/backend selection:** owned by
+  [monetization-and-stack-plan.md](./monetization-and-stack-plan.md). Its current
+  recommendation is federated identity through Clerk with Convex for state and
+  server functions; validate the desktop OAuth flow before committing.
 - **Relay vs. shared credential hand-out:** confirmed we relay through the backend
   (never hand owner Hue tokens to guests). Confirm rate-limit headroom, since Hue
   limits are per `client_id` and now multiplied by every member of every home.

@@ -1,5 +1,9 @@
 # Hue Pomodoro / Focus Rituals
 
+Status: **proposed / not started**.
+
+Shared runtime prerequisite: [automation-runtime-plan.md](./automation-runtime-plan.md).
+
 ## Summary
 
 Create a dedicated `/focus` feature where users save reusable “rituals” combining:
@@ -39,7 +43,7 @@ Sessions run in the Rust backend, continue in the tray, restore previous light s
 
 ## Backend, Persistence, and Interfaces
 
-- Add a managed `PomodoroEngine` with an immutable ritual snapshot per active session. Use monotonic timing, pause on system sleep/resume gaps, and never depend on webview timers.
+- Add a Pomodoro consumer to the shared automation runtime with immutable session state. Use monotonic timing, pause on system sleep/resume gaps, and never depend on webview timers.
 - Add Tauri commands:
   - `get-pomodoro-data`
   - `save-pomodoro-ritual`
@@ -59,8 +63,8 @@ Sessions run in the Rust backend, continue in the tray, restore previous light s
   - `PomodoroStatus`: idle, running, paused, intermission, restoring, completed, or error.
 - Persist rituals, last-used ritual, alert preferences, and a versioned active-session journal in `pomodoro-store.json`.
 - Before changing lights, resolve targets to deduplicated v2 light IDs and persist snapshots containing power, brightness, color mode, XY/mirek, and supported effects.
-- Reuse the entertainment snapshot logic through a shared light-snapshot service. Pace combined per-light writes at least 125 ms apart and avoid redundant properties.
-- On normal completion, stop, application exit, or startup recovery, restore the snapshot and clear the journal only after restoration succeeds. Retain failed restores for retry after bridge reconnection.
+- Use the shared runtime for light snapshots, paced writes, ownership, restoration,
+  and recovery journals.
 - Continue timing through temporary bridge outages; skip obsolete cues and apply only the current phase look after reconnection.
 - Block startup when selected lights overlap active entertainment sync, with an action to exclude conflicting lights. If overlap begins externally mid-session, stop controlling overlapping lights and do not restore them against the new owner.
 - Expose locked IDs globally. Disable intersecting room/zone grouped controls, lights, scenes, widgets, and PC Sync startup because grouped or scene writes could overwrite session-owned lights.
@@ -69,7 +73,8 @@ Sessions run in the Rust backend, continue in the tray, restore previous light s
 
 ## Implementation Sequence
 
-1. **Backend task:** shared snapshot service, timer state machine, persistence/journal, Hue cue scheduler, conflict handling, commands, events, tray behavior, and unit tests.
+1. **Backend task:** Pomodoro timer state machine, ritual persistence, Hue cue
+   scheduling, and commands/events on top of the shared automation runtime.
 2. **Functional frontend task:** route, store, ritual CRUD/editor, target selection, active-session controls, capability warnings, global status, notifications, and control locking.
 3. **Visual task:** ambient gradients, countdown animation, light-progress visualization, intermission transitions, completion treatment, sound polish, and reduced-motion variants.
 
@@ -90,4 +95,5 @@ Sessions run in the Rust backend, continue in the tray, restore previous light s
 - Custom colors affect color-capable lights; other lights receive semantic temperature or brightness equivalents.
 - A session owns selected lights until it ends. External non-entertainment Hue controllers cannot be prevented from writing, but subsequent cues and final restoration may overwrite those changes.
 - Rituals and session journals are local to this desktop app; cloud synchronization and bridge-side schedules are out of scope.
-- Existing uncommitted PC Sync work is preserved, and shared snapshot refactoring occurs only after that implementation is stable.
+- Preserve completed PC Sync behavior and regression tests while extracting
+  reusable snapshot behavior through the shared runtime plan.

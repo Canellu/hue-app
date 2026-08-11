@@ -1,6 +1,7 @@
 # Plan: PC-Hosted Hue Entertainment Sync
 
-Status: **in progress**.
+Status: **complete for the Windows launch scope** (implementation and manual
+hardware acceptance signed off 2026-08-11).
 
 - Step 1 (credentials, application-id lookup, HueStream v2 encoding, DTLS
   transport, CLIP ownership, solid-color streaming spike) is implemented and
@@ -31,8 +32,8 @@ Status: **in progress**.
   `start-host-sync`, `get-host-sync-preferences`, `set-host-sync-preferences`;
   the overview now carries displays and preferences. HDR display detection,
   RGBA16F/scRGB capture, bounded adaptive exposure, and ACES-style tone mapping
-  are implemented with deterministic tests but still need HDR hardware
-  validation. The Music pipeline is implemented with WASAPI shared-mode
+  are implemented with deterministic tests and have been hardware-validated.
+  The Music pipeline is implemented with WASAPI shared-mode
   loopback, 48 kHz stereo-to-mono capture, Hann-windowed FFT, RMS/onset
   response, horizontal frequency-band allocation, four built-in palettes,
   match-area/1/3/5 channel modes, default-output following, and explicit
@@ -47,8 +48,9 @@ Status: **in progress**.
   persists either a built-in name or `{ sceneId }` (backward compatible via
   untagged serde), and the engine resolves scene colors (xy chromaticity and
   mirek → normalized linear RGB stops, piecewise-interpolated) from the
-  bridge at session start, failing fast before claiming the area. Still
-  pending from step 3: audio/HDR hardware validation.
+  bridge at session start, failing fast before claiming the area. Explicit and
+  default audio outputs, Music response, audio-reactive Video, SDR capture,
+  and HDR capture have all been hardware-validated.
 - Step 4 is done: `update-host-sync` applies live brightness/intensity to a
   running session over a watch channel (send tick and smoothing retune
   in-loop; validation and idle rejection unit-tested). Stop behavior
@@ -73,7 +75,7 @@ Status: **in progress**.
   the Sync Box, or another app and opens the shared area workspace. Live
   brightness/intensity changes apply without a restart; mode/palette/audio
   toggle changes restart the PC session automatically.
-- Step 6 is mostly done: a "PC Sync" connection settings tab covers the
+- Step 6 is done: a "PC Sync" connection settings tab covers the
   entertainment credential status with the link-button enable/re-pair flow,
   the rendered monitor topology with automatic-primary toggle and explicit
   multi-display selection, audio output selection, default Music
@@ -90,10 +92,13 @@ Status: **in progress**.
   latency per genuinely-new frame (`ColorBoard::last_update`). On an ultrawide
   SDR display it passed comfortably — High (40 Hz): p50 4.7 ms / p95 17.0 ms /
   max 27.8 ms; Extreme (50 Hz): p50 3.9 ms / p95 17.6 ms / max 30.3 ms — all
-  under the 50 ms target. Remaining: the interactive/app-driven manual
-  acceptance items (multi-monitor selection + primary-display change + hot
-  unplug, audio-device matrix and Music response, stop behaviors,
-  minimize/hide, and HDR-display validation).
+  under the 50 ms target. Interactive acceptance passed for Video, Games,
+  Music, single- and multi-monitor capture, minimized operation, the audio
+  device matrix, audio-reactive Video, effect brightness, all stop behaviors,
+  and HDR. Disconnecting a captured display intentionally ends the session,
+  restores/releases the area, and tells the user to start sync again; the next
+  start resolves the current primary display. Seamless hot-plug recovery is
+  outside the launch scope.
 
 Related plan: [HDMI Sync Box Control](sync-box-plan.md)
 
@@ -152,7 +157,8 @@ Add Windows-first light sync driven directly by the PC, without a Sync Box:
 - Enumerate displays with stable device names, friendly names, adapter,
   virtual-desktop bounds, resolution, primary state, refresh rate, and HDR
   state.
-- Support automatic primary-display tracking or a persisted explicit display.
+- Support automatic primary-display tracking or persisted explicit multi-display
+  selection.
   Render the actual monitor topology in settings.
 - Detect HDR displays, capture 16-bit float frames, and apply adaptive exposure
   plus ACES-style tone mapping before analysis. Use 8-bit capture for SDR.
@@ -252,10 +258,11 @@ Automated coverage:
   and external applications.
 - Frontend typecheck/build and route/control-state tests.
 
-Manual acceptance:
+Manual acceptance (complete for launch scope):
 
-- Single- and multi-monitor layouts, primary-display changes, negative monitor
-  coordinates, hot unplug, SDR, and HDR.
+- Single- and multi-monitor layouts, primary-display selection, SDR, and HDR.
+  Hot unplug is accepted as a clean terminal condition: restart sync to resolve
+  the new primary display. Seamless topology handoff is not required.
 - Default and explicit audio outputs, silence, device switching, and Music
   response.
 - Minimize/hide continues sync; explicit exit releases the area.

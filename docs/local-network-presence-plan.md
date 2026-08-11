@@ -1,5 +1,9 @@
 # Local Network Presence Plan
 
+Status: **proposed / not started**.
+
+Shared runtime prerequisite: [automation-runtime-plan.md](./automation-runtime-plan.md).
+
 ## Summary
 
 Add an opt-in, serverless presence monitor that tracks multiple phones on the
@@ -106,7 +110,7 @@ Implement only after the backend phase is complete.
   settings without changing either preference automatically.
 - Extend the existing start-on-login implementation to macOS and Linux so the
   warning can be resolved on every supported platform.
-- Clearly state that monitoring stops when Hue Desktop exits or the computer
+- Clearly state that monitoring stops when the app exits or the computer
   sleeps.
 
 ## Test Plan

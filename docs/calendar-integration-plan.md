@@ -1,5 +1,9 @@
 # Local Calendar Integration
 
+Status: **proposed / not started**.
+
+Shared runtime prerequisite: [automation-runtime-plan.md](./automation-runtime-plan.md).
+
 ## Summary
 
 Build a read-only, serverless calendar client for Google Calendar, Microsoft
@@ -8,7 +12,7 @@ URLs.
 
 - Support multiple accounts across providers.
 - Add `/calendar` with Agenda, Week, and Month views.
-- Run event-relative Hue automations locally while Hue Desktop is open or in
+- Run event-relative Hue automations locally while the app is open or in
   the tray.
 - Support Windows, macOS, and Linux.
 - Store credentials in the OS credential vault and calendar state in a local
@@ -78,12 +82,12 @@ Entertainment handling is selected per rule:
 - Skip conflicting lights—default; scenes with any conflict are skipped
   because they are indivisible.
 - Skip the entire step.
-- Stop entertainment controlled by Hue Desktop, then run. Externally owned
+- Stop entertainment controlled by the app, then run. Externally owned
   sync sessions cannot be interrupted and fall back to skipping.
 
 ### Runtime behavior
 
-- Automations require Hue Desktop to be open or hidden in the tray.
+- Automations require the app to be open or hidden in the tray.
 - Enabling the first rule explains this requirement and offers to enable
   autostart and minimize-to-tray behavior.
 - Add tray controls for opening Calendar, viewing the next cue, pausing for one
@@ -195,8 +199,8 @@ Add managed `CalendarService` and `CalendarAutomationEngine` backend state.
   time for idempotency. Moving an event creates a new schedule; cancellation
   removes pending work.
 - Persist snapshots and ownership before the first Hue write.
-- Refactor the existing entertainment snapshot implementation into a shared
-  light-snapshot service.
+- Consume the snapshot, ownership, conflict, recovery, tray, and notification
+  capabilities from the shared automation runtime.
 - Resolve rooms and zones to v2 light UUIDs. Use `grouped_light` only when the
   complete group can be addressed; use paced per-light writes after partial
   conflict filtering.
@@ -299,7 +303,7 @@ providers, OAuth endpoints, subscription hosts, and the local Hue Bridge.
 
 ## Assumptions
 
-- Provider OAuth client registrations are owned by Hue Desktop and distributed
+- Provider OAuth client registrations are owned by the publisher and distributed
   as public native-client configuration; no confidential server secret is
   introduced.
 - Google production release still requires its consent-screen verification and
@@ -310,5 +314,5 @@ providers, OAuth endpoints, subscription hosts, and the local Hue Bridge.
 - No cross-device rule synchronization, mobile client, event modification,
   provider reminders, webhook service, or legacy Hue Bridge scheduling is
   included.
-- Existing uncommitted PC Sync work must be preserved; shared snapshot
-  refactoring starts only after that backend is stable.
+- Preserve completed PC Sync behavior and regression tests while the shared
+  runtime extracts reusable snapshot behavior.

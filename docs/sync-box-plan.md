@@ -43,10 +43,9 @@ most of the work is repeating patterns already in `hue_client.rs`.
   pushlink registration, `keyring` for the token, `tauri-plugin-store` for
   non-secret device info, `reqwest` for transport, Tauri commands as the
   frontend bridge. All of this already exists for the Bridge.
-- **Ship in two TLS phases.** Phase 1 uses the insecure shortcut the Bridge
-  client already uses (`danger_accept_invalid_certs(true)`) to get end-to-end
-  control working fast. Phase 2 hardens to proper CA pinning. See the TLS
-  section — this is the only genuinely fiddly part.
+- **Production uses pinned Sync Box CA validation.** The earlier insecure-client
+  phase was implementation scaffolding only and must not be restored or treated
+  as an acceptable shipping configuration.
 - **Sync control is "execution" PUTs.** Once auth works, the actual feature is
   small atomic JSON PUTs against `/api/v1/execution`. Cheap.
 
@@ -76,9 +75,9 @@ most of the work is repeating patterns already in `hue_client.rs`.
 | `src-tauri/src/commands/mod.rs` | Register the new commands. |
 | `src-tauri/src/lib.rs` | Add commands to the invoke handler. |
 | `src-tauri/assets/hsb_cacert.pem` | New (Phase 2). Pinned Sync Box CA cert. |
-| `src/features/sync-screen/*` | New. UI mirroring existing screens. |
-| `src/stores/*` | New zustand store for sync-box session + execution state. |
-| `src/types/*` | TS types matching the API resources. |
+| `src/features/sync-box/*` | Sync Box screen, onboarding, polling, and constants. |
+| `src/stores/SyncBoxStore.ts` | Sync Box session and execution state. |
+| `src/types/sync-box.ts` | TypeScript API types. |
 
 ## API surface we actually use
 
@@ -139,7 +138,7 @@ but the cert's CN is the `uniqueId`. A normal HTTPS client validates that the
 hostname you dialed matches the cert's CN/SAN — which will **fail**, because
 `192.168.1.12 != C42996000000`. That mismatch is the whole problem.
 
-### The three ways to resolve it (pick one for Phase 2)
+### Implemented TLS resolution
 
 | Option | How | Trade-off |
 |---|---|---|
@@ -147,21 +146,13 @@ hostname you dialed matches the cert's CN/SAN — which will **fail**, because
 | **B. Connect by IP, disable hostname check only** | `add_root_certificate(hsb_ca)` + `danger_accept_invalid_hostnames(true)`. Still validates the chain against the pinned CA; only skips the name match. | Simple. Slightly weaker (a different box with a CA-signed cert on that IP would pass). Acceptable on LAN. |
 | **C. Connect by IP, manual CN check** | Disable reqwest hostname verify, then manually assert the peer cert CN == expected uniqueId. | Most control, most code. Usually overkill. |
 
-Recommendation: **Option A** if the spike confirms CN == uniqueId and reqwest's
-`resolve()` works against the box; otherwise **Option B**. Either way:
+The implementation uses **Option A**: validate against the pinned CA, request by
+the validated unique-ID hostname, and use reqwest `resolve()` to route that name
+to the discovered IP. No hostname-validation bypass is used for authenticated
+requests.
 
 ```rust
-// Phase 2 sketch (Option B)
-let ca = reqwest::Certificate::from_pem(include_bytes!("../../assets/hsb_cacert.pem"))?;
-let client = reqwest::Client::builder()
-    .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
-    .add_root_certificate(ca)
-    .danger_accept_invalid_hostnames(true) // CN is uniqueId, not the IP we dial
-    .build()?;
-```
-
-```rust
-// Phase 2 sketch (Option A) — full validation, no "danger" flags
+// Simplified production shape — full validation, no "danger" flags
 let client = reqwest::Client::builder()
     .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
     .add_root_certificate(ca)
@@ -170,27 +161,25 @@ let client = reqwest::Client::builder()
 // then request https://<unique_id>/api/v1/...
 ```
 
-### Phase 1 (get it working): mirror the Bridge
+### Historical implementation note
 
-Start with exactly what the Bridge client does — `danger_accept_invalid_certs(true)`
-— connecting by IP. This is the `curl -k` from the docs' quick start. It gets the
-whole feature working end to end so the UI and execution logic can be built and
-tested. Then swap in the pinned-CA client for Phase 2 without touching callers.
+An insecure client was used only for the unauthenticated discovery probe during
+development. Authenticated registration, reads, and writes use the pinned-CA
+client described above. Do not use the historical insecure path for credentials
+or control requests.
 
-### Open TLS questions for the spike
+### Resolved TLS questions
 
-- Does the box's leaf cert CN really equal the uniqueId? (Determines A vs B.)
-- Does `reqwest`'s rustls/native-tls backend on Windows accept the pinned CA
-  cleanly? (Check which TLS backend reqwest 0.12 is compiled with here.)
-- Where do we source `hsb_cacert.pem`? (Linked from the official docs; pin it in
-  the repo under `src-tauri/assets/`.)
+- The unique ID is normalized and validated as a 12-digit hexadecimal hostname.
+- reqwest accepts the bundled Sync Box CA and resolves that hostname to the
+  discovered address.
+- The pinned certificate is stored at `src-tauri/assets/hsb_cacert.pem`.
 
-## Validation spikes BEFORE coding (Postman / curl)
+## Historical validation record
 
-Doing these first de-risks the whole plan, especially the TLS part. All use the
-insecure shortcut (Postman: turn **off** "SSL certificate verification"; curl:
-`-k`). You need to be on the **same Wi-Fi** as the box, and have its IP (Hue Sync
-app → Sync Box → … → Device → Network info).
+These manual probes were used during implementation. They are not production
+client guidance; any repeat testing that pairs or controls physical hardware
+requires the user's explicit confirmation.
 
 1. **Confirm reachability + apiLevel** (no auth):
    ```
@@ -201,7 +190,7 @@ app → Sync Box → … → Device → Network info).
 2. **Pushlink registration** (no auth). First call returns `{"code":16}`:
    ```
    POST https://<ip>/api/v1/registrations
-   Body: {"appName":"hue-app","instanceName":"<your machine>"}
+   Body: {"appName":"<APP_NAME>","instanceName":"<your machine>"}
    ```
    Then hold the box button ~3s until LED blinks green, release, repeat the POST
    within 5s → expect `{"registrationId","accessToken"}`. **Save the token.**
@@ -236,22 +225,13 @@ Capturing the real JSON bodies from steps 1, 3, and 4 lets us write exact Rust
 structs instead of guessing, and answers the TLS questions before we commit to an
 approach.
 
-## Rough effort
-
-- TLS/cert client (Phase 2): ~0.5 day (only real research).
-- Discovery + registration: ~0.5 day (adapt existing Bridge code).
-- Execution/state commands + types: ~0.5 day.
-- Sync screen UI to app quality: ~1–2 days.
-
-~3–4 days total; TLS is the only spot likely to surprise.
-
-## Suggested build order
+## Completed build record
 
 1. Run the Postman/curl spikes above; capture real JSON.
-2. [x] `sync_box_client.rs` Phase 1 (insecure TLS): device GET + apiLevel gate,
-   registration, full-state GET, execution PUT.
+2. [x] `sync_box_client.rs`: discovery probe, device GET + apiLevel gate,
+   pinned-CA registration, full-state GET, and execution PUT.
 3. [x] Tauri commands + minimal store.
-4. [x] `features/sync-screen` UI; polling while visible.
+4. [x] `features/sync-box` UI; polling while visible.
 5. [x] Phase 2 TLS hardening (pin CA, resolve CN); no caller changes.
 6. [x] Error/edge handling: overheating/undervolt, connectionState, apiLevel < 7,
    token loss / re-pair.

@@ -515,7 +515,9 @@ export const SyncBoxConnectedView = ({
           <Button
             variant="outline"
             className="mt-5"
-            onClick={() => void navigate({ to: "/sync" })}
+            onClick={() =>
+              void navigate({ to: "/sync", search: { source: undefined } })
+            }
           >
             Back to entertainment areas
           </Button>

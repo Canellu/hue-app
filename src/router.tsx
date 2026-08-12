@@ -97,6 +97,9 @@ const entertainmentPlacementRoute = createRoute({
 const syncHubRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/sync",
+  validateSearch: (search: Record<string, unknown>) => ({
+    source: search.source === "box" ? ("box" as const) : undefined,
+  }),
   component: SyncHubRoute,
 });
 

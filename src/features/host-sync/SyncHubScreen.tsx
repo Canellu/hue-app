@@ -1,6 +1,7 @@
 import { SyncIndicator } from "@/components/SyncIndicator";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { SyncBoxScreen } from "@/features/sync-box/SyncBoxScreen";
 import { cn } from "@/lib/utils";
 import { useEntertainmentStore } from "@/stores/EntertainmentStore";
 import { useSyncBoxStore } from "@/stores/SyncBoxStore";
@@ -25,13 +26,17 @@ const AREA_TYPE_DETAILS = {
 } as const;
 
 /** One area picker shared by every entertainment sync source. */
-export const SyncHubScreen = () => {
+export const SyncHubScreen = ({ source }: { source?: "box" }) => {
   const navigate = useNavigate();
   const areas = useEntertainmentStore((store) => store.areas);
   const hasLoaded = useEntertainmentStore((store) => store.hasLoaded);
   const pcStatus = useEntertainmentStore((store) => store.pcStatus);
   const loadAreas = useEntertainmentStore((store) => store.load);
   const boxState = useSyncBoxStore((store) => store.state);
+
+  if (source === "box") {
+    return <SyncBoxScreen />;
+  }
 
   if (!hasLoaded) {
     return (

@@ -77,7 +77,7 @@ export const EntertainmentAreaWizardRoute: React.FC = () => {
             toast.success("Entertainment area created");
             void navigate(
               from === "sync"
-                ? { to: "/sync" }
+                ? { to: "/sync", search: { source: undefined } }
                 : {
                     to: "/settings",
                     search: { tab: "entertainment" },

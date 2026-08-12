@@ -361,7 +361,7 @@ const ShellHeader: React.FC = () => {
                           },
                     )
                   : activeSyncArea
-                    ? navigate({ to: "/sync" })
+                    ? navigate({ to: "/sync", search: { source: undefined } })
                     : onWidgetWizard
                       ? navigate({ to: "/settings", search: { tab: "widget" } })
                       : onSpacesWizard
@@ -372,7 +372,10 @@ const ShellHeader: React.FC = () => {
                         : onEntertainmentWizard
                           ? navigate(
                               entertainmentWizardFrom === "sync"
-                                ? { to: "/sync" }
+                                ? {
+                                    to: "/sync",
+                                    search: { source: undefined },
+                                  }
                                 : {
                                     to: "/settings",
                                     search: { tab: "entertainment" },
@@ -439,7 +442,9 @@ const ShellHeader: React.FC = () => {
         void navigate({ to: "/settings", search: { tab: undefined } })
       }
       showSync={onHome}
-      onOpenSync={() => void navigate({ to: "/sync" })}
+      onOpenSync={() =>
+        void navigate({ to: "/sync", search: { source: undefined } })
+      }
       showEditLayout={onHome}
       groupingMode={groupingMode}
       onGroupingModeChange={setGroupingMode}

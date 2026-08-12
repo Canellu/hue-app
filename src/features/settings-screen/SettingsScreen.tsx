@@ -383,7 +383,14 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
               </TabsContent>
 
               <TabsContent value="pc-sync">
-                <PcSyncTab onOpenSync={() => void navigate({ to: "/sync" })} />
+                <PcSyncTab
+                  onOpenSync={() =>
+                    void navigate({
+                      to: "/sync",
+                      search: { source: undefined },
+                    })
+                  }
+                />
               </TabsContent>
 
               <TabsContent value="sync-box">
@@ -392,7 +399,12 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   configured={syncBoxSession?.configured ?? false}
                   connected={syncBoxSession?.connected ?? false}
                   isLoadingSession={isLoadingSyncBox}
-                  onSetUp={() => void navigate({ to: "/sync" })}
+                  onSetUp={() =>
+                    void navigate({
+                      to: "/sync",
+                      search: { source: "box" },
+                    })
+                  }
                   onResetSession={resetSyncBoxSession}
                 />
               </TabsContent>

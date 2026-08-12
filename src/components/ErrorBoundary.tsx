@@ -40,7 +40,9 @@ export class ErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     this.setState({ componentStack: info.componentStack ?? null });
-    console.error("Uncaught error in app:", error, info);
+    if (import.meta.env.DEV) {
+      console.error("Uncaught error in app:", error, info);
+    }
   }
 
   handleReset = () => {

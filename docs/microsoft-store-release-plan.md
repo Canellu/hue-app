@@ -163,11 +163,14 @@ Exclude from the release branch unless already complete and accepted:
 - Calendar, Pomodoro, presence rules, and the shared automation runtime.
 - Cross-platform claims beyond the tested Windows release.
 
-- [ ] Create a written v1 feature inventory from the current routes and Settings
-      tabs.
+- [x] Create a written v1 feature inventory from the current routes and Settings
+      tabs. See [v1-feature-inventory.md](./v1-feature-inventory.md).
 - [ ] Hide or remove incomplete controls, placeholder screens, development
-      actions, and claims about unavailable features.
-- [ ] Document known limitations for support and certification reviewers.
+      actions, and claims about unavailable features. The
+      [source audit](./release-surface-audit.md) is complete; runtime acceptance
+      and raw backend-error normalization remain.
+- [x] Document known limitations for support and certification reviewers. See
+      [known-limitations.md](./known-limitations.md).
 - [ ] Set a release-candidate cutoff after which only release-blocking fixes are
       accepted.
 
@@ -221,20 +224,22 @@ Required before submission:
 - [ ] Publish Terms of Use or choose and declare the applicable standard license
       terms.
 - [ ] Publish a Support page with contact instructions and known requirements.
-- [ ] Add Privacy, Terms, Support, and version links inside Settings/About.
-- [ ] State clearly that the app is unofficial and requires compatible Philips
+- [x] Add Privacy, Terms, Support, and version links inside Settings/About. The
+      stable URL targets still require deployment.
+- [x] State clearly that the app is unofficial and requires compatible Philips
       Hue hardware on the same network for local features.
-- [ ] Document local storage of bridge metadata and OS-keychain storage of Hue
-      credentials.
-- [ ] Document network destinations and whether any information leaves the local
-      network.
+- [x] Document local storage of bridge metadata and OS-keychain storage of Hue
+      credentials in the [Privacy Policy draft](./legal/privacy-policy.md).
+- [x] Document network destinations and whether any information leaves the local
+      network in the [Privacy Policy draft](./legal/privacy-policy.md).
 - [ ] Provide deletion/contact instructions for any optional feedback email.
 - [ ] Obtain a privacy/legal review appropriate to launch markets.
 
 Analytics, crashes, and feedback:
 
-- [ ] Decide whether the first release ships the complete privacy-safe telemetry
-      design or ships without telemetry. Do not ship a partial/unreviewed payload.
+- [x] Ship the first release without analytics, automatic crash uploads, or an
+      in-app feedback uploader. Do not ship a partial/unreviewed telemetry
+      payload.
 - [ ] If telemetry ships, implement the closed event schema, redaction, default
       preference/disclosure, permanent opt-out, retention, and vendor configuration.
 - [ ] Keep automatic telemetry free of names, email, Hue IDs/names, IPs, paths,

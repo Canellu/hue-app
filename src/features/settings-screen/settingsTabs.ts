@@ -2,6 +2,7 @@ import {
   Blocks,
   Boxes,
   Cable,
+  CircleHelp,
   Home,
   Monitor,
   MonitorPlay,
@@ -56,6 +57,14 @@ export const settingsTabs = [
     group: "app",
     description: "Create and manage pinned desktop widget windows.",
     icon: Blocks,
+  },
+  {
+    value: "about",
+    label: "About & Support",
+    group: "app",
+    description:
+      "View version, support, privacy, legal, and diagnostic information.",
+    icon: CircleHelp,
   },
   {
     value: "spaces",

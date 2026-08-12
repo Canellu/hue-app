@@ -1,0 +1,136 @@
+import { Button } from "@/components/ui/button";
+import { getVersion } from "@tauri-apps/api/app";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { Check, Copy, ExternalLink } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import {
+  SettingsRow,
+  SettingsSection,
+  SettingsStack,
+} from "../components/SettingsList";
+
+const PUBLIC_LINKS = {
+  privacy: "https://motedesktop.com/privacy",
+  terms: "https://motedesktop.com/terms",
+  support: "https://motedesktop.com/support",
+  releases: "https://motedesktop.com/releases",
+} as const;
+
+const ExternalLinkButton = ({
+  label,
+  href,
+}: {
+  label: string;
+  href: string;
+}) => (
+  <Button
+    variant="outline"
+    onClick={() =>
+      void openUrl(href).catch(() => toast.error(`Couldn't open ${label}.`))
+    }
+  >
+    {label}
+    <ExternalLink data-icon="inline-end" />
+  </Button>
+);
+
+export const AboutSupportTab = () => {
+  const [version, setVersion] = useState("Loading…");
+  const [copied, setCopied] = useState(false);
+  const copyResetRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    void getVersion()
+      .then(setVersion)
+      .catch(() => setVersion("Unavailable"));
+
+    return () => {
+      if (copyResetRef.current) window.clearTimeout(copyResetRef.current);
+    };
+  }, []);
+
+  const diagnostics = useMemo(
+    () =>
+      [
+        "Product: Mote Desktop",
+        `Version: ${version}`,
+        "Platform: Windows x64",
+        `Release channel: ${import.meta.env.DEV ? "development" : "stable"}`,
+        "Automatic telemetry: not included",
+      ].join("\n"),
+    [version],
+  );
+
+  const copyDiagnostics = async () => {
+    try {
+      await navigator.clipboard.writeText(diagnostics);
+      setCopied(true);
+      if (copyResetRef.current) window.clearTimeout(copyResetRef.current);
+      copyResetRef.current = window.setTimeout(() => setCopied(false), 1500);
+      toast.success("Diagnostics copied");
+    } catch {
+      toast.error("Couldn't copy diagnostics");
+    }
+  };
+
+  return (
+    <SettingsStack>
+      <SettingsSection title="About">
+        <SettingsRow
+          title="Mote Desktop"
+          description="An unofficial Windows desktop controller for compatible Philips Hue devices. Mote Desktop is not affiliated with or endorsed by Signify."
+        >
+          <span className="text-sm font-medium text-muted-foreground">
+            Version {version}
+          </span>
+        </SettingsRow>
+        <SettingsRow
+          title="Release notes"
+          description="See improvements, fixes, and known issues for each release."
+        >
+          <ExternalLinkButton
+            label="View release notes"
+            href={PUBLIC_LINKS.releases}
+          />
+        </SettingsRow>
+      </SettingsSection>
+
+      <SettingsSection title="Help and legal">
+        <SettingsRow
+          title="Support"
+          description="Setup help, troubleshooting, known requirements, and contact instructions."
+        >
+          <ExternalLinkButton label="Get support" href={PUBLIC_LINKS.support} />
+        </SettingsRow>
+        <SettingsRow
+          title="Privacy"
+          description="Mote stores bridge metadata locally and Hue credentials in the operating-system keychain. Version 1 does not include automatic analytics or crash uploads."
+        >
+          <ExternalLinkButton
+            label="Privacy policy"
+            href={PUBLIC_LINKS.privacy}
+          />
+        </SettingsRow>
+        <SettingsRow
+          title="Terms"
+          description="Read the application license, acceptable-use, warranty, and third-party terms."
+        >
+          <ExternalLinkButton label="Terms of use" href={PUBLIC_LINKS.terms} />
+        </SettingsRow>
+      </SettingsSection>
+
+      <SettingsSection title="Diagnostics">
+        <SettingsRow
+          title="Copy app information"
+          description="Copies only the product, version, platform, release channel, and telemetry status. It excludes Hue names, identifiers, addresses, credentials, and personal file paths."
+        >
+          <Button variant="outline" onClick={() => void copyDiagnostics()}>
+            {copied ? <Check /> : <Copy />}
+            {copied ? "Copied" : "Copy diagnostics"}
+          </Button>
+        </SettingsRow>
+      </SettingsSection>
+    </SettingsStack>
+  );
+};

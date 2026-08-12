@@ -20,6 +20,7 @@ import { AddSpaceButton } from "./components/AddSpaceButton";
 import { AddWidgetButton } from "./components/AddWidgetButton";
 import { SettingsSidebar } from "./components/SettingsSidebar";
 import { settingsTabs } from "./settingsTabs";
+import { AboutSupportTab } from "./tabs/AboutSupportTab";
 import { BridgeTab } from "./tabs/BridgeTab";
 import { PcSyncTab } from "./tabs/PcSyncTab";
 import { SyncBoxTab } from "./tabs/SyncBoxTab";
@@ -52,7 +53,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
     bridgeId,
     bridgeIp,
     connected,
-    applicationKey,
     bridges,
     switchBridge,
     removeBridge,
@@ -374,7 +374,6 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   isLoadingSummary={isLoadingSummary}
                   fallbackBridgeId={bridgeId}
                   fallbackBridgeIp={bridgeIp}
-                  applicationKey={applicationKey}
                   bridges={bridges}
                   onSwitchBridge={switchBridge}
                   onRemoveBridge={removeBridge}
@@ -477,6 +476,10 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   }
                   onSetConfig={(id, config) => void setWidgetConfig(id, config)}
                 />
+              </TabsContent>
+
+              <TabsContent value="about">
+                <AboutSupportTab />
               </TabsContent>
             </div>
           </ScrollArea>

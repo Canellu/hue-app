@@ -18,8 +18,6 @@ import type { HueSettingsBridge } from "@/types/hue";
 import {
   ArrowLeftRight,
   Check,
-  Copy,
-  Eye,
   Loader2,
   Pencil,
   Power,
@@ -27,9 +25,9 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
-import { MetaRow, ROW_CLASS } from "../components/MetaRow";
+import { MetaRow } from "../components/MetaRow";
 import { Panel } from "../components/Panel";
 
 export const BridgeTab = ({
@@ -38,7 +36,6 @@ export const BridgeTab = ({
   isLoadingSummary,
   fallbackBridgeId,
   fallbackBridgeIp,
-  applicationKey,
   bridges,
   onSwitchBridge,
   onRemoveBridge,
@@ -49,7 +46,6 @@ export const BridgeTab = ({
   isLoadingSummary: boolean;
   fallbackBridgeId: string | null | undefined;
   fallbackBridgeIp: string | null | undefined;
-  applicationKey: string | null | undefined;
   bridges: BridgeListItem[];
   onSwitchBridge: (bridgeId: string) => void | Promise<void>;
   onRemoveBridge: (bridgeId: string) => void | Promise<void>;
@@ -95,10 +91,9 @@ export const BridgeTab = ({
         <MetaRow label="Model ID" value={bridge?.modelId} />
         <MetaRow label="Firmware" value={bridge?.swVersion} />
         <Separator className="my-1" />
-        <SecretRow
+        <MetaRow
           label="Application key"
-          value={applicationKey}
-          saved={bridge?.applicationKeySaved}
+          value={bridge?.applicationKeySaved ? "Saved securely" : undefined}
         />
       </div>
     </Panel>
@@ -315,140 +310,3 @@ const BridgeHeader = ({
     )}
   </div>
 );
-
-/**
- * A bridge-detail row for a sensitive value (e.g. the application key). The
- * value is rendered in full but blurred into an unreadable smear. Hovering does
- * NOT reveal it: the first click unblurs it, and a second click (while revealed)
- * copies it. The reveal lapses back to blurred a short moment after attention
- * leaves the row, so the secret doesn't linger on screen. Copy affordance (hover
- * glyph + toast) mirrors the plain MetaRow above it.
- */
-const SecretRow = ({
-  label,
-  value,
-  saved,
-}: {
-  label: string;
-  value: string | null | undefined;
-  saved?: boolean;
-}) => {
-  const [revealed, setRevealed] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const reblurRef = useRef<number | null>(null);
-  const copyResetRef = useRef<number | null>(null);
-  const hasValue = value != null && value !== "";
-
-  useEffect(
-    () => () => {
-      if (reblurRef.current) window.clearTimeout(reblurRef.current);
-      if (copyResetRef.current) window.clearTimeout(copyResetRef.current);
-    },
-    [],
-  );
-
-  // Cancel any pending re-blur and reveal the value.
-  const reveal = () => {
-    if (reblurRef.current) {
-      window.clearTimeout(reblurRef.current);
-      reblurRef.current = null;
-    }
-    setRevealed(true);
-  };
-
-  // Re-blur the secret a short moment after attention leaves the row.
-  const scheduleReblur = () => {
-    if (reblurRef.current) window.clearTimeout(reblurRef.current);
-    reblurRef.current = window.setTimeout(() => setRevealed(false), 500);
-  };
-
-  // First click unblurs; a second click (while revealed) copies.
-  const handleClick = () => {
-    if (!revealed) {
-      reveal();
-      return;
-    }
-    void copy();
-  };
-
-  const copy = async () => {
-    if (!hasValue) return;
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(true);
-      if (copyResetRef.current) window.clearTimeout(copyResetRef.current);
-      copyResetRef.current = window.setTimeout(() => setCopied(false), 1500);
-      toast.success(`${label} copied`, { id: "bridge-detail-copy" });
-    } catch {
-      toast.error("Couldn't copy to clipboard", { id: "bridge-detail-copy" });
-    }
-  };
-
-  // No value available: fall back to the same "saved/unknown" text MetaRow
-  // would have shown, with the copy slot reserved for a shared right edge.
-  if (!hasValue) {
-    return (
-      <div className="flex items-center justify-between gap-10 px-3 py-2">
-        <dt className="shrink-0 text-muted-foreground">{label}</dt>
-        <dd className="flex min-w-0 items-center justify-end gap-2 text-muted-foreground">
-          <span className="truncate text-right font-medium">
-            {saved ? "Saved on this device" : "Unknown"}
-          </span>
-          <span className="size-3.5 shrink-0" aria-hidden />
-        </dd>
-      </div>
-    );
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={handleClick}
-      onPointerLeave={scheduleReblur}
-      onBlur={scheduleReblur}
-      aria-label={revealed ? `Copy ${label}` : `Reveal ${label}`}
-      className={cn(ROW_CLASS, "min-h-14")}
-    >
-      <dt className="shrink-0 text-muted-foreground transition-colors group-hover:text-foreground">
-        {label}
-      </dt>
-      <dd className="flex min-w-0 items-center justify-end gap-2">
-        <span
-          className={cn(
-            "min-w-0 break-all text-right font-mono font-medium transition-[filter] duration-200",
-            !revealed && "select-none blur-[5px]",
-          )}
-        >
-          {value}
-        </span>
-        <span className="relative inline-flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
-          <Check
-            size={14}
-            className={cn(
-              "absolute text-green-500 transition-all",
-              copied ? "scale-100 opacity-100" : "scale-50 opacity-0",
-            )}
-          />
-          <Eye
-            size={14}
-            className={cn(
-              "absolute opacity-0 transition-opacity",
-              !copied &&
-                !revealed &&
-                "group-hover:opacity-100 group-focus-visible:opacity-100",
-            )}
-          />
-          <Copy
-            size={14}
-            className={cn(
-              "absolute opacity-0 transition-opacity",
-              !copied &&
-                revealed &&
-                "group-hover:opacity-100 group-focus-visible:opacity-100",
-            )}
-          />
-        </span>
-      </dd>
-    </button>
-  );
-};

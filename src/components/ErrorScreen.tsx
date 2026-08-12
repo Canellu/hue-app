@@ -63,37 +63,39 @@ export const ErrorScreen = ({
             </Button>
           </div>
 
-          <Collapsible className="w-full max-w-xl">
-            <div className="flex justify-center">
-              <CollapsibleTrigger
-                render={
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-muted-foreground [&[data-panel-open]>svg]:rotate-180"
-                  >
-                    <ChevronDown className="transition-transform" />
-                    Technical details
-                  </Button>
-                }
-              />
-            </div>
-            <CollapsibleContent>
-              <div className="mt-3 overflow-hidden rounded-2xl border border-border/60 bg-card/60 text-left">
-                <p
-                  className="px-4 pt-3 text-sm font-medium"
-                  style={{ color: "var(--destructive-text)" }}
-                >
-                  {error.name}: {error.message}
-                </p>
-                <ScrollArea className="max-h-56" fade>
-                  <pre className="px-4 py-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
-                    {details}
-                  </pre>
-                </ScrollArea>
+          {import.meta.env.DEV && (
+            <Collapsible className="w-full max-w-xl">
+              <div className="flex justify-center">
+                <CollapsibleTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-muted-foreground [&[data-panel-open]>svg]:rotate-180"
+                    >
+                      <ChevronDown className="transition-transform" />
+                      Technical details
+                    </Button>
+                  }
+                />
               </div>
-            </CollapsibleContent>
-          </Collapsible>
+              <CollapsibleContent>
+                <div className="mt-3 overflow-hidden rounded-2xl border border-border/60 bg-card/60 text-left">
+                  <p
+                    className="px-4 pt-3 text-sm font-medium"
+                    style={{ color: "var(--destructive-text)" }}
+                  >
+                    {error.name}: {error.message}
+                  </p>
+                  <ScrollArea className="max-h-56" fade>
+                    <pre className="px-4 py-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-muted-foreground">
+                      {details}
+                    </pre>
+                  </ScrollArea>
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
+          )}
         </div>
       }
     />

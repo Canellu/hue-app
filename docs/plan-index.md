@@ -15,6 +15,7 @@ fallback shortlist is recorded in the Microsoft Store release plan.
 | [Microsoft Store release](./microsoft-store-release-plan.md)                                          | In progress                  | Windows launch identity, packaging, signing, validation, listing, certification, and operations   |
 | [Sync Box](./sync-box-plan.md)                                                                        | Complete                     | Existing single-Sync-Box implementation record                                                    |
 | [PC Sync](./pc-sync-plan.md)                                                                          | Complete for Windows launch  | Screen/audio capture and entertainment streaming                                                  |
+| [Multi-bridge dashboard and PC Sync](./multi-bridge-experience-plan.md)                               | Future                       | Combined bridge views, cross-bridge control, and PC Sync behavior across bridge switches          |
 | [Per-bridge Sync Box](./per-bridge-sync-box-plan.md)                                                  | Proposed                     | Multiple Sync Boxes and bridge association                                                        |
 | [Cloud control](./cloud-control-plan.md)                                                              | Proposed                     | Hue OAuth, token broker, and local/cloud transport                                                |
 | [Homes and membership](./homes-and-membership-plan.md)                                                | Vision                       | Product identity, homes, members, roles, and relay model                                          |
@@ -34,8 +35,9 @@ fallback shortlist is recorded in the Microsoft Store release plan.
 - Cloud control owns Hue transport and OAuth. Homes/membership owns the shared
   domain model. Monetization owns identity-provider, backend, commerce, and
   entitlement decisions.
-- Sync Box and PC Sync are retained as implementation records. New follow-up
-  work belongs in a separate plan rather than reopening their completed scope.
+- Sync Box and PC Sync are retained as implementation records. Multi-bridge
+  follow-up work belongs to the dedicated multi-bridge and per-bridge Sync Box
+  plans rather than reopening their completed scope.
 - Feedback email is optional and report-scoped. Automatic analytics and crash
   reporting do not collect names or email addresses.
 - Private feedback remains separate from the public roadmap. Public voting is

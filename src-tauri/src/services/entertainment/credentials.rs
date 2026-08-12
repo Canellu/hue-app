@@ -17,7 +17,6 @@ use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 const KEYRING_SERVICE: &str = "com.motedesktop.mote";
-const LEGACY_KEYRING_SERVICE: &str = "com.anton.hue-app";
 const CLIENT_KEY_ACCOUNT: &str = "hue-entertainment-client-key";
 const APPLICATION_KEY_ACCOUNT: &str = "hue-entertainment-application-key";
 
@@ -66,7 +65,7 @@ pub fn save_client_key(bridge_id: &str, client_key: &str) -> Result<(), String> 
     // at stream start.
     decode_client_key(client_key)?;
     save(
-        client_key_entry(KEYRING_SERVICE, bridge_id)?,
+        client_key_entry(bridge_id)?,
         client_key_cache(),
         bridge_id,
         client_key,
@@ -75,8 +74,7 @@ pub fn save_client_key(bridge_id: &str, client_key: &str) -> Result<(), String> 
 
 pub fn load_client_key(bridge_id: &str) -> Result<Option<String>, String> {
     load(
-        client_key_entry(KEYRING_SERVICE, bridge_id)?,
-        client_key_entry(LEGACY_KEYRING_SERVICE, bridge_id)?,
+        client_key_entry(bridge_id)?,
         client_key_cache(),
         bridge_id,
     )
@@ -84,7 +82,7 @@ pub fn load_client_key(bridge_id: &str) -> Result<Option<String>, String> {
 
 pub fn save_application_key(bridge_id: &str, application_key: &str) -> Result<(), String> {
     save(
-        application_key_entry(KEYRING_SERVICE, bridge_id)?,
+        application_key_entry(bridge_id)?,
         application_key_cache(),
         bridge_id,
         application_key,
@@ -93,8 +91,7 @@ pub fn save_application_key(bridge_id: &str, application_key: &str) -> Result<()
 
 pub fn load_application_key(bridge_id: &str) -> Result<Option<String>, String> {
     load(
-        application_key_entry(KEYRING_SERVICE, bridge_id)?,
-        application_key_entry(LEGACY_KEYRING_SERVICE, bridge_id)?,
+        application_key_entry(bridge_id)?,
         application_key_cache(),
         bridge_id,
     )
@@ -104,14 +101,12 @@ pub fn load_application_key(bridge_id: &str) -> Result<Option<String>, String> {
 /// its session reset so stale streaming credentials never outlive the pairing.
 pub fn clear_credentials(bridge_id: &str) -> Result<(), String> {
     let client = clear(
-        client_key_entry(KEYRING_SERVICE, bridge_id)?,
-        client_key_entry(LEGACY_KEYRING_SERVICE, bridge_id)?,
+        client_key_entry(bridge_id)?,
         client_key_cache(),
         bridge_id,
     );
     let application = clear(
-        application_key_entry(KEYRING_SERVICE, bridge_id)?,
-        application_key_entry(LEGACY_KEYRING_SERVICE, bridge_id)?,
+        application_key_entry(bridge_id)?,
         application_key_cache(),
         bridge_id,
     );
@@ -124,13 +119,13 @@ fn account(base: &str, bridge_id: &str) -> String {
     format!("{base}:{}", bridge_id.to_uppercase())
 }
 
-fn client_key_entry(service: &str, bridge_id: &str) -> Result<Entry, String> {
-    Entry::new(service, &account(CLIENT_KEY_ACCOUNT, bridge_id))
+fn client_key_entry(bridge_id: &str) -> Result<Entry, String> {
+    Entry::new(KEYRING_SERVICE, &account(CLIENT_KEY_ACCOUNT, bridge_id))
         .map_err(|error| format!("Failed to access secure keyring: {error}"))
 }
 
-fn application_key_entry(service: &str, bridge_id: &str) -> Result<Entry, String> {
-    Entry::new(service, &account(APPLICATION_KEY_ACCOUNT, bridge_id))
+fn application_key_entry(bridge_id: &str) -> Result<Entry, String> {
+    Entry::new(KEYRING_SERVICE, &account(APPLICATION_KEY_ACCOUNT, bridge_id))
         .map_err(|error| format!("Failed to access secure keyring: {error}"))
 }
 
@@ -165,7 +160,6 @@ fn save(
 
 fn load(
     entry: Entry,
-    legacy_entry: Entry,
     cache: &Mutex<HashMap<String, String>>,
     bridge_id: &str,
 ) -> Result<Option<String>, String> {
@@ -178,35 +172,17 @@ fn load(
             cache.lock().unwrap().insert(id, value.clone());
             Ok(Some(value))
         }
-        Err(keyring::Error::NoEntry) => match legacy_entry.get_password() {
-            Ok(value) => {
-                entry
-                    .set_password(&value)
-                    .map_err(|error| format!("Failed to migrate entertainment credential: {error}"))?;
-                let _ = legacy_entry.delete_credential();
-                cache.lock().unwrap().insert(id, value.clone());
-                Ok(Some(value))
-            }
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(error) => Err(format!("Failed to read entertainment credential: {error}")),
-        },
+        Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(format!("Failed to read entertainment credential: {error}")),
     }
 }
 
 fn clear(
     entry: Entry,
-    legacy_entry: Entry,
     cache: &Mutex<HashMap<String, String>>,
     bridge_id: &str,
 ) -> Result<(), String> {
     cache.lock().unwrap().remove(&bridge_id.to_uppercase());
-    let current = delete(entry);
-    let legacy = delete(legacy_entry);
-    current.and(legacy)
-}
-
-fn delete(entry: Entry) -> Result<(), String> {
     match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(error) => Err(format!("Failed to clear entertainment credential: {error}")),

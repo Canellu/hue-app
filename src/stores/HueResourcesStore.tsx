@@ -1336,7 +1336,7 @@ export const useHueResourcesStore = create<HueResourcesState>((set, get) => ({
     } catch (e) {
       const message = String(e) || "Unable to add gallery scene.";
       set({ error: message });
-      throw new Error(message);
+      throw e;
     }
   },
 

@@ -13,7 +13,6 @@ use tauri_plugin_store::StoreExt;
 const STORE_FILE: &str = "hue-store.json";
 const STORE_KEY: &str = "syncBox";
 const KEYRING_SERVICE: &str = "com.motedesktop.mote";
-const LEGACY_KEYRING_SERVICE: &str = "com.anton.hue-app";
 const KEYRING_ACCOUNT: &str = "hue-sync-box-access-token";
 const REQUEST_TIMEOUT_SECS: u64 = 8;
 const DISCOVERY_TIMEOUT_SECS: u64 = 3;
@@ -714,11 +713,6 @@ fn token_entry() -> Result<Entry, String> {
         .map_err(|error| format!("Failed to access secure keyring: {error}"))
 }
 
-fn legacy_token_entry() -> Result<Entry, String> {
-    Entry::new(LEGACY_KEYRING_SERVICE, KEYRING_ACCOUNT)
-        .map_err(|error| format!("Failed to access secure keyring: {error}"))
-}
-
 fn save_access_token(access_token: &str) -> Result<(), String> {
     token_entry()?
         .set_password(access_token)
@@ -728,27 +722,13 @@ fn save_access_token(access_token: &str) -> Result<(), String> {
 fn load_access_token() -> Result<Option<String>, String> {
     match token_entry()?.get_password() {
         Ok(access_token) => Ok(Some(access_token)),
-        Err(keyring::Error::NoEntry) => match legacy_token_entry()?.get_password() {
-            Ok(access_token) => {
-                save_access_token(&access_token)?;
-                let _ = legacy_token_entry()?.delete_credential();
-                Ok(Some(access_token))
-            }
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(error) => Err(format!("Failed to read Sync Box access token: {error}")),
-        },
+        Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(format!("Failed to read Sync Box access token: {error}")),
     }
 }
 
 fn clear_access_token() -> Result<(), String> {
-    let current = delete_access_token(token_entry()?);
-    let legacy = delete_access_token(legacy_token_entry()?);
-    current.and(legacy)
-}
-
-fn delete_access_token(entry: Entry) -> Result<(), String> {
-    match entry.delete_credential() {
+    match token_entry()?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(error) => Err(format!("Failed to clear Sync Box access token: {error}")),
     }

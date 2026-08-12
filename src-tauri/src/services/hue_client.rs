@@ -21,7 +21,6 @@ const STORE_KEY: &str = "bridge";
 /// active one. Supersedes `STORE_KEY`.
 const STORE_KEY_BRIDGES: &str = "bridges";
 const KEYRING_SERVICE: &str = "com.motedesktop.mote";
-const LEGACY_KEYRING_SERVICE: &str = "com.anton.hue-app";
 /// Legacy single-bridge keyring account. New pairings key the application key
 /// per bridge (see `bridge_key_account`); this is only read during migration.
 const KEYRING_ACCOUNT: &str = "hue-application-key";
@@ -4517,15 +4516,7 @@ fn load_bridge_store<R: Runtime>(app: &AppHandle<R>) -> Result<BridgeStore, Stri
 }
 
 fn keyring_entry(account: &str) -> Result<Entry, String> {
-    keyring_entry_for_service(KEYRING_SERVICE, account)
-}
-
-fn legacy_keyring_entry(account: &str) -> Result<Entry, String> {
-    keyring_entry_for_service(LEGACY_KEYRING_SERVICE, account)
-}
-
-fn keyring_entry_for_service(service: &str, account: &str) -> Result<Entry, String> {
-    Entry::new(service, account)
+    Entry::new(KEYRING_SERVICE, account)
         .map_err(|error| format!("Failed to access secure keyring: {error}"))
 }
 
@@ -4566,17 +4557,7 @@ fn load_application_key(bridge_id: &str) -> Result<Option<String>, String> {
             app_key_cache().lock().unwrap().insert(id, password.clone());
             Ok(Some(password))
         }
-        Err(keyring::Error::NoEntry) => {
-            match legacy_keyring_entry(&bridge_key_account(&id))?.get_password() {
-                Ok(password) => {
-                    save_application_key(&id, &password)?;
-                    let _ = legacy_keyring_entry(&bridge_key_account(&id))?.delete_credential();
-                    Ok(Some(password))
-                }
-                Err(keyring::Error::NoEntry) => Ok(None),
-                Err(error) => Err(format!("Failed to read application key: {error}")),
-            }
-        }
+        Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(format!("Failed to read application key: {error}")),
     }
 }
@@ -4584,9 +4565,10 @@ fn load_application_key(bridge_id: &str) -> Result<Option<String>, String> {
 fn clear_application_key(bridge_id: &str) -> Result<(), String> {
     let id = bridge_id.to_uppercase();
     app_key_cache().lock().unwrap().remove(&id);
-    let current = delete_keyring_credential(keyring_entry(&bridge_key_account(&id))?);
-    let legacy = delete_keyring_credential(legacy_keyring_entry(&bridge_key_account(&id))?);
-    current.and(legacy)
+    match keyring_entry(&bridge_key_account(&id))?.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(error) => Err(format!("Failed to clear application key: {error}")),
+    }
 }
 
 /// Resolves a bridge's application key: per-bridge keyring first, then the copy
@@ -4603,23 +4585,13 @@ fn resolve_bridge_application_key(bridge: &StoredBridgeInfo) -> Option<String> {
 fn legacy_application_key() -> Result<Option<String>, String> {
     match keyring_entry(KEYRING_ACCOUNT)?.get_password() {
         Ok(password) => Ok(Some(password)),
-        Err(keyring::Error::NoEntry) => match legacy_keyring_entry(KEYRING_ACCOUNT)?.get_password() {
-            Ok(password) => Ok(Some(password)),
-            Err(keyring::Error::NoEntry) => Ok(None),
-            Err(error) => Err(format!("Failed to read application key: {error}")),
-        },
+        Err(keyring::Error::NoEntry) => Ok(None),
         Err(error) => Err(format!("Failed to read application key: {error}")),
     }
 }
 
 fn clear_legacy_application_key() -> Result<(), String> {
-    let current = delete_keyring_credential(keyring_entry(KEYRING_ACCOUNT)?);
-    let legacy = delete_keyring_credential(legacy_keyring_entry(KEYRING_ACCOUNT)?);
-    current.and(legacy)
-}
-
-fn delete_keyring_credential(entry: Entry) -> Result<(), String> {
-    match entry.delete_credential() {
+    match keyring_entry(KEYRING_ACCOUNT)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(error) => Err(format!("Failed to clear application key: {error}")),
     }

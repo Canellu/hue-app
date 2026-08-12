@@ -183,12 +183,9 @@ Update all identity values together:
 - [x] Replace the old product name in current user-facing application copy and
       installer-facing metadata.
 - [ ] Add the About/diagnostics view, legal links, and final Store listing copy.
-- [x] Move keyring writes to `com.motedesktop.mote` and migrate credentials from
-      the legacy service when they are first read.
-- [x] Copy known Tauri store/config files from the legacy identifier directory
-      when the renamed app first starts.
-- [ ] Verify whether WebView localStorage needs an explicit production migration
-      after an installed-build upgrade test.
+- [x] Move keyring writes to `com.motedesktop.mote`. No legacy credential,
+      Tauri-store, or localStorage migration is required because the old
+      identity was never distributed and local development can be reset.
 - [x] Set publisher and copyright metadata to **Anton Vo**.
 
 Keep versions synchronized. Define a simple release rule such as semantic

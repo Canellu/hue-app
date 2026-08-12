@@ -35,7 +35,7 @@ export const SyncHubScreen = ({ source }: { source?: "box" }) => {
   const boxState = useSyncBoxStore((store) => store.state);
 
   if (source === "box") {
-    return <SyncBoxScreen />;
+    return <SyncBoxScreen setupOnly />;
   }
 
   if (!hasLoaded) {

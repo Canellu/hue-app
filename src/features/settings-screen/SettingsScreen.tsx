@@ -402,7 +402,9 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = ({
                   onSetUp={() =>
                     void navigate({
                       to: "/sync",
-                      search: { source: "box" },
+                      search: {
+                        source: syncBoxSession?.configured ? undefined : "box",
+                      },
                     })
                   }
                   onResetSession={resetSyncBoxSession}

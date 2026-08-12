@@ -1,5 +1,4 @@
 import { PacedSlider } from "@/components/PacedSlider";
-import { SyncIndicator } from "@/components/SyncIndicator";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,20 +26,8 @@ import {
   SyncToggleButton,
 } from "@/components/sync/SyncControls";
 import { Switch } from "@/components/ui/switch";
-import { roomZoneTileColor } from "@/features/space-screen/utils/color-state";
-import {
-  activeTileTheme,
-  LIT_TILE_FLAT_EDGE,
-  TILE_BRIGHTNESS_SLIDER_CLASS,
-  TILE_INTERACTION_TRANSITION_CLASS,
-  TILE_POWER_SWITCH_CLASS,
-} from "@/lib/tile-theme";
-import { UI_EASE_MS } from "@/lib/transitions";
-import { cn } from "@/lib/utils";
 import { useEntertainmentStore } from "@/stores/EntertainmentStore";
-import { useHueResourcesStore } from "@/stores/HueResourcesStore";
 import { useSyncBoxStore } from "@/stores/SyncBoxStore";
-import type { HueLight } from "@/types/hue";
 import type {
   SyncBoxExecutionUpdate,
   SyncBoxIntensity,
@@ -48,13 +35,12 @@ import type {
   SyncBoxSession,
 } from "@/types/sync-box";
 import { invoke } from "@tauri-apps/api/core";
-import { useNavigate } from "@tanstack/react-router";
+import { Navigate, useNavigate } from "@tanstack/react-router";
 import {
   Cable,
   Clapperboard,
   Gamepad2,
   HdmiPort,
-  LampDesk,
   Lightbulb,
   Loader2,
   MonitorPlay,
@@ -110,7 +96,14 @@ const sourceIcons: Record<string, typeof MonitorPlay> = {
   laptop: MonitorPlay,
 };
 
-export const SyncBoxScreen = ({ areaId }: { areaId?: string }) => {
+export const SyncBoxScreen = ({
+  areaId,
+  setupOnly = false,
+}: {
+  areaId?: string;
+  setupOnly?: boolean;
+}) => {
+  const navigate = useNavigate();
   const [session, setSession] = useState<SyncBoxSession | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -139,9 +132,25 @@ export const SyncBoxScreen = ({ areaId }: { areaId?: string }) => {
             <p>{loadError ?? session?.error}</p>
           </div>
         )}
-        <SyncBoxOnboardingWizard onComplete={setSession} />
+        <SyncBoxOnboardingWizard
+          onComplete={(nextSession) => {
+            if (setupOnly) {
+              void navigate({
+                to: "/sync",
+                search: { source: undefined },
+                replace: true,
+              });
+              return;
+            }
+            setSession(nextSession);
+          }}
+        />
       </>
     );
+  }
+
+  if (setupOnly) {
+    return <Navigate to="/sync" search={{ source: undefined }} replace />;
   }
 
   return (
@@ -173,11 +182,6 @@ export const SyncBoxConnectedView = ({
 }) => {
   const navigate = useNavigate();
   const entertainmentAreas = useEntertainmentStore((store) => store.areas);
-  const lights = useHueResourcesStore((store) => store.lights);
-  const hueEventRevision = useHueResourcesStore(
-    (store) => store.hueEventRevision,
-  );
-  const setLightState = useHueResourcesStore((store) => store.setLightState);
   const syncBox = session.syncBox;
   const {
     state,
@@ -185,23 +189,16 @@ export const SyncBoxConnectedView = ({
     loadError,
     isLoading,
     isUpdating,
-    areaLightIds,
     refresh,
-    loadAreaLights,
     updateExecution,
     updateMode,
     startSync,
     clear,
   } = useSyncBoxStore();
   useSyncBoxPolling();
-  const hasState = state !== null;
   const [takeoverOpen, setTakeoverOpen] = useState(false);
   const [isTogglingSync, setIsTogglingSync] = useState(false);
   const [effectBrightness, setEffectBrightness] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (hasState) void loadAreaLights();
-  }, [hasState, loadAreaLights]);
 
   if (isLoading && !state) {
     return (
@@ -275,9 +272,6 @@ export const SyncBoxConnectedView = ({
   const currentIntensity = state.execution[displayedMode]?.intensity;
   const selectedSourceUnplugged =
     selectedSource != null && state.hdmi[selectedSource].status === "unplugged";
-  const groups = Object.entries(state.hue.groups).sort(([, a], [, b]) =>
-    a.name.localeCompare(b.name),
-  );
   const requestedArea = areaId
     ? entertainmentAreas.find((area) => area.id === areaId)
     : undefined;
@@ -305,206 +299,6 @@ export const SyncBoxConnectedView = ({
         : null) ?? "another area")
     : null;
   const brightnessPercent = Math.round(execution.brightness / 2);
-
-  if (!areaId) {
-    return (
-      <div className="mx-auto grid w-full max-w-5xl gap-6 pb-8">
-        {error && (
-          <div className="rounded-2xl bg-destructive/10 p-4 text-sm text-destructive">
-            {error}
-          </div>
-        )}
-        <div>
-          <h2 className="font-heading text-2xl font-semibold">
-            Entertainment areas
-          </h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Choose an area to configure and start light sync.
-          </p>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {groups.map(([id, group]) => {
-            const canonicalAreaId =
-              entertainmentAreas.find(
-                (area) =>
-                  area.id === id ||
-                  area.name.trim().toLocaleLowerCase() ===
-                    group.name.trim().toLocaleLowerCase(),
-              )?.id ?? id;
-            const memberIds = new Set(areaLightIds[id] ?? []);
-            const members = lights.filter((light) => memberIds.has(light.id));
-            const onMembers = members.filter((light) => light.isOn);
-            const anyOn = onMembers.length > 0;
-            const brightness =
-              onMembers.length > 0
-                ? onMembers.reduce(
-                    (total, light) => total + (light.brightness ?? 0),
-                    0,
-                  ) / onMembers.length
-                : 0;
-            // Streaming (by this box or any other app) owns these lights, so
-            // the tile's manual controls are replaced by the sync-locked look.
-            const syncing =
-              group.active ||
-              (execution.syncActive && execution.hueTarget === id);
-            const tile = syncing
-              ? { active: false, background: null, glow: null }
-              : roomZoneTileColor(members);
-            const controlsDisabled =
-              isUpdating || !hueConnected || members.length === 0;
-            return (
-              <Card
-                key={id}
-                size="sm"
-                role="button"
-                tabIndex={0}
-                onClick={() =>
-                  void navigate({
-                    to: "/sync/$areaId",
-                    params: { areaId: canonicalAreaId },
-                  })
-                }
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    void navigate({
-                      to: "/sync/$areaId",
-                      params: { areaId: canonicalAreaId },
-                    });
-                  }
-                }}
-                className={cn(
-                  "justify-center gap-6 border border-tile-border bg-tile-off",
-                  TILE_INTERACTION_TRANSITION_CLASS,
-                  "cursor-pointer",
-                  tile.active && "ring-transparent",
-                )}
-                style={
-                  {
-                    "--tile-ease": `${UI_EASE_MS.tileBackground}ms`,
-                    ...(tile.active && tile.background
-                      ? {
-                          ...activeTileTheme(
-                            tile.background,
-                            tile.glow ?? tile.background,
-                            brightness,
-                          ),
-                          ...LIT_TILE_FLAT_EDGE,
-                        }
-                      : null),
-                  } as React.CSSProperties
-                }
-              >
-                <div className="flex items-center gap-4 px-(--card-spacing)">
-                  <span
-                    className={cn(
-                      "flex size-12 shrink-0 items-center justify-center",
-                      tile.active ? "text-foreground" : "text-muted-foreground",
-                    )}
-                  >
-                    <Tv size={26} strokeWidth={2.5} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-base font-medium">
-                      {group.name}
-                    </p>
-                    {group.active ? (
-                      <p
-                        className={cn(
-                          "truncate text-sm",
-                          execution.syncActive && execution.hueTarget === id
-                            ? "text-primary"
-                            : "text-(--warn-text)",
-                        )}
-                      >
-                        Syncing with {group.owner ?? "another app"}
-                      </p>
-                    ) : (
-                      <p className="text-sm text-muted-foreground">
-                        {group.numLights}{" "}
-                        {group.numLights === 1 ? "light" : "lights"}
-                      </p>
-                    )}
-                  </div>
-                  {syncing ? (
-                    <SyncIndicator
-                      syncedCount={group.numLights}
-                      totalCount={group.numLights}
-                    />
-                  ) : (
-                    <div onClick={(event) => event.stopPropagation()}>
-                      <Switch
-                        size="xl"
-                        className={TILE_POWER_SWITCH_CLASS}
-                        checked={anyOn}
-                        disabled={controlsDisabled}
-                        aria-label={`Toggle ${group.name} lights`}
-                        onCheckedChange={(checked) => {
-                          members.forEach((light) =>
-                            setLightState(light, checked, null),
-                          );
-                        }}
-                      />
-                    </div>
-                  )}
-                </div>
-                <div
-                  className="px-(--card-spacing)"
-                  onClick={(event) => event.stopPropagation()}
-                >
-                  {syncing ? (
-                    <span className="block h-1 overflow-hidden rounded-full bg-primary/15">
-                      <span className="block h-full w-full animate-pulse bg-primary/40" />
-                    </span>
-                  ) : (
-                    <PacedSlider
-                      value={anyOn ? Math.max(1, brightness) : 1}
-                      min={1}
-                      disabled={controlsDisabled}
-                      ariaLabel={`${group.name} light brightness`}
-                      className={cn(
-                        TILE_BRIGHTNESS_SLIDER_CLASS,
-                        !anyOn && "tile-brightness-slider-off",
-                      )}
-                      size="default"
-                      isGroup
-                      animateKey={hueEventRevision}
-                      onCommit={(value, phase) => {
-                        members.forEach((light: HueLight) =>
-                          setLightState(light, value > 0, value, phase),
-                        );
-                      }}
-                    />
-                  )}
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-        {groups.length === 0 && (
-          <Card className="border-dashed">
-            <CardContent className="flex min-h-48 flex-col items-center justify-center text-center">
-              <LampDesk className="mb-4 size-8 text-muted-foreground" />
-              <p className="font-medium">No entertainment areas found</p>
-              <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                Create an entertainment area in the Philips Hue app, then
-                refresh.
-              </p>
-              <Button
-                variant="outline"
-                className="mt-5"
-                disabled={isLoading}
-                onClick={() => void refresh()}
-              >
-                {isLoading && <Loader2 className="animate-spin" />}
-                Refresh
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    );
-  }
 
   if (!selectedGroup) {
     return (

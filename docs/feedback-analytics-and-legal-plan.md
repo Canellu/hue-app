@@ -3,12 +3,12 @@
 Status: **proposed / not started**. This document describes a future feature and
 does not represent behavior currently implemented in the app.
 
-Last reviewed: **2026-08-11**. Re-check privacy, Store, and vendor requirements
+Last reviewed: **2026-08-12**. Re-check privacy, Store, and vendor requirements
 before implementation and before each release.
 
-The product name is tentative. User-facing copy should use **the app** until a
-name is finalized. Legal and Store material should use placeholders such as
-`<APP_NAME>`, `<PUBLISHER_NAME>`, and `<STORE_PRODUCT_ID>`.
+The product name is **Mote Desktop** and the publisher display name is **Anton
+Vo**. Legal and Store material may still use `<STORE_PRODUCT_ID>` until Partner
+Center assigns the final public identifier.
 
 ## Goal
 
@@ -70,7 +70,7 @@ shows it again later.
 
 Suggested disclosure:
 
-> Help improve <APP_NAME>
+> Help improve Mote Desktop
 >
 > The app shares anonymous feature-usage and crash information so bugs can be
 > found and fixed. Reports do not include your Hue names, bridge address,
@@ -281,8 +281,8 @@ and Support URLs in the Store listing.
 
 ## Legal and Public Pages
 
-Host static, cookie-free HTTPS pages. Use placeholders until the product name
-and publisher identity are final.
+Host static, cookie-free HTTPS pages for **Mote Desktop**, published by **Anton
+Vo**.
 
 ### Privacy Policy
 
@@ -309,7 +309,7 @@ Cover:
 
 Cover:
 
-- `<APP_NAME>` and `<PUBLISHER_NAME>` placeholders.
+- **Mote Desktop** and publisher **Anton Vo**.
 - Application license and acceptable use.
 - Service availability and change/discontinuation terms.
 - Philips Hue/Signify non-affiliation and trademark notice.
@@ -379,7 +379,7 @@ birth or target children.
 
 ## Assumptions
 
-- The final app and publisher names are undecided.
+- The app name is **Mote Desktop** and the publisher display name is **Anton Vo**.
 - No user accounts are collected. Email is optional, report-scoped, and used
   only when a reporter asks for a reply or updates about that report.
 - Analytics prioritize broad app and feature understanding without persistent

@@ -143,7 +143,7 @@ redirect, which only catches the `code`.
 - **Finalize authorization** (per Hue Cloud2Cloud getting-started), using the
   access token as bearer against the `route` base:
   - `PUT https://api.meethue.com/route/api/0/config` body `{"linkbutton":true}`
-  - `POST https://api.meethue.com/route/api` body `{"devicetype":"hue-app#..."}`
+  - `POST https://api.meethue.com/route/api` body `{"devicetype":"mote-desktop#..."}`
     → returns the `username` to use as `hue-application-key` for cloud calls.
 
 ### 4. Transport abstraction in `hue_client.rs`

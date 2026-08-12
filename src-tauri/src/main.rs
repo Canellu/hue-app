@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    hue_app_lib::run()
+    mote_desktop_lib::run()
 }

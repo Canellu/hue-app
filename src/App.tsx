@@ -109,7 +109,7 @@ const SplashView = () => {
           className="font-heading text-4xl font-semibold tracking-tight"
           variants={splashItemVariants}
         >
-          Hue Desktop
+          Mote Desktop
         </motion.div>
       </motion.div>
     </div>

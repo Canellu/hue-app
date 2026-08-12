@@ -83,8 +83,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onDevBack }) => {
             Wizard
           </button>
         )}
-        <img src={logo} alt="Hue Desktop logo" className="h-5 w-5" />
-        Hue Desktop
+        <img src={logo} alt="Mote Desktop logo" className="h-5 w-5" />
+        Mote Desktop
       </div>
       <div className="flex items-stretch">
         <button

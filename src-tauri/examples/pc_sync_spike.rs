@@ -12,11 +12,11 @@
 
 use std::time::Duration;
 
-use hue_app_lib::services::entertainment::credentials;
-use hue_app_lib::services::entertainment::dtls::EntertainmentTransport;
-use hue_app_lib::services::entertainment::protocol::{self, ChannelColor};
-use hue_app_lib::services::entertainment::snapshot;
-use hue_app_lib::services::hue_client::HueClient;
+use mote_desktop_lib::services::entertainment::credentials;
+use mote_desktop_lib::services::entertainment::dtls::EntertainmentTransport;
+use mote_desktop_lib::services::entertainment::protocol::{self, ChannelColor};
+use mote_desktop_lib::services::entertainment::snapshot;
+use mote_desktop_lib::services::hue_client::HueClient;
 
 /// How long `provision` polls for the link button before giving up.
 const LINK_BUTTON_WINDOW: Duration = Duration::from_secs(90);
@@ -54,7 +54,7 @@ async fn main() {
 fn active_bridge() -> Result<(String, String, Option<String>), String> {
     let appdata =
         std::env::var("APPDATA").map_err(|_| "APPDATA environment variable not set".to_string())?;
-    let path = format!("{appdata}\\com.canellu.hue-desktop\\hue-store.json");
+    let path = format!("{appdata}\\com.motedesktop.mote\\hue-store.json");
     let text = std::fs::read_to_string(&path)
         .map_err(|error| format!("Failed to read {path}: {error}"))?;
     let json: serde_json::Value = serde_json::from_str(&text)
@@ -114,7 +114,7 @@ fn rest_key() -> Result<String, String> {
     }
     // Main app credential: per-bridge keyring account, then the copy in the
     // store file.
-    let main = keyring::Entry::new("com.anton.hue-app", &format!("hue-application-key:{id}"))
+    let main = keyring::Entry::new("com.motedesktop.mote", &format!("hue-application-key:{id}"))
         .map_err(|error| format!("Keyring access failed: {error}"))
         .and_then(|entry| {
             entry
@@ -341,7 +341,7 @@ async fn white(args: &[String]) -> Result<(), String> {
 /// router (SteelSeries Sonar, VoiceMeeter, ...) the default is often a per-app
 /// sub-mix, so apps routed elsewhere are never heard by loopback.
 fn audio() -> Result<(), String> {
-    let outputs = hue_app_lib::services::entertainment::audio::enumerate_audio_outputs()?;
+    let outputs = mote_desktop_lib::services::entertainment::audio::enumerate_audio_outputs()?;
     println!("render endpoints the app sees ({}):", outputs.len());
     for output in &outputs {
         println!(
@@ -361,7 +361,7 @@ fn audio() -> Result<(), String> {
 /// actually carries an app's audio. No arg meters every endpoint. Play the
 /// app you're debugging (e.g. Spotify) while this runs.
 fn listen(args: &[String]) -> Result<(), String> {
-    use hue_app_lib::services::entertainment::audio;
+    use mote_desktop_lib::services::entertainment::audio;
 
     let filter = args.first().map(|s| s.to_lowercase());
     let seconds: u64 = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(4);
@@ -404,7 +404,7 @@ fn listen(args: &[String]) -> Result<(), String> {
 /// an explicit device spuriously leaves the `Active` state (which the session's
 /// device-loss guard treats as a disconnect).
 fn capstate(args: &[String]) -> Result<(), String> {
-    use hue_app_lib::services::entertainment::audio;
+    use mote_desktop_lib::services::entertainment::audio;
 
     let needle = args
         .first()
@@ -442,11 +442,11 @@ fn parse(value: &str) -> Result<u8, String> {
 /// Hardware spike for capture-driven sync: samples the primary display and
 /// streams the mapped channel colors, mirroring the engine's Video mode.
 async fn video(args: &[String]) -> Result<(), String> {
-    use hue_app_lib::services::entertainment::analysis::{
+    use mote_desktop_lib::services::entertainment::analysis::{
         self, ChannelSmoother, SyncIntensity, SyncMode,
     };
-    use hue_app_lib::services::entertainment::capture::{CaptureRig, ColorBoard};
-    use hue_app_lib::services::entertainment::displays;
+    use mote_desktop_lib::services::entertainment::capture::{CaptureRig, ColorBoard};
+    use mote_desktop_lib::services::entertainment::displays;
 
     let area_id = args
         .first()
@@ -574,11 +574,11 @@ async fn video(args: &[String]) -> Result<(), String> {
 /// Only genuinely new frames (board timestamp advanced) are measured, so
 /// static-resend ticks never inflate the numbers.
 async fn latency(args: &[String]) -> Result<(), String> {
-    use hue_app_lib::services::entertainment::analysis::{
+    use mote_desktop_lib::services::entertainment::analysis::{
         self, ChannelSmoother, SyncIntensity, SyncMode,
     };
-    use hue_app_lib::services::entertainment::capture::{CaptureRig, ColorBoard};
-    use hue_app_lib::services::entertainment::displays;
+    use mote_desktop_lib::services::entertainment::capture::{CaptureRig, ColorBoard};
+    use mote_desktop_lib::services::entertainment::displays;
 
     let area_id = args
         .first()

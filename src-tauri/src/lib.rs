@@ -8,6 +8,36 @@ use tauri::{
     Manager,
 };
 
+const LEGACY_IDENTIFIER: &str = "com.canellu.hue-desktop";
+const LEGACY_APP_FILES: &[&str] = &[
+    "hue-store.json",
+    "host-sync.json",
+    "app-settings.json",
+    "widget-settings.json",
+    ".window-state.json",
+    "window-state.json",
+];
+
+fn migrate_legacy_app_files(app: &tauri::App) {
+    let current_dirs = [app.path().app_data_dir(), app.path().app_config_dir()];
+    for current_dir in current_dirs.into_iter().flatten() {
+        let Some(parent) = current_dir.parent() else {
+            continue;
+        };
+        let legacy_dir = parent.join(LEGACY_IDENTIFIER);
+        if !legacy_dir.is_dir() || std::fs::create_dir_all(&current_dir).is_err() {
+            continue;
+        }
+        for file_name in LEGACY_APP_FILES {
+            let source = legacy_dir.join(file_name);
+            let destination = current_dir.join(file_name);
+            if source.is_file() && !destination.exists() {
+                let _ = std::fs::copy(source, destination);
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -128,18 +158,20 @@ pub fn run() {
             commands::widget::reset_widget_position,
         ])
         .setup(|app| {
+            migrate_legacy_app_files(app);
+
             #[cfg(desktop)]
             {
                 let icon = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))?;
 
                 let show_item =
-                    MenuItem::with_id(app, "show", "Show Hue Desktop", true, None::<&str>)?;
+                    MenuItem::with_id(app, "show", "Show Mote Desktop", true, None::<&str>)?;
                 let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
                 let menu = Menu::with_items(app, &[&show_item, &quit_item])?;
 
                 tauri::tray::TrayIconBuilder::with_id("main")
                     .icon(icon)
-                    .tooltip("Hue Desktop")
+                    .tooltip("Mote Desktop")
                     .menu(&menu)
                     .show_menu_on_left_click(false)
                     .on_menu_event(|app, event| match event.id().as_ref() {

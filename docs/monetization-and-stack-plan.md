@@ -1,14 +1,16 @@
 # Plan: Monetization and Backend Stack
 
-Status: **vision / not started**. Last policy review: **2026-08-11**.
+Status: **vision / not started**. Last policy review: **2026-08-12**.
 
 This plan owns identity-provider, backend, commerce, licensing, and entitlement
 decisions. It does not redefine the domain model in
 [homes-and-membership-plan.md](./homes-and-membership-plan.md) or Hue OAuth and
 transport in [cloud-control-plan.md](./cloud-control-plan.md).
 
-The product name is tentative. Use `<APP_NAME>`, `<APP_SCHEME>`, and publisher
-placeholders until branding is final.
+The working brand is **Mote** and the reserved Microsoft Store title is
+**Mote Desktop**. Commercial trademark clearance and the permanent app scheme
+remain pending, so use `<APP_SCHEME>` and legal-entity placeholders in
+implementation until those decisions are final.
 
 ## Decisions
 
@@ -90,6 +92,14 @@ updatedAt: timestamp
   account-migration behavior before accepting money.
 
 ## Microsoft Store commerce
+
+The first Partner Center product was created as an **EXE/MSI** listing. That
+route supports the planned free first release, but it does not provide Microsoft
+Store commerce for later in-app purchases. Unless the Store package/product
+route is changed to MSIX in coordination with Partner Center, paid Mote Desktop
+releases on this route must use the selected secure third-party/
+Merchant-of-Record commerce and licensing design. Revisit this decision before
+implementing checkout.
 
 The previous draft incorrectly said Microsoft Store policy forbids third-party
 checkout for locally used PC features and therefore requires premium assets to

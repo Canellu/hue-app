@@ -1921,32 +1921,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
-name = "hue-desktop"
-version = "0.1.0"
-dependencies = [
- "half",
- "keyring",
- "mdns-sd",
- "reqwest 0.12.28",
- "rustfft",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "tauri-plugin-store",
- "tauri-plugin-window-state",
- "tokio",
- "wasapi",
- "webrtc-dtls",
- "webrtc-util",
- "windows-capture",
- "windows-registry",
- "windows-sys 0.59.0",
-]
-
-[[package]]
 name = "hyper"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2570,6 +2544,32 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "mote-desktop"
+version = "0.1.0"
+dependencies = [
+ "half",
+ "keyring",
+ "mdns-sd",
+ "reqwest 0.12.28",
+ "rustfft",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-store",
+ "tauri-plugin-window-state",
+ "tokio",
+ "wasapi",
+ "webrtc-dtls",
+ "webrtc-util",
+ "windows-capture",
+ "windows-registry",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

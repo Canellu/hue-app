@@ -190,7 +190,7 @@ requires the user's explicit confirmation.
 2. **Pushlink registration** (no auth). First call returns `{"code":16}`:
    ```
    POST https://<ip>/api/v1/registrations
-   Body: {"appName":"<APP_NAME>","instanceName":"<your machine>"}
+   Body: {"appName":"Mote Desktop","instanceName":"<your machine>"}
    ```
    Then hold the box button ~3s until LED blinks green, release, repeat the POST
    within 5s → expect `{"registrationId","accessToken"}`. **Save the token.**

@@ -193,7 +193,7 @@ export const SyncBoxOnboardingWizard = ({
             <SyncBoxStatus status="success" />
             <WizardCopy
               title="Sync Box connected"
-              description={`${state.session.syncBox?.name ?? "Your Hue Sync Box"} is ready to control from Hue Desktop.`}
+              description={`${state.session.syncBox?.name ?? "Your Hue Sync Box"} is ready to control from Mote Desktop.`}
             />
             <Button size="xl" onClick={() => complete(state.session)}>
               Done

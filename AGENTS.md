@@ -196,7 +196,7 @@ The backend emits `hue-event` carrying `Vec<HueEventUpdate>`. Updates include:
 ## Storage
 
 - Bridge info: Tauri store file `hue-store.json`
-- Application key/API credential: system keyring service `com.anton.hue-app`,
+- Application key/API credential: system keyring service `com.motedesktop.mote`,
   account `hue-application-key`
 - Theme preference: `localStorage` key `themeMode`
 - Home custom layout: `localStorage` key `hue-dashboard-layout`

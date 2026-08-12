@@ -1,6 +1,7 @@
-# Tauri + React + Typescript
+# Mote Desktop
 
-This template should help get you started developing with Tauri, React and Typescript in Vite.
+Mote Desktop is an unofficial Windows desktop controller for compatible Philips
+Hue devices. It is built with Tauri, React, TypeScript, and Vite.
 
 ## Recommended IDE Setup
 

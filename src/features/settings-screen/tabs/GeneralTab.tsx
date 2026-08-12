@@ -26,7 +26,7 @@ const closeButtonOptions = [
     label: "Close app",
     icon: X,
     summary: "Close Hue fully when the window is dismissed.",
-    closeNote: "Quit Hue Desktop",
+    closeNote: "Quit Mote Desktop",
     minimizeNote: "Keep running in tray",
   },
   {
@@ -162,11 +162,11 @@ export const GeneralTab = ({
 
           <SettingsRow
             title="Start on login"
-            description="Launch Hue Desktop when you sign in to Windows."
+            description="Launch Mote Desktop when you sign in to Windows."
             alignControlWithDescription
           >
             <Switch
-              aria-label="Start Hue Desktop on login"
+              aria-label="Start Mote Desktop on login"
               checked={appSettings?.autoStart ?? false}
               disabled={
                 isLoadingAppSettings ||

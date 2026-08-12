@@ -172,10 +172,15 @@ fn get_auto_start_enabled() -> Result<bool, String> {
     // Treat any non-empty entry under our value name as "enabled". Matching the
     // exact command would report a stale entry (after the app moves or updates)
     // as disabled, leaving the toggle out of sync with reality.
-    Ok(key
+    let current = key
         .get_string(auto_start_value_name())
         .map(|value| !value.trim().is_empty())
-        .unwrap_or(false))
+        .unwrap_or(false);
+    let legacy = key
+        .get_string(legacy_auto_start_value_name())
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    Ok(current || legacy)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -192,14 +197,24 @@ fn set_auto_start_enabled(enabled: bool) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     if enabled {
         key.set_string(auto_start_value_name(), auto_start_command()?)
-            .map_err(|error| error.to_string())
+            .map_err(|error| error.to_string())?;
+        remove_auto_start_value(&key, legacy_auto_start_value_name())
     } else {
-        if key.get_string(auto_start_value_name()).is_ok() {
-            key.remove_value(auto_start_value_name())
-                .map_err(|error| error.to_string())?;
-        }
-        Ok(())
+        remove_auto_start_value(&key, auto_start_value_name())?;
+        remove_auto_start_value(&key, legacy_auto_start_value_name())
     }
+}
+
+#[cfg(target_os = "windows")]
+fn remove_auto_start_value(
+    key: &windows_registry::Key,
+    value_name: &str,
+) -> Result<(), String> {
+    if key.get_string(value_name).is_ok() {
+        key.remove_value(value_name)
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -222,5 +237,10 @@ fn auto_start_run_key() -> &'static str {
 
 #[cfg(target_os = "windows")]
 fn auto_start_value_name() -> &'static str {
+    "Mote Desktop"
+}
+
+#[cfg(target_os = "windows")]
+fn legacy_auto_start_value_name() -> &'static str {
     "Hue Desktop"
 }

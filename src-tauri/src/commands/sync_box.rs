@@ -63,7 +63,5 @@ pub async fn set_sync_box_source_mode(
     source: String,
     mode: String,
 ) -> Result<SyncBoxState, String> {
-    client
-        .update_saved_source_mode(&app, &source, &mode)
-        .await
+    client.update_saved_source_mode(&app, &source, &mode).await
 }

@@ -75,7 +75,9 @@ fn active_bridge() -> Result<(String, String, Option<String>), String> {
     };
 
     if let Some(list) = json.pointer("/bridges/bridges").and_then(|v| v.as_array()) {
-        let active = json.pointer("/bridges/activeBridgeId").and_then(|v| v.as_str());
+        let active = json
+            .pointer("/bridges/activeBridgeId")
+            .and_then(|v| v.as_str());
         let entry = list
             .iter()
             .find(|entry| {
@@ -346,7 +348,11 @@ fn audio() -> Result<(), String> {
     for output in &outputs {
         println!(
             "  {} {}",
-            if output.is_default { "[DEFAULT]" } else { "         " },
+            if output.is_default {
+                "[DEFAULT]"
+            } else {
+                "         "
+            },
             output.name
         );
     }
@@ -390,7 +396,11 @@ fn listen(args: &[String]) -> Result<(), String> {
         let _ = std::io::stdout().flush();
         match audio::measure_loopback_peak_rms(Some(output.id.clone()), duration) {
             Ok(peak) => {
-                let heard = if peak > 0.001 { "HEARS AUDIO" } else { "silent" };
+                let heard = if peak > 0.001 {
+                    "HEARS AUDIO"
+                } else {
+                    "silent"
+                };
                 println!("peak RMS {peak:.4}  -> {heard}");
             }
             Err(error) => println!("error: {error}"),
@@ -481,8 +491,7 @@ async fn video(args: &[String]) -> Result<(), String> {
     );
 
     let bounds: Vec<_> = selected.iter().map(|d| d.bounds()).collect();
-    let frame =
-        analysis::ScreenFrame::from_configuration_type(area.configuration_type.as_deref());
+    let frame = analysis::ScreenFrame::from_configuration_type(area.configuration_type.as_deref());
     let tiles = analysis::map_channels_to_tiles(&area.channels, &bounds, frame);
     for tile in &tiles {
         println!(

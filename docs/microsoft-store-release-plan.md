@@ -49,7 +49,8 @@ Release blockers:
 - No Store-specific offline WebView2 configuration exists.
 - No production code-signing configuration or protected signing pipeline exists.
 - No immutable installer hosting or update manifest/channel exists.
-- The Tauri content security policy is `null`.
+- Production CSP and least-privilege opener capabilities are implemented; see
+  the [security hardening audit](./security-hardening-audit.md).
 - Privacy Policy, Terms/license terms, Support page, feedback, analytics, and
   crash reporting are planned but not implemented.
 - Initial Partner Center properties, declarations, certification notes, system
@@ -251,23 +252,25 @@ Analytics, crashes, and feedback:
 
 ## Phase 4: Production security hardening
 
-- [ ] Replace `app.security.csp: null` with the narrowest working production CSP.
+- [x] Replace `app.security.csp: null` with the narrowest working production CSP.
       Allow only packaged assets and explicitly required HTTPS endpoints.
-- [ ] Audit every Tauri capability, plugin permission, command, event, URL opener,
+- [x] Audit every Tauri capability, plugin permission, command, event, URL opener,
       and file/network boundary for least privilege.
-- [ ] Confirm arbitrary frontend input cannot produce arbitrary Hue endpoints,
+- [x] Confirm arbitrary frontend input cannot produce arbitrary Hue endpoints,
       filesystem paths, shell execution, or opened URLs.
-- [ ] Confirm Hue application keys, entertainment credentials, Sync Box tokens,
+- [x] Confirm Hue application keys, entertainment credentials, Sync Box tokens,
       bridge addresses, and personal paths never appear in production logs,
       analytics, crash metadata, clipboard data, or UI error reports.
-- [ ] Keep bridge self-signed-certificate exceptions scoped only to local Hue
+- [x] Keep bridge self-signed-certificate exceptions scoped only to local Hue
       Bridge transport. Keep the Sync Box pinned-CA path intact.
 - [ ] Validate update artifacts and manifests cryptographically before applying
       updates.
-- [ ] Remove development endpoints, debug menus, verbose tracing, source maps not
+- [x] Remove development endpoints, debug menus, verbose tracing, source maps not
       intended for distribution, test credentials, and unused capabilities.
 - [ ] Review bundled third-party licenses and create the required notices.
-- [ ] Run dependency vulnerability and license checks for Bun and Cargo locks.
+- [x] Run dependency vulnerability and license checks for Bun and Cargo locks.
+      Results and remaining transitive warnings are recorded in the
+      [security hardening audit](./security-hardening-audit.md).
 
 Security hardening should be reviewed separately from frontend release polish.
 

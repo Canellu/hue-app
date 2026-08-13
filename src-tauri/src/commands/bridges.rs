@@ -39,7 +39,10 @@ pub fn list_hue_bridges(app: AppHandle) -> Result<Vec<BridgeListItem>, String> {
 /// Switches the active bridge. Stops the current event stream so the caller can
 /// reload resources and restart streaming for the newly active bridge.
 #[tauri::command(rename = "set-active-hue-bridge")]
-pub async fn set_active_hue_bridge(app: AppHandle, bridge_id: String) -> Result<HueSession, String> {
+pub async fn set_active_hue_bridge(
+    app: AppHandle,
+    bridge_id: String,
+) -> Result<HueSession, String> {
     if let Some(state) = app.try_state::<EventStreamState>() {
         state.stop();
     }

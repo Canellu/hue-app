@@ -468,8 +468,10 @@ mod tests {
 
     #[test]
     fn silence_produces_black() {
-        let mut analyzer =
-            MusicAnalyzer::new(builtin(MusicPalette::Spectrum), MusicChannelCount::MatchArea);
+        let mut analyzer = MusicAnalyzer::new(
+            builtin(MusicPalette::Spectrum),
+            MusicChannelCount::MatchArea,
+        );
         assert_eq!(
             analyzer.analyze(&vec![0.0; FFT_SIZE], &channels()),
             vec![[0.0; 3]; 3]

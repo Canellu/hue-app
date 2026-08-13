@@ -55,7 +55,7 @@ pub fn decode_client_key(client_key: &str) -> Result<[u8; 16], String> {
     let mut psk = [0u8; 16];
     for (index, byte) in psk.iter_mut().enumerate() {
         *byte = u8::from_str_radix(&trimmed[index * 2..index * 2 + 2], 16)
-            .map_err(|error| format!("Invalid clientkey: {error}"))?;
+            .map_err(|error| private_error("The entertainment client key is invalid.", error))?;
     }
     Ok(psk)
 }
@@ -73,11 +73,7 @@ pub fn save_client_key(bridge_id: &str, client_key: &str) -> Result<(), String> 
 }
 
 pub fn load_client_key(bridge_id: &str) -> Result<Option<String>, String> {
-    load(
-        client_key_entry(bridge_id)?,
-        client_key_cache(),
-        bridge_id,
-    )
+    load(client_key_entry(bridge_id)?, client_key_cache(), bridge_id)
 }
 
 pub fn save_application_key(bridge_id: &str, application_key: &str) -> Result<(), String> {
@@ -100,11 +96,7 @@ pub fn load_application_key(bridge_id: &str) -> Result<Option<String>, String> {
 /// Removes one bridge's entertainment secrets. Used when a bridge is removed or
 /// its session reset so stale streaming credentials never outlive the pairing.
 pub fn clear_credentials(bridge_id: &str) -> Result<(), String> {
-    let client = clear(
-        client_key_entry(bridge_id)?,
-        client_key_cache(),
-        bridge_id,
-    );
+    let client = clear(client_key_entry(bridge_id)?, client_key_cache(), bridge_id);
     let application = clear(
         application_key_entry(bridge_id)?,
         application_key_cache(),
@@ -121,12 +113,15 @@ fn account(base: &str, bridge_id: &str) -> String {
 
 fn client_key_entry(bridge_id: &str) -> Result<Entry, String> {
     Entry::new(KEYRING_SERVICE, &account(CLIENT_KEY_ACCOUNT, bridge_id))
-        .map_err(|error| format!("Failed to access secure keyring: {error}"))
+        .map_err(|error| private_error("Failed to access secure credential storage.", error))
 }
 
 fn application_key_entry(bridge_id: &str) -> Result<Entry, String> {
-    Entry::new(KEYRING_SERVICE, &account(APPLICATION_KEY_ACCOUNT, bridge_id))
-        .map_err(|error| format!("Failed to access secure keyring: {error}"))
+    Entry::new(
+        KEYRING_SERVICE,
+        &account(APPLICATION_KEY_ACCOUNT, bridge_id),
+    )
+    .map_err(|error| private_error("Failed to access secure credential storage.", error))
 }
 
 /// Keyring reads are blocking syscalls; cache values in memory (keyed by
@@ -150,7 +145,7 @@ fn save(
 ) -> Result<(), String> {
     entry
         .set_password(value)
-        .map_err(|error| format!("Failed to save entertainment credential: {error}"))?;
+        .map_err(|error| private_error("Failed to save the entertainment credential.", error))?;
     cache
         .lock()
         .unwrap()
@@ -173,7 +168,10 @@ fn load(
             Ok(Some(value))
         }
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(error) => Err(format!("Failed to read entertainment credential: {error}")),
+        Err(error) => Err(private_error(
+            "Failed to read the entertainment credential.",
+            error,
+        )),
     }
 }
 
@@ -185,7 +183,22 @@ fn clear(
     cache.lock().unwrap().remove(&bridge_id.to_uppercase());
     match entry.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(format!("Failed to clear entertainment credential: {error}")),
+        Err(error) => Err(private_error(
+            "Failed to clear the entertainment credential.",
+            error,
+        )),
+    }
+}
+
+fn private_error(public_message: &str, error: impl std::fmt::Display) -> String {
+    #[cfg(debug_assertions)]
+    {
+        return format!("{public_message} {error}");
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = error;
+        public_message.to_string()
     }
 }
 

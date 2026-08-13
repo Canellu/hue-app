@@ -251,8 +251,9 @@ impl CaptureRig {
     /// blocking-capable context.
     pub fn stop(&mut self) {
         for control in self.controls.drain(..) {
-            if let Err(error) = control.stop() {
-                println!("WARN: failed to stop capture session: {error}");
+            if let Err(_error) = control.stop() {
+                #[cfg(debug_assertions)]
+                eprintln!("failed to stop capture session: {_error}");
             }
         }
     }

@@ -190,9 +190,10 @@ impl SyncBoxClient {
             .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
             .danger_accept_invalid_certs(true)
             .build()
-            .map_err(|error| format!("Failed to create Sync Box HTTP client: {error}"))?;
-        let ca = Certificate::from_pem(include_bytes!("../../assets/hsb_cacert.pem"))
-            .map_err(|error| format!("Invalid bundled Sync Box CA certificate: {error}"))?;
+            .map_err(|error| private_error("Failed to create the Sync Box client.", error))?;
+        let ca = Certificate::from_pem(include_bytes!("../../assets/hsb_cacert.pem")).map_err(
+            |error| private_error("The bundled Sync Box certificate is invalid.", error),
+        )?;
         Ok(Self {
             probe_client,
             ca,
@@ -234,24 +235,24 @@ impl SyncBoxClient {
         }
         let ip: IpAddr = ip_address
             .parse()
-            .map_err(|error| format!("Invalid Sync Box IP address {ip_address}: {error}"))?;
+            .map_err(|_| "The Sync Box reported an invalid network address.".to_string())?;
         let client = Client::builder()
             .timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
             .tls_built_in_root_certs(false)
             .add_root_certificate(self.ca.clone())
             .resolve(&target.unique_id, SocketAddr::new(ip, port))
             .build()
-            .map_err(|error| format!("Failed to create pinned Sync Box HTTP client: {error}"))?;
+            .map_err(|error| private_error("Failed to create a secure Sync Box client.", error))?;
         *cache = Some((target, client.clone()));
         Ok(client)
     }
 
     pub async fn discover(&self) -> Result<Vec<DiscoveredSyncBox>, String> {
         let mdns = ServiceDaemon::new()
-            .map_err(|error| format!("Failed to start Sync Box discovery: {error}"))?;
+            .map_err(|error| private_error("Failed to start Sync Box discovery.", error))?;
         let receiver = mdns
             .browse("_huesync._tcp.local.")
-            .map_err(|error| format!("Failed to browse for Sync Boxes: {error}"))?;
+            .map_err(|error| private_error("Failed to browse for Sync Boxes.", error))?;
 
         let started = Instant::now();
         let mut services = Vec::new();
@@ -326,14 +327,17 @@ impl SyncBoxClient {
             }))
             .send()
             .await
-            .map_err(|error| format!("Failed to reach the Sync Box: {error}"))?;
+            .map_err(|error| private_error("Failed to reach the Sync Box.", error))?;
         let status = response.status();
-        let body = response
-            .text()
-            .await
-            .map_err(|error| format!("Sync Box returned an unreadable response: {error}"))?;
-        let value: Value = serde_json::from_str(&body)
-            .map_err(|error| format!("Invalid Sync Box registration response: {error}"))?;
+        let body = response.text().await.map_err(|error| {
+            private_error("The Sync Box returned an unreadable response.", error)
+        })?;
+        let value: Value = serde_json::from_str(&body).map_err(|error| {
+            private_error(
+                "The Sync Box returned an invalid registration response.",
+                error,
+            )
+        })?;
 
         if value.get("code").and_then(Value::as_u64) == Some(16) {
             return Err(
@@ -440,17 +444,16 @@ impl SyncBoxClient {
             .get(&url)
             .send()
             .await
-            .map_err(|error| format!("Failed to reach Sync Box at {ip_address}: {error}"))?;
+            .map_err(|_| "Failed to reach the Sync Box.".to_string())?;
         let status = response.status();
         if !status.is_success() {
             return Err(format!(
                 "Sync Box device request failed with HTTP status {status}."
             ));
         }
-        response
-            .json::<SyncBoxDevice>()
-            .await
-            .map_err(|error| format!("Invalid Sync Box device response: {error}"))
+        response.json::<SyncBoxDevice>().await.map_err(|error| {
+            private_error("The Sync Box returned an invalid device response.", error)
+        })
     }
 
     pub async fn get_saved_state<R: Runtime>(
@@ -488,7 +491,7 @@ impl SyncBoxClient {
             .json(object)
             .send()
             .await
-            .map_err(|error| format!("Unable to update the Sync Box: {error}"))?;
+            .map_err(|error| private_error("Unable to update the Sync Box.", error))?;
 
         if !response.status().is_success() {
             return Err(sync_box_response_error(response, "Sync Box execution update").await);
@@ -525,7 +528,7 @@ impl SyncBoxClient {
             .json(&json!({ "lastSyncMode": mode }))
             .send()
             .await
-            .map_err(|error| format!("Unable to update the Sync Box source mode: {error}"))?;
+            .map_err(|error| private_error("Unable to update the Sync Box source mode.", error))?;
 
         if !response.status().is_success() {
             return Err(sync_box_response_error(response, "Sync Box source mode update").await);
@@ -547,15 +550,14 @@ impl SyncBoxClient {
             .bearer_auth(access_token)
             .send()
             .await
-            .map_err(|error| format!("Unable to reach the saved Sync Box: {error}"))?;
+            .map_err(|error| private_error("Unable to reach the saved Sync Box.", error))?;
 
         if !response.status().is_success() {
             return Err(sync_box_response_error(response, "Sync Box state request").await);
         }
-        response
-            .json::<SyncBoxState>()
-            .await
-            .map_err(|error| format!("Invalid Sync Box state response: {error}"))
+        response.json::<SyncBoxState>().await.map_err(|error| {
+            private_error("The Sync Box returned an invalid state response.", error)
+        })
     }
 }
 
@@ -566,7 +568,10 @@ async fn get_device_secure(
 ) -> Result<SyncBoxDevice, String> {
     let url = secure_endpoint(unique_id, port, "/api/v1/device")?;
     let response = client.get(url).send().await.map_err(|error| {
-        format!("Unable to establish a secure connection to the Sync Box: {error}")
+        private_error(
+            "Unable to establish a secure connection to the Sync Box.",
+            error,
+        )
     })?;
     let status = response.status();
     if !status.is_success() {
@@ -574,15 +579,11 @@ async fn get_device_secure(
             "Secure Sync Box device request failed with HTTP status {status}."
         ));
     }
-    let device = response
-        .json::<SyncBoxDevice>()
-        .await
-        .map_err(|error| format!("Invalid secure Sync Box device response: {error}"))?;
+    let device = response.json::<SyncBoxDevice>().await.map_err(|error| {
+        private_error("The Sync Box returned an invalid secure response.", error)
+    })?;
     if !device.unique_id.eq_ignore_ascii_case(unique_id) {
-        return Err(format!(
-            "Sync Box identity mismatch: expected {unique_id}, received {}.",
-            device.unique_id
-        ));
+        return Err("The Sync Box identity did not match its certificate.".to_string());
     }
     Ok(device)
 }
@@ -646,9 +647,7 @@ fn secure_endpoint(unique_id: &str, port: u16, path: &str) -> Result<String, Str
 
 fn sync_box_hostname(unique_id: &str) -> Result<String, String> {
     if unique_id.len() != 12 || !unique_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(format!(
-            "Invalid Sync Box unique ID '{unique_id}'; expected 12 hexadecimal characters."
-        ));
+        return Err("The Sync Box reported an invalid device identifier.".to_string());
     }
     Ok(unique_id.to_ascii_lowercase())
 }
@@ -672,21 +671,21 @@ fn save_sync_box_info<R: Runtime>(
 ) -> Result<(), String> {
     let store = app
         .store(STORE_FILE)
-        .map_err(|error| format!("Failed to open Sync Box store: {error}"))?;
+        .map_err(|error| private_error("Failed to open Sync Box settings.", error))?;
     store.set(
         STORE_KEY,
         serde_json::to_value(sync_box)
-            .map_err(|error| format!("Invalid Sync Box store data: {error}"))?,
+            .map_err(|error| private_error("Failed to prepare Sync Box settings.", error))?,
     );
     store
         .save()
-        .map_err(|error| format!("Failed to save Sync Box details: {error}"))
+        .map_err(|error| private_error("Failed to save Sync Box settings.", error))
 }
 
 fn load_sync_box_info<R: Runtime>(app: &AppHandle<R>) -> Result<Option<StoredSyncBoxInfo>, String> {
     let store = app
         .store(STORE_FILE)
-        .map_err(|error| format!("Failed to open Sync Box store: {error}"))?;
+        .map_err(|error| private_error("Failed to open Sync Box settings.", error))?;
     let Some(value) = store.get(STORE_KEY) else {
         return Ok(None);
     };
@@ -695,42 +694,60 @@ fn load_sync_box_info<R: Runtime>(app: &AppHandle<R>) -> Result<Option<StoredSyn
     }
     serde_json::from_value(value.clone())
         .map(Some)
-        .map_err(|error| format!("Failed to read Sync Box details: {error}"))
+        .map_err(|error| private_error("Failed to read Sync Box settings.", error))
 }
 
 fn clear_sync_box_info<R: Runtime>(app: &AppHandle<R>) -> Result<(), String> {
     let store = app
         .store(STORE_FILE)
-        .map_err(|error| format!("Failed to open Sync Box store: {error}"))?;
+        .map_err(|error| private_error("Failed to open Sync Box settings.", error))?;
     store.delete(STORE_KEY);
     store
         .save()
-        .map_err(|error| format!("Failed to clear Sync Box details: {error}"))
+        .map_err(|error| private_error("Failed to clear Sync Box settings.", error))
 }
 
 fn token_entry() -> Result<Entry, String> {
     Entry::new(KEYRING_SERVICE, KEYRING_ACCOUNT)
-        .map_err(|error| format!("Failed to access secure keyring: {error}"))
+        .map_err(|error| private_error("Failed to access secure credential storage.", error))
 }
 
 fn save_access_token(access_token: &str) -> Result<(), String> {
     token_entry()?
         .set_password(access_token)
-        .map_err(|error| format!("Failed to save Sync Box access token: {error}"))
+        .map_err(|error| private_error("Failed to save the Sync Box access token.", error))
 }
 
 fn load_access_token() -> Result<Option<String>, String> {
     match token_entry()?.get_password() {
         Ok(access_token) => Ok(Some(access_token)),
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(error) => Err(format!("Failed to read Sync Box access token: {error}")),
+        Err(error) => Err(private_error(
+            "Failed to read the Sync Box access token.",
+            error,
+        )),
     }
 }
 
 fn clear_access_token() -> Result<(), String> {
     match token_entry()?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(format!("Failed to clear Sync Box access token: {error}")),
+        Err(error) => Err(private_error(
+            "Failed to clear the Sync Box access token.",
+            error,
+        )),
+    }
+}
+
+fn private_error(public_message: &str, error: impl std::fmt::Display) -> String {
+    #[cfg(debug_assertions)]
+    {
+        return format!("{public_message} {error}");
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = error;
+        public_message.to_string()
     }
 }
 

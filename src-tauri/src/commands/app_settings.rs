@@ -129,26 +129,31 @@ fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_config_dir()
-        .map_err(|error| error.to_string())?;
-    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+        .map_err(|error| private_error("Failed to locate application settings.", error))?;
+    fs::create_dir_all(&dir).map_err(|error| {
+        private_error("Failed to create the application settings folder.", error)
+    })?;
     Ok(dir.join(SETTINGS_FILE_NAME))
 }
 
 fn read_stored_settings(app: &AppHandle) -> Result<StoredAppSettings, String> {
     let path = settings_path(app)?;
     match fs::read_to_string(path) {
-        Ok(contents) => serde_json::from_str(&contents).map_err(|error| error.to_string()),
+        Ok(contents) => serde_json::from_str(&contents)
+            .map_err(|error| private_error("Application settings are invalid.", error)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             Ok(StoredAppSettings::default())
         }
-        Err(error) => Err(error.to_string()),
+        Err(error) => Err(private_error("Failed to read application settings.", error)),
     }
 }
 
 fn write_stored_settings(app: &AppHandle, settings: &StoredAppSettings) -> Result<(), String> {
     let path = settings_path(app)?;
-    let contents = serde_json::to_string_pretty(settings).map_err(|error| error.to_string())?;
-    fs::write(path, contents).map_err(|error| error.to_string())
+    let contents = serde_json::to_string_pretty(settings)
+        .map_err(|error| private_error("Failed to prepare application settings.", error))?;
+    fs::write(path, contents)
+        .map_err(|error| private_error("Failed to save application settings.", error))
 }
 
 #[cfg(target_os = "windows")]
@@ -209,7 +214,8 @@ fn set_auto_start_enabled(_enabled: bool) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 fn auto_start_command() -> Result<String, String> {
-    let exe = std::env::current_exe().map_err(|error| error.to_string())?;
+    let exe = std::env::current_exe()
+        .map_err(|error| private_error("Failed to locate the application executable.", error))?;
     // The flag lets the login launch start hidden in the tray instead of
     // popping the main window in the user's face on every sign-in.
     Ok(format!("\"{}\" {}", exe.display(), AUTOSTART_FLAG))
@@ -223,4 +229,16 @@ fn auto_start_run_key() -> &'static str {
 #[cfg(target_os = "windows")]
 fn auto_start_value_name() -> &'static str {
     "Mote Desktop"
+}
+
+fn private_error(public_message: &str, error: impl std::fmt::Display) -> String {
+    #[cfg(debug_assertions)]
+    {
+        return format!("{public_message} {error}");
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = error;
+        public_message.to_string()
+    }
 }

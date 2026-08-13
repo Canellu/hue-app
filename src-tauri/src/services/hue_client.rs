@@ -92,7 +92,6 @@ pub struct HueSession {
     pub connected: bool,
     pub bridge_id: Option<String>,
     pub bridge_ip: Option<String>,
-    pub application_key: Option<String>,
     pub error: Option<String>,
 }
 
@@ -131,7 +130,8 @@ impl BridgeStore {
             bridge.bridge_id = bridge.bridge_id.to_uppercase();
         }
         let mut seen = std::collections::HashSet::new();
-        self.bridges.retain(|bridge| seen.insert(bridge.bridge_id.clone()));
+        self.bridges
+            .retain(|bridge| seen.insert(bridge.bridge_id.clone()));
 
         self.active_bridge_id = self
             .active_bridge_id
@@ -153,11 +153,7 @@ impl BridgeStore {
     fn upsert_active(&mut self, mut bridge: StoredBridgeInfo) {
         bridge.bridge_id = bridge.bridge_id.to_uppercase();
         let id = bridge.bridge_id.clone();
-        if let Some(existing) = self
-            .bridges
-            .iter_mut()
-            .find(|entry| entry.bridge_id == id)
-        {
+        if let Some(existing) = self.bridges.iter_mut().find(|entry| entry.bridge_id == id) {
             *existing = bridge;
         } else {
             self.bridges.push(bridge);
@@ -908,7 +904,7 @@ impl HueClient {
         let client = shared_client(&CLIENT, |builder| {
             builder.timeout(Duration::from_secs(REQUEST_TIMEOUT_SECS))
         })
-        .map_err(|error| format!("Failed to create HTTP client: {error}"))?;
+        .map_err(|error| private_error("Failed to create the Hue client.", error))?;
         Ok(Self { client })
     }
 
@@ -917,7 +913,7 @@ impl HueClient {
     pub fn new_streaming() -> Result<Self, String> {
         static CLIENT: OnceLock<Client> = OnceLock::new();
         let client = shared_client(&CLIENT, |builder| builder)
-            .map_err(|error| format!("Failed to create streaming HTTP client: {error}"))?;
+            .map_err(|error| private_error("Failed to create the Hue event client.", error))?;
         Ok(Self { client })
     }
 
@@ -932,10 +928,14 @@ impl HueClient {
         let url = format!("https://{ip}/clip/v2/resource/{resource}");
         let text = self.fetch_text(&url, application_key, resource).await?;
 
-        let response = serde_json::from_str::<HueApiResponse<T>>(&text)
-            .map_err(|error| format!("Invalid {resource} response: {error}"))?;
+        let response = serde_json::from_str::<HueApiResponse<T>>(&text).map_err(|error| {
+            private_error(
+                &format!("The bridge returned invalid {resource} data."),
+                error,
+            )
+        })?;
         if let Some(error) = response.errors.first() {
-            return Err(format!("Hue bridge error: {}", error.description));
+            return Err(public_bridge_rejection(&error.description));
         }
         Ok(response.data)
     }
@@ -1005,7 +1005,14 @@ impl HueClient {
                 break;
             }
         }
-        Err(last_error)
+        #[cfg(debug_assertions)]
+        return Err(last_error);
+
+        #[cfg(not(debug_assertions))]
+        {
+            let _ = last_error;
+            Err(format!("Failed to fetch {resource}."))
+        }
     }
 
     async fn put_v2(
@@ -1016,6 +1023,7 @@ impl HueClient {
         id: &str,
         body: Value,
     ) -> Result<(), String> {
+        ensure_resource_id(id)?;
         let url = format!("https://{ip}/clip/v2/resource/{resource}/{id}");
         let permit = bridge_semaphore().acquire().await.ok();
         let response = self
@@ -1025,12 +1033,14 @@ impl HueClient {
             .json(&body)
             .send()
             .await
-            .map_err(|error| format!("Failed to update {resource}: {error}"))?;
+            .map_err(|error| private_error(&format!("Failed to update {resource}."), error))?;
         let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|error| format!("Failed to read {resource} update response: {error}"))?;
+        let text = response.text().await.map_err(|error| {
+            private_error(
+                &format!("Failed to read {resource} update response."),
+                error,
+            )
+        })?;
         drop(permit);
 
         let parsed = serde_json::from_str::<HueApiResponse<Value>>(&text).ok();
@@ -1045,7 +1055,7 @@ impl HueClient {
                 .and_then(|response| response.errors.first())
                 .map(|error| error.description.clone())
                 .unwrap_or_else(|| format!("HTTP {status}"));
-            return Err(format!("Hue bridge error: {detail}"));
+            return Err(public_bridge_rejection(&detail));
         }
         Ok(())
     }
@@ -1057,6 +1067,7 @@ impl HueClient {
         resource: &str,
         id: &str,
     ) -> Result<(), String> {
+        ensure_resource_id(id)?;
         let url = format!("https://{ip}/clip/v2/resource/{resource}/{id}");
         let permit = bridge_semaphore().acquire().await.ok();
         let text = self
@@ -1065,16 +1076,25 @@ impl HueClient {
             .header("hue-application-key", application_key)
             .send()
             .await
-            .map_err(|error| format!("Failed to delete {resource}: {error}"))?
+            .map_err(|error| private_error(&format!("Failed to delete {resource}."), error))?
             .text()
             .await
-            .map_err(|error| format!("Failed to read {resource} delete response: {error}"))?;
+            .map_err(|error| {
+                private_error(
+                    &format!("Failed to read {resource} delete response."),
+                    error,
+                )
+            })?;
         drop(permit);
 
-        let response = serde_json::from_str::<HueApiResponse<Value>>(&text)
-            .map_err(|error| format!("Invalid {resource} delete response: {error}"))?;
+        let response = serde_json::from_str::<HueApiResponse<Value>>(&text).map_err(|error| {
+            private_error(
+                &format!("The bridge returned an invalid {resource} delete response."),
+                error,
+            )
+        })?;
         if let Some(error) = response.errors.first() {
-            return Err(format!("Hue bridge error: {}", error.description));
+            return Err(public_bridge_rejection(&error.description));
         }
         Ok(())
     }
@@ -1096,16 +1116,26 @@ impl HueClient {
             .json(&body)
             .send()
             .await
-            .map_err(|error| format!("Failed to create {resource}: {error}"))?
+            .map_err(|error| private_error(&format!("Failed to create {resource}."), error))?
             .text()
             .await
-            .map_err(|error| format!("Failed to read {resource} create response: {error}"))?;
+            .map_err(|error| {
+                private_error(
+                    &format!("Failed to read {resource} create response."),
+                    error,
+                )
+            })?;
         drop(permit);
 
-        let response = serde_json::from_str::<HueApiResponse<HueResourceRef>>(&text)
-            .map_err(|error| format!("Invalid {resource} create response: {error}"))?;
+        let response =
+            serde_json::from_str::<HueApiResponse<HueResourceRef>>(&text).map_err(|error| {
+                private_error(
+                    &format!("The bridge returned an invalid {resource} create response."),
+                    error,
+                )
+            })?;
         if let Some(error) = response.errors.first() {
-            return Err(format!("Hue bridge error: {}", error.description));
+            return Err(public_bridge_rejection(&error.description));
         }
         response
             .data
@@ -1123,6 +1153,9 @@ impl HueClient {
         id: Option<&str>,
     ) -> Result<Vec<Value>, String> {
         ensure_supported_resource_type(resource_type)?;
+        if let Some(id) = id {
+            ensure_resource_id(id)?;
+        }
         let resource = id
             .map(|value| format!("{resource_type}/{value}"))
             .unwrap_or_else(|| resource_type.to_string());
@@ -1185,11 +1218,11 @@ impl HueClient {
             .get(DISCOVERY_URL)
             .send()
             .await
-            .map_err(|error| format!("Bridge discovery failed: {error}"))?;
+            .map_err(|error| private_error("Bridge discovery failed.", error))?;
 
         let status = response.status();
         let body = response.text().await.map_err(|error| {
-            format!("Bridge discovery returned an unreadable response: {error}")
+            private_error("Bridge discovery returned an unreadable response.", error)
         })?;
 
         if !status.is_success() {
@@ -1202,8 +1235,10 @@ impl HueClient {
             return Err(format!("Hue discovery failed with HTTP status {status}."));
         }
 
-        let bridges = serde_json::from_str::<Vec<DiscoveryBridgeResponse>>(&body)
-            .map_err(|error| format!("Hue discovery returned an unexpected response: {error}"))?;
+        let bridges =
+            serde_json::from_str::<Vec<DiscoveryBridgeResponse>>(&body).map_err(|error| {
+                private_error("Hue discovery returned an unexpected response.", error)
+            })?;
 
         Ok(bridges
             .into_iter()
@@ -1255,8 +1290,11 @@ impl HueClient {
     }
 
     async fn discover_via_mdns(&self) -> Result<Vec<DiscoveredBridge>, String> {
-        let mdns = ServiceDaemon::new().map_err(|e| e.to_string())?;
-        let receiver = mdns.browse("_hue._tcp.local.").map_err(|e| e.to_string())?;
+        let mdns = ServiceDaemon::new()
+            .map_err(|error| private_error("Failed to start bridge discovery.", error))?;
+        let receiver = mdns
+            .browse("_hue._tcp.local.")
+            .map_err(|error| private_error("Failed to browse for bridges.", error))?;
 
         let mut bridges = Vec::new();
         let timeout = Duration::from_secs(3);
@@ -1332,12 +1370,14 @@ impl HueClient {
             .json(&payload)
             .send()
             .await
-            .map_err(|e| format!("Failed to reach {}. Error: {}. Ensure your bridge is on the same network and accessible via HTTP.", url, e))?;
+            .map_err(|_| {
+                "Failed to reach the Hue Bridge. Ensure it is on the same network and accessible."
+                    .to_string()
+            })?;
 
-        let json = response
-            .json::<Value>()
-            .await
-            .map_err(|error| format!("Invalid pairing response: {error}"))?;
+        let json = response.json::<Value>().await.map_err(|error| {
+            private_error("The bridge returned an invalid pairing response.", error)
+        })?;
 
         extract_hue_credentials(&json)
     }
@@ -1356,7 +1396,9 @@ impl HueClient {
             .header("hue-application-key", application_key)
             .send()
             .await
-            .map_err(|error| format!("Failed to fetch hue-application-id: {error}"))?;
+            .map_err(|error| {
+                private_error("Failed to read the Hue application identifier.", error)
+            })?;
 
         let status = response.status();
         if !status.is_success() {
@@ -1436,7 +1478,7 @@ impl HueClient {
         let mut store = load_bridge_store(app)?;
         let stored_bridge = match store.active().cloned() {
             Some(bridge) => bridge,
-            None => return Ok(disconnected_session(false, None, None, None, None)),
+            None => return Ok(disconnected_session(false, None, None, None)),
         };
 
         let application_key = match resolve_bridge_application_key(&stored_bridge) {
@@ -1458,7 +1500,6 @@ impl HueClient {
                     connected: true,
                     bridge_id: Some(bridge_id.to_uppercase()),
                     bridge_ip: Some(stored_bridge.bridge_ip),
-                    application_key: Some(application_key),
                     error: None,
                 });
             }
@@ -1492,7 +1533,6 @@ impl HueClient {
                         connected: true,
                         bridge_id: Some(bridge_id.to_uppercase()),
                         bridge_ip: Some(bridge.bridge_ip),
-                        application_key: Some(application_key),
                         error: None,
                     });
                 }
@@ -1504,7 +1544,6 @@ impl HueClient {
             connected: false,
             bridge_id: Some(stored_bridge.bridge_id),
             bridge_ip: Some(stored_bridge.bridge_ip),
-            application_key: Some(application_key),
             error: Some("Unable to reconnect to the saved Hue Bridge.".to_string()),
         })
     }
@@ -1521,15 +1560,15 @@ impl HueClient {
         let mut store = load_bridge_store(app)?;
         store.upsert_active(bridge.clone());
         save_bridge_store(app, &store)?;
-        if let Err(error) = save_application_key(&bridge.bridge_id, application_key) {
-            println!("WARN: Failed to save Hue application key in keyring: {error}");
+        if let Err(_error) = save_application_key(&bridge.bridge_id, application_key) {
+            #[cfg(debug_assertions)]
+            eprintln!("failed to save Hue application key in keyring: {_error}");
         }
         Ok(HueSession {
             configured: true,
             connected: true,
             bridge_id: Some(bridge.bridge_id.to_uppercase()),
             bridge_ip: Some(bridge.bridge_ip.clone()),
-            application_key: Some(application_key.to_string()),
             error: None,
         })
     }
@@ -1548,7 +1587,11 @@ impl HueClient {
     ) -> Result<HueSession, String> {
         let mut store = load_bridge_store(app)?;
         let target = bridge_id.to_uppercase();
-        if !store.bridges.iter().any(|bridge| bridge.bridge_id == target) {
+        if !store
+            .bridges
+            .iter()
+            .any(|bridge| bridge.bridge_id == target)
+        {
             return Err("That bridge is not paired on this device.".to_string());
         }
         store.active_bridge_id = Some(target);
@@ -1565,9 +1608,7 @@ impl HueClient {
     ) -> Result<HueSession, String> {
         let mut store = load_bridge_store(app)?;
         let target = bridge_id.to_uppercase();
-        store
-            .bridges
-            .retain(|bridge| bridge.bridge_id != target);
+        store.bridges.retain(|bridge| bridge.bridge_id != target);
         // If the removed bridge was active, normalize repoints to another.
         if store.active_bridge_id.as_deref() == Some(target.as_str()) {
             store.active_bridge_id = None;
@@ -1584,7 +1625,7 @@ impl HueClient {
             // Box the call to break the restore/remove async recursion cycle.
             Box::pin(self.restore_session(app)).await
         } else {
-            Ok(disconnected_session(false, None, None, None, None))
+            Ok(disconnected_session(false, None, None, None))
         }
     }
 
@@ -1594,9 +1635,8 @@ impl HueClient {
         let store = load_bridge_store(app)?;
         for bridge in &store.bridges {
             let _ = clear_application_key(&bridge.bridge_id);
-            let _ = crate::services::entertainment::credentials::clear_credentials(
-                &bridge.bridge_id,
-            );
+            let _ =
+                crate::services::entertainment::credentials::clear_credentials(&bridge.bridge_id);
         }
         let _ = clear_legacy_application_key();
         save_bridge_store(app, &BridgeStore::default())?;
@@ -1635,7 +1675,9 @@ impl HueClient {
                 let _ = save_application_key(&stored_bridge.bridge_id, &key);
                 Ok(key)
             }
-            None => Err("No Hue application key found. Please re-pair your Hue bridge.".to_string()),
+            None => {
+                Err("No Hue application key found. Please re-pair your Hue bridge.".to_string())
+            }
         }
     }
 
@@ -1827,7 +1869,7 @@ impl HueClient {
             .and_then(|resource| resource.get("id_v1"))
             .and_then(Value::as_str)
             .and_then(|value| value.strip_prefix("/lights/"))
-            .ok_or_else(|| format!("Light {id} does not expose a v1 identity"))?;
+            .ok_or_else(|| "This light cannot be identified by the bridge.".to_string())?;
         let url = format!(
             "http://{}/api/{}/lights/{}/state",
             format_host(ip),
@@ -1841,12 +1883,11 @@ impl HueClient {
             .json(&json!({ "alert": "select" }))
             .send()
             .await
-            .map_err(|error| format!("Failed to identify light: {error}"))?;
+            .map_err(|error| private_error("Failed to identify the light.", error))?;
         let status = response.status();
-        let text = response
-            .text()
-            .await
-            .map_err(|error| format!("Failed to read light identification response: {error}"))?;
+        let text = response.text().await.map_err(|error| {
+            private_error("Failed to read the light identification response.", error)
+        })?;
         drop(permit);
 
         if !status.is_success() {
@@ -1861,7 +1902,7 @@ impl HueClient {
                     .and_then(|error| error.get("description"))
                     .and_then(Value::as_str)
             }) {
-                return Err(format!("Hue bridge error: {description}"));
+                return Err(public_bridge_rejection(description));
             }
         }
         Ok(())
@@ -3284,10 +3325,17 @@ impl HueClient {
         let text = request
             .send()
             .await
-            .map_err(|error| format!("Failed to start {collection} search: {error}"))?
+            .map_err(|error| {
+                private_error(&format!("Failed to start {collection} search."), error)
+            })?
             .text()
             .await
-            .map_err(|error| format!("Failed to read {collection} search response: {error}"))?;
+            .map_err(|error| {
+                private_error(
+                    &format!("Failed to read the {collection} search response."),
+                    error,
+                )
+            })?;
         drop(permit);
 
         // The v1 API reports failures as `[{ "error": { "description": ... } }]`.
@@ -3298,7 +3346,7 @@ impl HueClient {
                     .and_then(|error| error.get("description"))
                     .and_then(|description| description.as_str())
             }) {
-                return Err(format!("Hue bridge error: {description}"));
+                return Err(public_bridge_rejection(description));
             }
         }
         Ok(())
@@ -3332,8 +3380,9 @@ impl HueClient {
                 return;
             }
             last_reported = Some(connected);
-            if let Err(error) = app.emit("hue-connection", json!({ "connected": connected })) {
-                println!("WARN: failed to emit hue-connection: {error}");
+            if let Err(_error) = app.emit("hue-connection", json!({ "connected": connected })) {
+                #[cfg(debug_assertions)]
+                eprintln!("failed to emit hue-connection: {_error}");
             }
         };
 
@@ -3349,7 +3398,8 @@ impl HueClient {
 
             match result {
                 Ok(mut response) if response.status().is_success() => {
-                    println!("DEBUG: event stream connected ({})", response.status());
+                    #[cfg(debug_assertions)]
+                    eprintln!("event stream connected ({})", response.status());
                     consecutive_failures = 0;
                     report(true);
                     let mut buffer = String::new();
@@ -3366,35 +3416,40 @@ impl HueClient {
                                     let block: String = buffer.drain(..idx + 2).collect();
                                     if let Some(updates) = parse_event_block(&block) {
                                         if !updates.is_empty() {
-                                            if let Err(error) = app.emit("hue-event", updates) {
-                                                println!("WARN: failed to emit hue-event: {error}");
+                                            if let Err(_error) = app.emit("hue-event", updates) {
+                                                #[cfg(debug_assertions)]
+                                                eprintln!("failed to emit hue-event: {_error}");
                                             }
                                         }
                                     }
                                 }
                             }
                             Ok(None) => {
-                                println!("DEBUG: event stream closed by bridge");
+                                #[cfg(debug_assertions)]
+                                eprintln!("event stream closed by bridge");
                                 break;
                             }
-                            Err(error) => {
-                                println!("WARN: event stream read error: {error}");
+                            Err(_error) => {
+                                #[cfg(debug_assertions)]
+                                eprintln!("event stream read error: {_error}");
                                 break;
                             }
                         }
                     }
                     report(false);
                 }
-                Ok(response) => {
-                    println!(
-                        "WARN: event stream rejected with HTTP status {}",
-                        response.status()
+                Ok(_response) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!(
+                        "event stream rejected with HTTP status {}",
+                        _response.status()
                     );
                     consecutive_failures += 1;
                     report(false);
                 }
-                Err(error) => {
-                    println!("WARN: event stream connection failed: {error}");
+                Err(_error) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("event stream connection failed: {_error}");
                     consecutive_failures += 1;
                     report(false);
                 }
@@ -3409,8 +3464,9 @@ impl HueClient {
                     if let Ok(session) = client.restore_session(app).await {
                         if session.connected {
                             if let Some(new_ip) = session.bridge_ip {
+                                #[cfg(debug_assertions)]
                                 if new_ip != current_ip {
-                                    println!("DEBUG: bridge rediscovered at {new_ip}");
+                                    eprintln!("bridge rediscovered at {new_ip}");
                                 }
                                 current_ip = new_ip;
                             }
@@ -3454,6 +3510,18 @@ fn ensure_supported_resource_type(resource_type: &str) -> Result<(), String> {
             "Hue resource type '{resource_type}' is not supported by this app."
         )),
     }
+}
+
+fn ensure_resource_id(id: &str) -> Result<(), String> {
+    if id.is_empty()
+        || id.len() > 64
+        || !id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err("The Hue resource identifier is invalid.".to_string());
+    }
+    Ok(())
 }
 
 fn insert_v2_transition(body: &mut Map<String, Value>, transition_ms: Option<u32>) {
@@ -3941,8 +4009,14 @@ fn summarize_resource_value(raw: &Value) -> Option<String> {
         "relative_rotary" => find_nested_string(raw, "last_event")
             .or_else(|| find_nested_string(raw, "action"))
             .map(humanize_hue_value),
-        "motion" | "camera_motion" => find_nested_bool(raw, "motion")
-            .map(|motion| if motion { "Motion detected" } else { "No motion" }.to_string()),
+        "motion" | "camera_motion" => find_nested_bool(raw, "motion").map(|motion| {
+            if motion {
+                "Motion detected"
+            } else {
+                "No motion"
+            }
+            .to_string()
+        }),
         "temperature" => find_nested_number(raw, "temperature")
             .map(|value| format!("{:.1} °C", normalize_temperature(value))),
         "light_level" => find_nested_number(raw, "light_level")
@@ -4122,7 +4196,6 @@ fn disconnected_session(
     configured: bool,
     bridge_id: Option<String>,
     bridge_ip: Option<String>,
-    application_key: Option<String>,
     error: Option<String>,
 ) -> HueSession {
     HueSession {
@@ -4130,8 +4203,33 @@ fn disconnected_session(
         connected: false,
         bridge_id,
         bridge_ip,
-        application_key,
         error,
+    }
+}
+
+fn public_bridge_rejection(description: &str) -> String {
+    #[cfg(debug_assertions)]
+    {
+        return format!("Hue Bridge rejected the request: {description}");
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = description;
+        "The Hue Bridge rejected the request.".to_string()
+    }
+}
+
+fn private_error(public_message: &str, error: impl std::fmt::Display) -> String {
+    #[cfg(debug_assertions)]
+    {
+        return format!("{public_message} {error}");
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = error;
+        public_message.to_string()
     }
 }
 
@@ -4447,15 +4545,15 @@ fn extract_hue_credentials(value: &Value) -> Result<(String, Option<String>), St
 fn save_bridge_store<R: Runtime>(app: &AppHandle<R>, bridges: &BridgeStore) -> Result<(), String> {
     let store = app
         .store(STORE_FILE)
-        .map_err(|error| format!("Failed to open bridge store: {error}"))?;
+        .map_err(|error| private_error("Failed to open bridge settings.", error))?;
     store.set(
         STORE_KEY_BRIDGES,
         serde_json::to_value(bridges)
-            .map_err(|error| format!("Invalid bridge store data: {error}"))?,
+            .map_err(|error| private_error("Failed to prepare bridge settings.", error))?,
     );
     store
         .save()
-        .map_err(|error| format!("Failed to save bridge store: {error}"))
+        .map_err(|error| private_error("Failed to save bridge settings.", error))
 }
 
 /// Loads the multi-bridge store, migrating a legacy single-bridge entry on
@@ -4463,12 +4561,12 @@ fn save_bridge_store<R: Runtime>(app: &AppHandle<R>, bridges: &BridgeStore) -> R
 fn load_bridge_store<R: Runtime>(app: &AppHandle<R>) -> Result<BridgeStore, String> {
     let store = app
         .store(STORE_FILE)
-        .map_err(|error| format!("Failed to open bridge store: {error}"))?;
+        .map_err(|error| private_error("Failed to open bridge settings.", error))?;
 
     if let Some(value) = store.get(STORE_KEY_BRIDGES) {
         if !value.is_null() {
             let mut parsed: BridgeStore = serde_json::from_value(value.clone())
-                .map_err(|error| format!("Failed to read bridge store: {error}"))?;
+                .map_err(|error| private_error("Failed to read bridge settings.", error))?;
             parsed.normalize();
             return Ok(parsed);
         }
@@ -4492,18 +4590,19 @@ fn load_bridge_store<R: Runtime>(app: &AppHandle<R>) -> Result<BridgeStore, Stri
                 store.set(
                     STORE_KEY_BRIDGES,
                     serde_json::to_value(&migrated)
-                        .map_err(|error| format!("Invalid bridge store data: {error}"))?,
+                        .map_err(|error| private_error("Bridge settings are invalid.", error))?,
                 );
                 store.delete(STORE_KEY);
                 store
                     .save()
-                    .map_err(|error| format!("Failed to migrate bridge store: {error}"))?;
+                    .map_err(|error| private_error("Failed to migrate bridge settings.", error))?;
                 // Mirror the app key into the per-bridge keyring account and drop
                 // the legacy global one. Best effort: the store-file copy is the
                 // durable fallback.
-                if let (Some(active_id), Some(key)) =
-                    (migrated.active_bridge_id.as_deref(), legacy.application_key.as_deref())
-                {
+                if let (Some(active_id), Some(key)) = (
+                    migrated.active_bridge_id.as_deref(),
+                    legacy.application_key.as_deref(),
+                ) {
                     let _ = save_application_key(active_id, key);
                 }
                 let _ = clear_legacy_application_key();
@@ -4517,7 +4616,7 @@ fn load_bridge_store<R: Runtime>(app: &AppHandle<R>) -> Result<BridgeStore, Stri
 
 fn keyring_entry(account: &str) -> Result<Entry, String> {
     Entry::new(KEYRING_SERVICE, account)
-        .map_err(|error| format!("Failed to access secure keyring: {error}"))
+        .map_err(|error| private_error("Failed to access secure credential storage.", error))
 }
 
 /// Keyring account holding one bridge's application key, namespaced by bridge id
@@ -4539,7 +4638,7 @@ fn save_application_key(bridge_id: &str, application_key: &str) -> Result<(), St
     let id = bridge_id.to_uppercase();
     keyring_entry(&bridge_key_account(&id))?
         .set_password(application_key)
-        .map_err(|error| format!("Failed to save application key: {error}"))?;
+        .map_err(|error| private_error("Failed to save the application key.", error))?;
     app_key_cache()
         .lock()
         .unwrap()
@@ -4558,7 +4657,7 @@ fn load_application_key(bridge_id: &str) -> Result<Option<String>, String> {
             Ok(Some(password))
         }
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(error) => Err(format!("Failed to read application key: {error}")),
+        Err(error) => Err(private_error("Failed to read the application key.", error)),
     }
 }
 
@@ -4567,7 +4666,7 @@ fn clear_application_key(bridge_id: &str) -> Result<(), String> {
     app_key_cache().lock().unwrap().remove(&id);
     match keyring_entry(&bridge_key_account(&id))?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(format!("Failed to clear application key: {error}")),
+        Err(error) => Err(private_error("Failed to clear the application key.", error)),
     }
 }
 
@@ -4586,13 +4685,13 @@ fn legacy_application_key() -> Result<Option<String>, String> {
     match keyring_entry(KEYRING_ACCOUNT)?.get_password() {
         Ok(password) => Ok(Some(password)),
         Err(keyring::Error::NoEntry) => Ok(None),
-        Err(error) => Err(format!("Failed to read application key: {error}")),
+        Err(error) => Err(private_error("Failed to read the application key.", error)),
     }
 }
 
 fn clear_legacy_application_key() -> Result<(), String> {
     match keyring_entry(KEYRING_ACCOUNT)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-        Err(error) => Err(format!("Failed to clear application key: {error}")),
+        Err(error) => Err(private_error("Failed to clear the application key.", error)),
     }
 }

@@ -49,7 +49,9 @@ export const useBlinkLights = () => {
       await Promise.all(ids.map((id) => invoke("signal-light", { id })));
       await wait(BLINK_DURATION_MS);
     } catch (error) {
-      console.error("Failed to blink Hue lights", error);
+      if (import.meta.env.DEV) {
+        console.error("Failed to blink Hue lights", error);
+      }
     } finally {
       inFlight.current.delete(key);
       setBlinkingKeys(new Set(inFlight.current));

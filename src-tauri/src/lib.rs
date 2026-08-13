@@ -218,8 +218,9 @@ pub fn run() {
                 let _ = commands::app_settings::show_main_window(app.handle());
             }
 
-            if let Err(error) = commands::widget::restore_widget_window(app.handle()) {
-                eprintln!("failed to restore widget window: {error}");
+            if let Err(_error) = commands::widget::restore_widget_window(app.handle()) {
+                #[cfg(debug_assertions)]
+                eprintln!("failed to restore widget window: {_error}");
             }
             Ok(())
         })

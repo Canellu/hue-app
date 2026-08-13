@@ -608,8 +608,10 @@ mod tests {
     #[test]
     fn z_axis_maps_inverted_onto_screen_rows() {
         let displays = [display(0, 0, 1920, 1080)];
-        let top = map_channels_to_tiles(&[channel(0, 0.0, 1.0)], &displays, ScreenFrame::Monitor)[0];
-        let bottom = map_channels_to_tiles(&[channel(0, 0.0, -1.0)], &displays, ScreenFrame::Monitor)[0];
+        let top =
+            map_channels_to_tiles(&[channel(0, 0.0, 1.0)], &displays, ScreenFrame::Monitor)[0];
+        let bottom =
+            map_channels_to_tiles(&[channel(0, 0.0, -1.0)], &displays, ScreenFrame::Monitor)[0];
         assert!(top.top < 0.01, "z=+1 is the top of the screen");
         assert!(bottom.bottom > 0.99, "z=-1 is the bottom of the screen");
         assert!(top.bottom < bottom.top);
@@ -620,14 +622,14 @@ mod tests {
         // Monitor frame on a 16:9 display: height = 1080 * (1.1 / 1920) ≈ 0.62
         // room units, bottom edge at z = -0.14.
         let displays = [display(0, 0, 1920, 1080)];
-        let desk = map_channels_to_tiles(&[channel(0, 0.0, -0.4)], &displays, ScreenFrame::Monitor)
-            [0];
+        let desk =
+            map_channels_to_tiles(&[channel(0, 0.0, -0.4)], &displays, ScreenFrame::Monitor)[0];
         assert!(
             desk.bottom > 0.99,
             "a desk light below the frame follows the bottom of the picture"
         );
-        let side = map_channels_to_tiles(&[channel(0, -0.9, 0.2)], &displays, ScreenFrame::Monitor)
-            [0];
+        let side =
+            map_channels_to_tiles(&[channel(0, -0.9, 0.2)], &displays, ScreenFrame::Monitor)[0];
         assert!(
             side.left.abs() < f32::EPSILON,
             "a lamp left of the frame follows the left edge"
@@ -694,9 +696,21 @@ mod tests {
     #[test]
     fn depth_broadens_sampling_and_reduces_effect_strength() {
         let displays = [display(0, 0, 1920, 1080)];
-        let screen = map_channels_to_tiles(&[channel_at_depth(0, 0.0, 1.0, 0.0)], &displays, ScreenFrame::Monitor)[0];
-        let middle = map_channels_to_tiles(&[channel_at_depth(0, 0.0, 0.0, 0.0)], &displays, ScreenFrame::Monitor)[0];
-        let back = map_channels_to_tiles(&[channel_at_depth(0, 0.0, -1.0, 0.0)], &displays, ScreenFrame::Monitor)[0];
+        let screen = map_channels_to_tiles(
+            &[channel_at_depth(0, 0.0, 1.0, 0.0)],
+            &displays,
+            ScreenFrame::Monitor,
+        )[0];
+        let middle = map_channels_to_tiles(
+            &[channel_at_depth(0, 0.0, 0.0, 0.0)],
+            &displays,
+            ScreenFrame::Monitor,
+        )[0];
+        let back = map_channels_to_tiles(
+            &[channel_at_depth(0, 0.0, -1.0, 0.0)],
+            &displays,
+            ScreenFrame::Monitor,
+        )[0];
 
         let screen_width = screen.right - screen.left;
         let middle_width = middle.right - middle.left;
@@ -713,10 +727,16 @@ mod tests {
     #[test]
     fn out_of_range_depth_is_clamped() {
         let displays = [display(0, 0, 1920, 1080)];
-        let beyond_screen =
-            map_channels_to_tiles(&[channel_at_depth(0, 0.0, 4.0, 0.0)], &displays, ScreenFrame::Monitor)[0];
-        let beyond_back =
-            map_channels_to_tiles(&[channel_at_depth(0, 0.0, -4.0, 0.0)], &displays, ScreenFrame::Monitor)[0];
+        let beyond_screen = map_channels_to_tiles(
+            &[channel_at_depth(0, 0.0, 4.0, 0.0)],
+            &displays,
+            ScreenFrame::Monitor,
+        )[0];
+        let beyond_back = map_channels_to_tiles(
+            &[channel_at_depth(0, 0.0, -4.0, 0.0)],
+            &displays,
+            ScreenFrame::Monitor,
+        )[0];
 
         assert!((beyond_screen.depth_gain - 1.0).abs() < f32::EPSILON);
         assert!((beyond_back.depth_gain - BACK_DEPTH_GAIN).abs() < f32::EPSILON);

@@ -56,27 +56,24 @@ pub async fn restore(
     application_key: &str,
     snapshots: &[LightSnapshot],
 ) -> Result<(), String> {
-    let mut failures: Vec<String> = Vec::new();
+    let mut failure_count = 0usize;
     for (index, snapshot) in snapshots.iter().enumerate() {
         if index > 0 {
             tokio::time::sleep(RESTORE_WRITE_INTERVAL).await;
         }
         let body = restore_body(snapshot);
-        if let Err(error) = client
+        if client
             .update_resource(ip, application_key, "light", &snapshot.id, body)
             .await
+            .is_err()
         {
-            failures.push(format!("{}: {error}", snapshot.id));
+            failure_count += 1;
         }
     }
-    if failures.is_empty() {
+    if failure_count == 0 {
         Ok(())
     } else {
-        Err(format!(
-            "Failed to restore {} light(s): {}",
-            failures.len(),
-            failures.join("; ")
-        ))
+        Err(format!("Failed to restore {failure_count} light(s)."))
     }
 }
 
@@ -87,12 +84,12 @@ pub async fn turn_off(
     application_key: &str,
     snapshots: &[LightSnapshot],
 ) -> Result<(), String> {
-    let mut failures: Vec<String> = Vec::new();
+    let mut failure_count = 0usize;
     for (index, snapshot) in snapshots.iter().enumerate() {
         if index > 0 {
             tokio::time::sleep(RESTORE_WRITE_INTERVAL).await;
         }
-        if let Err(error) = client
+        if client
             .update_resource(
                 ip,
                 application_key,
@@ -101,18 +98,15 @@ pub async fn turn_off(
                 json!({ "on": { "on": false } }),
             )
             .await
+            .is_err()
         {
-            failures.push(format!("{}: {error}", snapshot.id));
+            failure_count += 1;
         }
     }
-    if failures.is_empty() {
+    if failure_count == 0 {
         Ok(())
     } else {
-        Err(format!(
-            "Failed to turn off {} light(s): {}",
-            failures.len(),
-            failures.join("; ")
-        ))
+        Err(format!("Failed to turn off {failure_count} light(s)."))
     }
 }
 

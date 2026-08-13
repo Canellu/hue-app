@@ -14,7 +14,6 @@ export interface HueSession {
   connected: boolean;
   bridgeId: string | null;
   bridgeIp: string | null;
-  applicationKey: string | null;
   error: string | null;
 }
 
@@ -51,7 +50,6 @@ const emptySession: HueSession = {
   connected: false,
   bridgeId: null,
   bridgeIp: null,
-  applicationKey: null,
   error: null,
 };
 

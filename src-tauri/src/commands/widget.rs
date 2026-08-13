@@ -306,8 +306,9 @@ pub fn open_widget_window(
         let app_for_window = app_for_thread.clone();
         let widget_for_window = widget_for_thread.clone();
         let _ = app_for_thread.run_on_main_thread(move || {
-            if let Err(error) = show_widget_window(&app_for_window, &widget_for_window, true) {
-                eprintln!("failed to open widget window: {error}");
+            if let Err(_error) = show_widget_window(&app_for_window, &widget_for_window, true) {
+                #[cfg(debug_assertions)]
+                eprintln!("failed to open widget window: {_error}");
             }
         });
     });
@@ -778,11 +779,7 @@ pub fn open_widget_settings(
 }
 
 #[tauri::command(rename = "open-widget-target")]
-pub fn open_widget_target(
-    app: tauri::AppHandle,
-    kind: String,
-    id: String,
-) -> Result<(), String> {
+pub fn open_widget_target(app: tauri::AppHandle, kind: String, id: String) -> Result<(), String> {
     // Only room/zone targets have a Space screen to open; the widget only sends
     // those here, but guard so a stray call can't ask the app to navigate to a
     // route that doesn't exist.
@@ -1052,8 +1049,9 @@ fn widget_settings_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_config_dir()
-        .map_err(|error| error.to_string())?;
-    fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
+        .map_err(|error| private_error("Failed to locate widget settings.", error))?;
+    fs::create_dir_all(&dir)
+        .map_err(|error| private_error("Failed to create the widget settings folder.", error))?;
     Ok(dir.join(WIDGET_SETTINGS_FILE_NAME))
 }
 
@@ -1064,15 +1062,16 @@ fn read_widget_settings(app: &tauri::AppHandle) -> Result<StoredWidgetSettings, 
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Ok(StoredWidgetSettings::default());
         }
-        Err(error) => return Err(error.to_string()),
+        Err(error) => return Err(private_error("Failed to read widget settings.", error)),
     };
 
     let contents_without_bom = contents.trim_start_matches('\u{feff}');
     let value = match serde_json::from_str::<Value>(contents_without_bom) {
         Ok(value) => value,
-        Err(error) => {
+        Err(_error) => {
+            #[cfg(debug_assertions)]
             eprintln!(
-                "failed to parse widget settings at {} ({} bytes): {error}; using defaults",
+                "failed to parse widget settings at {} ({} bytes): {_error}; using defaults",
                 path.display(),
                 contents.len()
             );
@@ -1082,7 +1081,7 @@ fn read_widget_settings(app: &tauri::AppHandle) -> Result<StoredWidgetSettings, 
 
     if value.get("widgets").is_some() {
         let settings = serde_json::from_value::<StoredWidgetSettings>(value)
-            .map_err(|error| error.to_string())?;
+            .map_err(|error| private_error("Widget settings are invalid.", error))?;
         return Ok(sanitize_widget_settings(settings));
     }
 
@@ -1095,8 +1094,22 @@ fn write_widget_settings(
 ) -> Result<(), String> {
     let path = widget_settings_path(app)?;
     let settings = sanitize_widget_settings(settings.clone());
-    let contents = serde_json::to_string_pretty(&settings).map_err(|error| error.to_string())?;
-    fs::write(path, contents).map_err(|error| error.to_string())
+    let contents = serde_json::to_string_pretty(&settings)
+        .map_err(|error| private_error("Failed to prepare widget settings.", error))?;
+    fs::write(path, contents)
+        .map_err(|error| private_error("Failed to save widget settings.", error))
+}
+
+fn private_error(public_message: &str, error: impl std::fmt::Display) -> String {
+    #[cfg(debug_assertions)]
+    {
+        return format!("{public_message} {error}");
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = error;
+        public_message.to_string()
+    }
 }
 
 fn sanitize_widget_settings(mut settings: StoredWidgetSettings) -> StoredWidgetSettings {
@@ -1189,7 +1202,10 @@ fn sanitize_controls(controls: Vec<StoredWidgetControl>) -> Vec<StoredWidgetCont
                 for target in control.targets.iter_mut() {
                     let scene_action = target.action.as_deref() == Some("scene")
                         && target.kind != "light"
-                        && target.scene_id.as_deref().is_some_and(|id| !id.trim().is_empty());
+                        && target
+                            .scene_id
+                            .as_deref()
+                            .is_some_and(|id| !id.trim().is_empty());
                     if scene_action {
                         target.action = Some("scene".to_string());
                     } else {

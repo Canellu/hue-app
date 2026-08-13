@@ -235,6 +235,15 @@
   * {
     @apply border-border outline-ring/50;
   }
+  /* Base UI injects this rule at runtime for ScrollArea viewports. Keep a
+     bundled copy so CSP-protected desktop webviews never expose native
+     scrollbars underneath our custom scrollbar components. */
+  .base-ui-disable-scrollbar {
+    scrollbar-width: none;
+  }
+  .base-ui-disable-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
   body {
     @apply bg-background text-foreground select-none;
   }

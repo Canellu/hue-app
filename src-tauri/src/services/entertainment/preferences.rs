@@ -80,13 +80,13 @@ pub fn save<R: Runtime>(
 ) -> Result<(), String> {
     let store = app
         .store(STORE_FILE)
-        .map_err(|error| format!("Failed to open sync settings store: {error}"))?;
+        .map_err(|_| "Failed to open PC Sync settings.".to_string())?;
     store.set(
         STORE_KEY,
         serde_json::to_value(preferences)
-            .map_err(|error| format!("Invalid sync settings: {error}"))?,
+            .map_err(|_| "PC Sync settings are invalid.".to_string())?,
     );
     store
         .save()
-        .map_err(|error| format!("Failed to save sync settings: {error}"))
+        .map_err(|_| "Failed to save PC Sync settings.".to_string())
 }

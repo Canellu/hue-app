@@ -482,7 +482,7 @@ enum StreamEnd {
     Stopped,
     /// Another application owns the area now. Neither `action: stop` nor a
     /// snapshot restore may be issued — both would fight the new owner.
-    OwnershipLost(Option<String>),
+    OwnershipLost,
     /// Transport/bridge/capture failure: best-effort release and restore.
     Failed(String),
 }
@@ -1155,10 +1155,9 @@ where
                 StopBehavior::TurnOff => bridge.turn_off().await.err(),
             }
         }
-        StreamEnd::OwnershipLost(owner) => Some(format!(
-            "Another application took over the entertainment area{}.",
-            owner.map(|id| format!(" ({id})")).unwrap_or_default()
-        )),
+        StreamEnd::OwnershipLost => {
+            Some("Another application took over the entertainment area.".to_string())
+        }
         StreamEnd::Failed(error) => {
             let _ = bridge.release(area_id).await;
             let _ = bridge.restore().await;
@@ -1215,7 +1214,7 @@ where
                     Ok(area) => {
                         poll_failures = 0;
                         if ownership_lost(&area, application_id) {
-                            return StreamEnd::OwnershipLost(area.active_streamer_id);
+                            return StreamEnd::OwnershipLost;
                         }
                     }
                     Err(error) => {
@@ -1257,8 +1256,9 @@ where
 }
 
 fn emit_status<R: Runtime>(app: &AppHandle<R>, status: &HostSyncStatus) {
-    if let Err(error) = app.emit(STATUS_EVENT, status.clone()) {
-        println!("WARN: failed to emit {STATUS_EVENT}: {error}");
+    if let Err(_error) = app.emit(STATUS_EVENT, status.clone()) {
+        #[cfg(debug_assertions)]
+        eprintln!("failed to emit {STATUS_EVENT}: {_error}");
     }
 }
 
@@ -1543,7 +1543,12 @@ mod tests {
         )
         .await;
 
-        assert!(error.unwrap().contains(OTHER));
+        let error = error.unwrap();
+        assert_eq!(
+            error,
+            "Another application took over the entertainment area."
+        );
+        assert!(!error.contains(OTHER));
         let calls = calls.lock().unwrap();
         assert!(calls.contains(&"close"));
         assert!(!calls.contains(&"release"));
@@ -1672,7 +1677,9 @@ mod tests {
     #[test]
     fn update_is_rejected_without_an_active_session() {
         let engine = HostSyncEngine::default();
-        let error = engine.update_sync(UpdateSyncRequest::default()).unwrap_err();
+        let error = engine
+            .update_sync(UpdateSyncRequest::default())
+            .unwrap_err();
         assert!(error.contains("No active PC sync session"));
 
         engine.inner.lock().unwrap().lifecycle = HostSyncLifecycle::Error;

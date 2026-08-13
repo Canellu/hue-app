@@ -1853,59 +1853,22 @@ impl HueClient {
             .await
     }
 
-    /// Runs the same one-cycle identification breathe used by the Hue app.
-    /// This legacy alert is command-local and restores the light automatically.
+    /// Runs the Hue v2 one-cycle identification breathe. The bridge restores
+    /// the light automatically after the identification sequence finishes.
     pub async fn signal_light(
         &self,
         ip: &str,
         application_key: &str,
         id: &str,
     ) -> Result<(), String> {
-        let resources = self
-            .get_v2::<Value>(ip, application_key, &format!("light/{id}"))
-            .await?;
-        let id_v1 = resources
-            .first()
-            .and_then(|resource| resource.get("id_v1"))
-            .and_then(Value::as_str)
-            .and_then(|value| value.strip_prefix("/lights/"))
-            .ok_or_else(|| "This light cannot be identified by the bridge.".to_string())?;
-        let url = format!(
-            "http://{}/api/{}/lights/{}/state",
-            format_host(ip),
+        self.put_v2(
+            ip,
             application_key,
-            id_v1
-        );
-        let permit = bridge_semaphore().acquire().await.ok();
-        let response = self
-            .client
-            .put(&url)
-            .json(&json!({ "alert": "select" }))
-            .send()
-            .await
-            .map_err(|error| private_error("Failed to identify the light.", error))?;
-        let status = response.status();
-        let text = response.text().await.map_err(|error| {
-            private_error("Failed to read the light identification response.", error)
-        })?;
-        drop(permit);
-
-        if !status.is_success() {
-            return Err(format!(
-                "Failed to identify light: bridge returned HTTP {status}"
-            ));
-        }
-        if let Ok(entries) = serde_json::from_str::<Vec<Value>>(&text) {
-            if let Some(description) = entries.iter().find_map(|entry| {
-                entry
-                    .get("error")
-                    .and_then(|error| error.get("description"))
-                    .and_then(Value::as_str)
-            }) {
-                return Err(public_bridge_rejection(description));
-            }
-        }
-        Ok(())
+            "light",
+            id,
+            json!({ "identify": { "action": "identify" } }),
+        )
+        .await
     }
 
     /// Updates an individual light's color attributes. Any combination of `xy`,

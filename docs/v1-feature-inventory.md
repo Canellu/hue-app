@@ -1,14 +1,17 @@
 # Mote Desktop v1 feature inventory
 
-Status: **scope frozen for release-candidate validation**.
+Status: **product surface frozen; Free/Pro enforcement pending commerce spike**.
 
-Last reviewed: **2026-08-13**.
+Last reviewed: **2026-08-14**.
 
 This document defines the user-visible scope of the first Microsoft Store
 release. Inclusion here means the feature is allowed in the v1 release
 candidate; it does not mean that release acceptance has passed. Any included
 feature that cannot pass the validation in the Store release plan must be fixed
 or removed before submission.
+
+Availability within Free and Pro is defined separately in the
+[Free, Pro, and Household feature matrix](./free-pro-feature-matrix.md).
 
 ## Included application surfaces
 
@@ -136,7 +139,8 @@ Routes are internal desktop-webview navigation and are not public web URLs.
 
 - Hue cloud control and OAuth.
 - Mote accounts, shared homes, membership, roles, and guest relay.
-- Paid tiers, entitlements, checkout, and third-party commerce.
+- Household subscriptions, shared entitlements, and third-party commerce. A
+  Store-managed Pro add-on may enter v1 only after its release gates pass.
 - Calendar integration, Pomodoro, local-network presence rules, and the shared
   automation runtime.
 - Combined multi-bridge dashboards or cross-bridge control.

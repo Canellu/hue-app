@@ -1,6 +1,6 @@
 # Plan: Microsoft Store Release
 
-Status: **in progress**. Last reviewed: **2026-08-12**.
+Status: **in progress**. Last reviewed: **2026-08-14**.
 
 ## Goal
 
@@ -8,27 +8,33 @@ Publish a stable Windows release of the app through Microsoft Store using the
 shortest supportable path for the current Tauri 2 application.
 
 The first Store release does not depend on cloud control, accounts, shared
-homes, monetization, calendar integration, Pomodoro, presence automation, or
-the broader automation runtime. Those plans can ship in later updates.
+homes, Household, calendar integration, Pomodoro, presence automation, or the
+broader automation runtime. The product direction now includes an optional
+one-time **Mote Pro** purchase for selected local features, subject to the
+feature-matrix and Microsoft commerce spikes in
+[monetization-and-stack-plan.md](./monetization-and-stack-plan.md).
 
 ## Recommended launch shape
 
 - Windows 10 and Windows 11, x64 first.
-- Free first release. Add paid entitlements only after the commerce decision in
-  [monetization-and-stack-plan.md](./monetization-and-stack-plan.md).
-- Existing Win32 installer submission through Partner Center.
-- Tauri NSIS offline installer (`.exe`) as the initial package, using `/S` for
-  silent installation. MSI is an acceptable alternative using `/qn`.
-- Signed, immutable installer hosted at a versioned HTTPS URL.
-- A tested in-app update path because Microsoft Store does not automatically
-  update existing users of MSI/EXE listings.
+- Free app with a useful essential-control tier. Include the one-time Mote Pro
+  add-on in the first release only if the feature matrix, package identity,
+  purchase/restore, offline, refund, and certification spikes pass; otherwise
+  ship Free first without provisional paywall behavior.
+- Reopen the existing Win32/NSIS choice before implementation. Prefer MSIX if
+  the packaging spike confirms Store-managed Pro purchases and all required
+  desktop capabilities; otherwise keep the EXE/MSI listing and defer Pro or use
+  another reviewed commerce route.
+- If EXE/MSI remains, use a signed offline installer, immutable versioned HTTPS
+  hosting, silent installation, and a tested in-app updater.
 - English Store listing first; add languages only when the app and support
   material are ready in those languages.
 
-Tauri currently generates MSI and NSIS installers rather than a Store MSIX
-package. Converting to MSIX is possible with separate Microsoft tooling, but it
-is not required for the first release and adds another packaging surface to
-test.
+Tauri currently generates MSI and NSIS installers through its normal bundling
+flow. MSIX requires an additional packaging workflow, but its package identity,
+Store commerce, and Store-managed updates may make it the smaller long-term
+surface. The packaging/commerce spike decides this before release engineering
+continues.
 
 ## Current repository state
 
@@ -160,7 +166,8 @@ Exclude from the release branch unless already complete and accepted:
 
 - Cloud control and Hue OAuth.
 - App accounts, homes, membership, and guest relay.
-- Paid tiers and checkout.
+- Household subscriptions and third-party checkout. A Store-managed Pro add-on
+  may enter v1 only after its feature and commerce release gates pass.
 - Calendar, Pomodoro, presence rules, and the shared automation runtime.
 - Cross-platform claims beyond the tested Windows release.
 
@@ -276,10 +283,11 @@ Security hardening should be reviewed separately from frontend release polish.
 
 ## Phase 5: Store installer and signing
 
-### Store-specific Tauri configuration
+### Store-specific packaging configuration
 
-Add `src-tauri/tauri.microsoftstore.conf.json` so Store packaging does not alter
-the normal development configuration:
+The packaging/commerce spike must decide MSIX versus the existing EXE/MSI route.
+If EXE/MSI remains, add `src-tauri/tauri.microsoftstore.conf.json` so Store
+packaging does not alter the normal development configuration:
 
 ```json
 {
@@ -296,8 +304,9 @@ the normal development configuration:
 
 The exact schema must be checked against the installed Tauri CLI before merging.
 
-- [x] Choose Tauri **NSIS EXE** and use only that target for the first
-      submission.
+- [ ] Decide **MSIX versus EXE/MSI** from the packaging/commerce spike. The
+      previous NSIS choice is reopened because the product now plans a
+      Microsoft Store durable Pro add-on.
 - [ ] Configure the offline WebView2 installer required by Tauri's Store guide.
 - [ ] Ensure the installer installs only this app and does not download payloads.
 - [ ] Verify silent install: `/S` for Tauri NSIS or `/qn` for MSI.
@@ -490,19 +499,28 @@ The first Store submission is ready only when all of these are true:
 
 ## Immediate next actions
 
-1. Pay for and activate the pending Domeneshop order for `motedesktop.com` and
+1. Review and approve the initial
+   [Free/Pro/Household feature matrix](./free-pro-feature-matrix.md). It assigns
+   current functionality, provider-neutral capability names, and offline,
+   refund, downgrade, unknown-license, and grandfathering behavior.
+2. Run a Windows packaging/commerce spike before investing further in NSIS:
+   confirm whether the current EXE/MSI Partner Center product can move to MSIX,
+   then prove package identity plus Microsoft durable-add-on discovery,
+   purchase, restore, and cached offline licensing in a minimal Tauri build.
+   Follow the restartable checklist in
+   [windows-store-commerce-spike.md](./windows-store-commerce-spike.md).
+3. Based on that spike, choose and document the release package/update path and
+   add the provider-neutral Rust entitlement boundary before adding paywall UI.
+4. Pay for and activate the pending Domeneshop order for `motedesktop.com` and
    its email service (currently quoted at NOK 568/year including VAT).
-2. Create `support@motedesktop.com` and `privacy@motedesktop.com`; deploy the
+5. Create `support@motedesktop.com` and `privacy@motedesktop.com`; deploy the
    public site, Privacy Policy, Terms, and Support pages through Cloudflare
    Pages, preserving the Domeneshop email DNS records.
-3. Complete preliminary trademark/marketplace clearance and choose the final
+6. Complete preliminary trademark/marketplace clearance and choose the final
    signing identity. The application identifier is now fixed as
    `com.motedesktop.mote`.
-4. Freeze the free v1 feature list. Repository identity values now use **Mote
-   Desktop** and publisher **Anton Vo**.
-5. Implement the legal/support minimum and decide whether telemetry ships in v1.
-6. Add the Store-specific offline NSIS installer configuration, signing
-   pipeline, Cloudflare R2 immutable artifact hosting, and tested update path.
+7. Implement the legal/support minimum. The current v1 decision remains no
+   analytics, automatic crash uploads, or in-app feedback uploader.
 
 ## Official references
 

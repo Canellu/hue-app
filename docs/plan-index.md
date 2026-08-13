@@ -1,6 +1,6 @@
 # Plan index
 
-Last reviewed: **2026-08-12**.
+Last reviewed: **2026-08-14**.
 
 The product name is **Mote Desktop**, the publisher display name is **Anton
 Vo**, the permanent application identifier is `com.motedesktop.mote`, and
@@ -10,22 +10,24 @@ fallback shortlist is recorded in the Microsoft Store release plan.
 
 ## Current status and ownership
 
-| Plan                                                                                                  | Status                       | Owns                                                                                              |
-| ----------------------------------------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------- |
-| [Microsoft Store release](./microsoft-store-release-plan.md)                                          | In progress                  | Windows launch identity, packaging, signing, validation, listing, certification, and operations   |
-| [Sync Box](./sync-box-plan.md)                                                                        | Complete                     | Existing single-Sync-Box implementation record                                                    |
-| [PC Sync](./pc-sync-plan.md)                                                                          | Complete for Windows launch  | Screen/audio capture and entertainment streaming                                                  |
-| [Multi-bridge dashboard and PC Sync](./multi-bridge-experience-plan.md)                               | Future                       | Combined bridge views, cross-bridge control, and PC Sync behavior across bridge switches          |
-| [Per-bridge Sync Box](./per-bridge-sync-box-plan.md)                                                  | Proposed                     | Multiple Sync Boxes and bridge association                                                        |
-| [Cloud control](./cloud-control-plan.md)                                                              | Proposed                     | Hue OAuth, token broker, and local/cloud transport                                                |
-| [Homes and membership](./homes-and-membership-plan.md)                                                | Vision                       | Product identity, homes, members, roles, and relay model                                          |
-| [Monetization and backend stack](./monetization-and-stack-plan.md)                                    | Vision                       | Auth/backend/payment choices and entitlements                                                     |
-| [Feedback, analytics, and legal](./feedback-analytics-and-legal-plan.md)                              | Proposed                     | Anonymous telemetry, feedback intake, optional contact email, and legal surfaces                  |
-| [Feature voting, public roadmap, and release history](./feedback-roadmap-and-release-history-plan.md) | Future                       | Public feature requests, voting, roadmap statuses, What's New, and version-linked release history |
-| [Automation runtime](./automation-runtime-plan.md)                                                    | Proposed shared prerequisite | Task ownership, light snapshots, recovery, conflicts, tray execution, and notifications           |
-| [Calendar integration](./calendar-integration-plan.md)                                                | Proposed                     | Calendar accounts, event rules, and calendar UX                                                   |
-| [Pomodoro focus rituals](./pomodoro-focus-rituals-plan.md)                                            | Proposed                     | Focus-session state machine and UX                                                                |
-| [Local network presence](./local-network-presence-plan.md)                                            | Proposed                     | Presence detection and presence-rule UX                                                           |
+| Plan                                                                                                  | Status                       | Owns                                                                                                 |
+| ----------------------------------------------------------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------- |
+| [Microsoft Store release](./microsoft-store-release-plan.md)                                          | In progress                  | Windows launch identity, packaging, signing, validation, listing, certification, and operations      |
+| [Sync Box](./sync-box-plan.md)                                                                        | Complete                     | Existing single-Sync-Box implementation record                                                       |
+| [PC Sync](./pc-sync-plan.md)                                                                          | Complete for Windows launch  | Screen/audio capture and entertainment streaming                                                     |
+| [Multi-bridge dashboard and PC Sync](./multi-bridge-experience-plan.md)                               | Future                       | Combined bridge views, cross-bridge control, and PC Sync behavior across bridge switches             |
+| [Per-bridge Sync Box](./per-bridge-sync-box-plan.md)                                                  | Proposed                     | Multiple Sync Boxes and bridge association                                                           |
+| [Cloud control](./cloud-control-plan.md)                                                              | Proposed                     | Hue OAuth, token broker, and local/cloud transport                                                   |
+| [Homes and membership](./homes-and-membership-plan.md)                                                | Vision                       | Product identity, homes, members, roles, and relay model                                             |
+| [Monetization and backend stack](./monetization-and-stack-plan.md)                                    | Product direction decided    | Auth/backend/payment choices and entitlements                                                        |
+| [Free, Pro, and Household feature matrix](./free-pro-feature-matrix.md)                               | Initial product decision     | Current and future tier boundaries, capabilities, downgrade, offline, and grandfathering rules       |
+| [Windows Store packaging and commerce spike](./windows-store-commerce-spike.md)                       | Next task                    | MSIX feasibility, Microsoft durable add-on proof, native capability smoke test, and package decision |
+| [Feedback, analytics, and legal](./feedback-analytics-and-legal-plan.md)                              | Proposed                     | Anonymous telemetry, feedback intake, optional contact email, and legal surfaces                     |
+| [Feature voting, public roadmap, and release history](./feedback-roadmap-and-release-history-plan.md) | Future                       | Public feature requests, voting, roadmap statuses, What's New, and version-linked release history    |
+| [Automation runtime](./automation-runtime-plan.md)                                                    | Proposed shared prerequisite | Task ownership, light snapshots, recovery, conflicts, tray execution, and notifications              |
+| [Calendar integration](./calendar-integration-plan.md)                                                | Proposed                     | Calendar accounts, event rules, and calendar UX                                                      |
+| [Pomodoro focus rituals](./pomodoro-focus-rituals-plan.md)                                            | Proposed                     | Focus-session state machine and UX                                                                   |
+| [Local network presence](./local-network-presence-plan.md)                                            | Proposed                     | Presence detection and presence-rule UX                                                              |
 
 ## Boundaries that prevent duplicate work
 

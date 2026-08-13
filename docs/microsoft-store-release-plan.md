@@ -432,6 +432,10 @@ machine:
 - [ ] Supply description, short description, feature list, applicable license
       terms, system requirements, copyright/trademark information, and support
       contact.
+      Include a concise invitation such as: **“Missing a feature that would make
+      Mote Desktop more useful? Send us a request. Mote Desktop is actively
+      developed, and your ideas can help shape future releases.”** Do not imply
+      that every request will be implemented or promise a delivery date.
 - [ ] Upload final Store logos and at least four representative screenshots.
 - [ ] State hardware/network requirements clearly: compatible Hue Bridge and
       lights; Sync Box and entertainment area where applicable; local network;

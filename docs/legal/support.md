@@ -44,6 +44,13 @@ captured PC Sync content, or unrelated personal information.
 The privacy policy explains how voluntarily submitted support correspondence is
 handled and how to request deletion where applicable.
 
+## Request a feature
+
+Missing something that would make Mote Desktop more useful? Send a feature
+request through the support channel. Mote Desktop is actively developed, and
+requests help shape what gets considered for future releases. While every idea
+cannot be guaranteed or scheduled, each request is welcome.
+
 ## Removing local data
 
 Removing a bridge or Sync Box in Settings deletes its saved connection from the

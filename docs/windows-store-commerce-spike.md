@@ -141,12 +141,13 @@ Choose **MSIX + Microsoft Store commerce** when all of the following are true:
 If any pass criterion fails, record the exact reason and choose one of these
 explicit outcomes:
 
-1. Ship the first release Free through the existing NSIS EXE/MSI path and defer
-   Pro while the packaging issue is resolved.
-2. Keep EXE/MSI and adopt a separately reviewed cross-platform commerce and
+1. Keep EXE/MSI and adopt a separately reviewed cross-platform commerce and
    signed-license service.
-3. Create a new packaged Store product only if the product/name/migration impact
+2. Create a new packaged Store product only if the product/name/migration impact
    is understood and accepted.
+
+Do not submit a Free-only release as a packaging fallback. Mote Pro and working
+Free/Pro enforcement are required for the first public release.
 
 Do not silently combine Store and custom license checks as an unplanned fallback.
 
@@ -156,7 +157,7 @@ At the end of the spike, append:
 
 ```text
 Date:
-Decision: MSIX | EXE/MSI Free-first | EXE/MSI external commerce | blocked
+Decision: MSIX Store commerce | reviewed alternative commerce | blocked
 Existing Partner Center product reusable: yes | no | unknown
 Store durable add-on proven: yes | no
 Offline cached entitlement proven: yes | no

@@ -9,22 +9,21 @@ shortest supportable path for the current Tauri 2 application.
 
 The first Store release does not depend on cloud control, accounts, shared
 homes, Household, calendar integration, Pomodoro, presence automation, or the
-broader automation runtime. The product direction now includes an optional
-one-time **Mote Pro** purchase for selected local features, subject to the
-feature-matrix and Microsoft commerce spikes in
+broader automation runtime. The first release includes a one-time **Mote Pro**
+purchase for selected local features. The feature matrix, Microsoft commerce
+spike, and production entitlement enforcement are submission requirements in
 [monetization-and-stack-plan.md](./monetization-and-stack-plan.md).
 
 ## Recommended launch shape
 
 - Windows 10 and Windows 11, x64 first.
-- Free app with a useful essential-control tier. Include the one-time Mote Pro
-  add-on in the first release only if the feature matrix, package identity,
-  purchase/restore, offline, refund, and certification spikes pass; otherwise
-  ship Free first without provisional paywall behavior.
+- Freemium app with a useful essential-control tier and a one-time Mote Pro
+  add-on at launch. Package identity, purchase/restore, offline, refund,
+  enforcement, and certification behavior must pass before submission.
 - Reopen the existing Win32/NSIS choice before implementation. Prefer MSIX if
   the packaging spike confirms Store-managed Pro purchases and all required
-  desktop capabilities; otherwise keep the EXE/MSI listing and defer Pro or use
-  another reviewed commerce route.
+  desktop capabilities; otherwise choose and validate another Store-compliant
+  commerce route before release.
 - If EXE/MSI remains, use a signed offline installer, immutable versioned HTTPS
   hosting, silent installation, and a tested in-app updater.
 - English Store listing first; add languages only when the app and support
@@ -166,8 +165,8 @@ Exclude from the release branch unless already complete and accepted:
 
 - Cloud control and Hue OAuth.
 - App accounts, homes, membership, and guest relay.
-- Household subscriptions and third-party checkout. A Store-managed Pro add-on
-  may enter v1 only after its feature and commerce release gates pass.
+- Household subscriptions and unreviewed third-party checkout. The Store-managed
+  Pro add-on and its entitlement enforcement are required v1 scope.
 - Calendar, Pomodoro, presence rules, and the shared automation runtime.
 - Cross-platform claims beyond the tested Windows release.
 
@@ -193,7 +192,10 @@ Update all identity values together:
       `src-tauri/tauri.conf.json`.
 - [x] Replace the old product name in current user-facing application copy and
       installer-facing metadata.
-- [ ] Add the About/diagnostics view, legal links, and final Store listing copy.
+- [x] Add the About/diagnostics view, legal links, and a source-controlled
+      [Store listing draft](./microsoft-store-listing-copy.md).
+- [ ] Finalize the Store listing copy against the accepted release candidate,
+      live public URLs, legal review, and the packaging/commerce decision.
 - [x] Move keyring writes to `com.motedesktop.mote`. No legacy credential,
       Tauri-store, or localStorage migration is required because the old
       identity was never distributed and local development can be reset.
@@ -428,20 +430,22 @@ machine:
 
 ## Phase 8: Partner Center submission
 
-- [ ] Complete markets, discoverability, pricing (`Free` initially), and release
-      timing.
+- [ ] Complete markets, discoverability, Free app pricing, one-time Mote Pro
+      add-on pricing, and release timing.
 - [x] Complete the initial category, age rating, product declarations, system
       requirements, and provisional privacy-policy entry accurately for the
-      current free release plan.
+      current freemium release plan.
 - [ ] Re-check those answers against the final release binary and complete the
       remaining device-family/package architecture fields.
 - [ ] Declare any third-party commerce only if it exists in the submitted binary.
 - [ ] Enter the stable Privacy Policy, Support, and website URLs.
-- [ ] Add the versioned installer URL, x64 architecture, EXE/MSI type, English
-      language, and silent-install parameter.
+- [ ] Add the selected package, x64 architecture, English language, and every
+      package-type-specific submission field.
 - [x] Provide the reserved product name **Mote Desktop** and Partner Center
       publisher display name **Anton Vo**.
-- [ ] Supply description, short description, feature list, applicable license
+- [ ] Review and enter the source-controlled
+      [Store listing draft](./microsoft-store-listing-copy.md), including its
+      description, short description, feature list, applicable license
       terms, system requirements, copyright/trademark information, and support
       contact.
       Include a concise invitation such as: **“Missing a feature that would make
@@ -495,6 +499,8 @@ The first Store submission is ready only when all of these are true:
 - [ ] Versioned immutable HTTPS hosting and signed updates are tested.
 - [ ] Clean Windows 10/11 and Hue hardware acceptance passes.
 - [ ] Listing assets, declarations, requirements, and reviewer notes are complete.
+- [ ] Mote Pro purchase, restore, offline license, refund/revocation, downgrade,
+      Rust enforcement, and frontend locked states pass release acceptance.
 - [ ] A rollback/emergency-update and support process exists.
 
 ## Immediate next actions

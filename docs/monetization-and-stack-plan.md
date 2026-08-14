@@ -116,8 +116,8 @@ feature components and commands.
 ## Microsoft Store commerce
 
 The first Partner Center product was created as an **EXE/MSI** listing. That
-route supports the planned free first release, but it does not provide Microsoft
-Store commerce for later in-app purchases. Unless the Store package/product
+route can distribute the Free tier, but it does not yet provide the Microsoft
+Store commerce required for the freemium launch. Unless the Store package/product
 route is changed to MSIX in coordination with Partner Center, paid Mote Desktop
 releases on this route must use the selected secure third-party/
 Merchant-of-Record commerce and licensing design. Revisit this decision before

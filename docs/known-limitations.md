@@ -20,7 +20,10 @@ Last reviewed: **2026-08-13**.
 - The first release manages one saved Hue Play HDMI Sync Box. Multiple or
   per-bridge Sync Box association is not included.
 - Widgets are limited to three open widget windows.
-- Mote accounts, shared homes, cloud control, paid features, calendar rules,
-  Pomodoro, presence automation, and public roadmap voting are not included.
+- Mote Pro is a one-time Microsoft Store purchase. PC Sync, desktop widgets,
+  custom dashboard layouts, and multiple saved Hue Bridges require Pro.
+- Mote accounts, shared homes, cloud control, Household subscriptions, calendar
+  rules, Pomodoro, presence automation, and public roadmap voting are not
+  included.
 - The first release does not include automatic analytics, automatic crash
   uploads, or an in-app feedback uploader.

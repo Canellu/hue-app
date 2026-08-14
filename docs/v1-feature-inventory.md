@@ -139,8 +139,9 @@ Routes are internal desktop-webview navigation and are not public web URLs.
 
 - Hue cloud control and OAuth.
 - Mote accounts, shared homes, membership, roles, and guest relay.
-- Household subscriptions, shared entitlements, and third-party commerce. A
-  Store-managed Pro add-on may enter v1 only after its release gates pass.
+- Household subscriptions, shared entitlements, and unreviewed third-party
+  commerce. The Store-managed Mote Pro add-on, purchase and restore flows, and
+  Free/Pro enforcement are required v1 scope and must pass their release gates.
 - Calendar integration, Pomodoro, local-network presence rules, and the shared
   automation runtime.
 - Combined multi-bridge dashboards or cross-bridge control.

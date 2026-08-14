@@ -1,6 +1,7 @@
 # Windows Store packaging and commerce spike
 
-Status: **next implementation task; not started**.
+Status: **in progress; Store API diagnostic complete, blocked on package identity
+and a Partner Center test add-on**.
 
 Last reviewed: **2026-08-14**.
 
@@ -45,33 +46,35 @@ decision is recorded.
 
 ## Prerequisites
 
-- Access to the existing Mote Desktop product in Partner Center.
-- A Windows 11 development/test machine and a separate Windows user profile or
-  clean VM for install testing.
-- Current Windows SDK/MSIX packaging and signing tools.
-- A Partner Center test flight/private audience suitable for Store-license
-  testing.
-- A hidden durable add-on with a temporary internal product ID. Its customer
-  name may be **Mote Pro Test**; the permanent public product ID is chosen only
-  after the spike.
+- [x] Access to the existing Mote Desktop product in Partner Center.
+- [ ] A separate Windows user profile or clean VM for install testing. The
+      current development host is available for initial checks.
+- [x] Windows SDK `makeappx.exe` and `signtool.exe` are installed for x64 under
+      SDK version `10.0.19041.0`.
+- [ ] A Partner Center test flight/private audience suitable for Store-license
+      testing.
+- [ ] A hidden durable add-on with a temporary internal product ID. Its customer
+      name may be **Mote Pro Test**; the permanent public product ID is chosen
+      only after the spike.
 
 ## Work checklist
 
 ### 1. Record the current Partner Center identity
 
-- [ ] Record the product type and whether Partner Center permits adding or
-      converting to an MSIX submission under the existing reserved product.
+- [x] Record the product type and self-service package controls. The existing
+      product is EXE/MSI and exposes no self-service MSIX conversion control.
 - [ ] Record the Store-provided package identity name, publisher, publisher ID,
       package family name, product/Store ID, and supported architectures in a
       private release record. Do not invent these values from
       `com.motedesktop.mote`.
-- [ ] Record any Partner Center support answer needed to change product type.
 - [ ] Stop and document the blocker if migration would lose the reserved name,
       reviews, ownership, or another material product property.
 
 ### 2. Produce a minimal MSIX package
 
-- [ ] Build the normal Tauri release executable from clean sources.
+- [x] Build the normal Tauri release executable from the current worktree with
+      `bun tauri build --no-bundle`.
+- [ ] Repeat the release build from a clean release-candidate checkout.
 - [ ] Create a separate MSIX packaging configuration using the exact Partner
       Center identity and a full-trust desktop entry point.
 - [ ] Include required icons and metadata without changing normal development
@@ -84,7 +87,8 @@ decision is recorded.
 
 ### 3. Prove Microsoft Store commerce
 
-- [ ] Add a Windows-only Rust spike adapter for `Windows.Services.Store`.
+- [x] Add a Windows-only Rust diagnostic for `Windows.Services.Store` app
+      license, durable product discovery, and cached add-on licenses.
 - [ ] Associate Store UI calls with the main Tauri window handle.
 - [ ] Query the hidden durable add-on and return only sanitized product state,
       localized title, and localized price to the frontend or a diagnostic view.
@@ -98,6 +102,26 @@ decision is recorded.
       grant Pro.
 - [ ] Record which refund/revocation states can be exercised in the test
       environment and defer the rest explicitly to certification testing.
+
+## Progress evidence — 2026-08-14
+
+- Added `src-tauri/examples/store_commerce_spike.rs` using `windows` `0.62.2`.
+  It reports package identity, current-app license state, cached durable add-on
+  licenses, associated durable products, localized titles/prices, and collection
+  state without returning customer or transaction identity.
+- Added direct Windows-only `windows` and `windows-collections` dependencies.
+- `cargo check --example store_commerce_spike` passes.
+- `bun tauri build --no-bundle` passes and produced the normal x64 release
+  executable. The local artifact was 24,232,960 bytes with SHA-256
+  `79CCC7C82DEEC30F48CB83AFB613AD99EA8F0EA00319CE192A477593022A5F9D`.
+- Running `cargo run --example store_commerce_spike` outside an installed package
+  correctly reported no package identity (`0x80073D54`). The current-app license
+  call returned an active non-trial placeholder with an empty SKU, demonstrating
+  that this value alone must not grant Pro. Associated durable-product discovery
+  returned `0x803F6107`, with no products or add-on licenses.
+- This run proves compilation and the expected unpackaged boundary only. It does
+  not prove Store association, add-on discovery, purchase, restore, cached
+  offline licensing, refund/revocation, or MSIX compatibility.
 
 ### 4. Run the native capability smoke test
 

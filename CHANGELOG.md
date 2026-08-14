@@ -13,8 +13,8 @@ publication rules are defined in [docs/releasing.md](docs/releasing.md).
 - Renamed the application and package identity to **Mote Desktop**, with
   publisher **Anton Vo** and permanent identifier `com.motedesktop.mote`.
 - Completed the initial Store properties, declarations, certification notes,
-  system requirements, and all-ages IARC questionnaire for the planned free
-  release.
+  system requirements, and all-ages IARC questionnaire for the planned
+  freemium release.
 
 ### Known issues
 

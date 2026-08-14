@@ -36,6 +36,12 @@ rustfft = "6.4"
 
 [target.'cfg(windows)'.dependencies]
 wasapi = "0.23"
+windows = { version = "0.62.2", features = [
+    "ApplicationModel",
+    "Foundation",
+    "Services_Store",
+] }
+windows-collections = "0.3.2"
 windows-capture = "2.0.0"
 windows-registry = "0.6"
 windows-sys = { version = "0.59", features = [

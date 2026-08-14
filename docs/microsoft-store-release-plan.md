@@ -46,6 +46,12 @@ Ready or substantially ready:
 - PC-hosted entertainment sync is complete for the Windows launch scope.
 - Windows icons and Tauri bundling are present.
 - Application version is currently `0.1.0` across the main manifests.
+- The initial provider-neutral Rust entitlement foundation defines the four
+  launch capabilities, normalized active/inactive/unknown states, structured
+  authorization errors, a fail-closed provider, and backend unit tests.
+- The Windows Store diagnostic compiles and confirms that unpackaged execution
+  has no package identity and cannot discover associated durable products. The
+  normal Tauri release executable still builds with the Store API dependency.
 
 Release blockers:
 
@@ -54,6 +60,8 @@ Release blockers:
 - No Store-specific offline WebView2 configuration exists.
 - No production code-signing configuration or protected signing pipeline exists.
 - No immutable installer hosting or update manifest/channel exists.
+- No Store entitlement adapter, managed entitlement IPC, paid-command
+  enforcement, or frontend purchase/locked-state flow exists yet.
 - Production CSP and least-privilege opener capabilities are implemented; see
   the [security hardening audit](./security-hardening-audit.md).
 - Privacy Policy, Terms/license terms, Support page, feedback, analytics, and
@@ -515,8 +523,9 @@ The first Store submission is ready only when all of these are true:
    purchase, restore, and cached offline licensing in a minimal Tauri build.
    Follow the restartable checklist in
    [windows-store-commerce-spike.md](./windows-store-commerce-spike.md).
-3. Based on that spike, choose and document the release package/update path and
-   add the provider-neutral Rust entitlement boundary before adding paywall UI.
+3. Based on that spike, choose and document the release package/update path,
+   connect the existing provider-neutral Rust entitlement foundation to managed
+   state and the Store adapter, then add backend enforcement before paywall UI.
 4. Pay for and activate the pending Domeneshop order for `motedesktop.com` and
    its email service (currently quoted at NOK 568/year including VAT).
 5. Create `support@motedesktop.com` and `privacy@motedesktop.com`; deploy the

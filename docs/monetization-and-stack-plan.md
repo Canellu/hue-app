@@ -108,10 +108,11 @@ React uses it to present locked states and purchase/restore actions; Rust checks
 it again before executing paid local commands. Server-backed Household actions
 also enforce the normalized entitlement and membership role on every request.
 
-Capability names describe product behavior rather than stores, for example
-`pc_sync`, `widgets`, `advanced_customization`, `multi_bridge`, and
-`shared_home_relay`. Do not spread Microsoft or Apple conditionals through
-feature components and commands.
+Capability names describe product behavior rather than stores. The current
+canonical names are `pc_sync`, `widgets`, `dashboard_custom_layout`, and
+`multiple_bridges`; future Household capabilities include `shared_home_relay`.
+Do not spread Microsoft or Apple conditionals through feature components and
+commands.
 
 ## Microsoft Store commerce
 
@@ -202,16 +203,24 @@ commerce/licensing and is deferred.
    - [x] Assign stable, provider-neutral capability names and define downgrade,
          refund, offline, unknown-license, and grandfathering behavior.
 2. **Store packaging and commerce spikes**
-   - Prove Windows package identity, Microsoft durable-add-on discovery,
-     purchase, restore, refund/revocation, and cached offline behavior.
-     Use the dedicated
-     [Windows Store packaging and commerce spike](./windows-store-commerce-spike.md).
+   - [x] Compile and run the initial Windows Store license/durable-product
+         diagnostic in the current unpackaged state.
+   - [ ] Prove Windows package identity, Microsoft durable-add-on discovery,
+         purchase, restore, refund/revocation, and cached offline behavior from
+         a Store-associated package. Use the dedicated
+         [Windows Store packaging and commerce spike](./windows-store-commerce-spike.md).
    - Prove macOS StoreKit non-consumable purchase/restore and validate that App
      Sandbox constraints do not block planned native functionality.
 3. **Provider-neutral local entitlement layer**
-   - Implement the Rust entitlement service and structured frontend state.
-   - Add Microsoft and Apple adapters without leaking provider IDs into feature
-     code; enforce paid commands in Rust as well as presenting gates in React.
+   - [x] Add the provider-neutral Rust capability model, normalized entitlement
+         snapshot, structured authorization errors, fail-closed unavailable
+         provider, debug-only mutable provider, and unit tests. See
+         `src-tauri/src/services/entitlements.rs`.
+   - [ ] Add managed application state and structured frontend entitlement IPC.
+   - [ ] Add Microsoft and Apple adapters without leaking provider IDs into
+         feature code.
+   - [ ] Enforce paid commands in Rust and present purchase, restore, locked,
+         offline, and downgrade states in React.
 4. **Desktop/mobile auth spike**
    - Prove system-browser sign-in, `<APP_SCHEME>` callback, OS-keychain session
      restore, sign-out, token refresh, and account switching on each supported

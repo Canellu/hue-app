@@ -2,7 +2,7 @@
 
 Status: **release-candidate draft; update from acceptance testing**.
 
-Last reviewed: **2026-08-13**.
+Last reviewed: **2026-08-14**.
 
 - The first release supports Windows 10 and Windows 11 on x64 PCs only.
 - Hue control is local-network-first. The PC and Hue Bridge must normally be on
@@ -26,4 +26,5 @@ Last reviewed: **2026-08-13**.
   rules, Pomodoro, presence automation, and public roadmap voting are not
   included.
 - The first release does not include automatic analytics, automatic crash
-  uploads, or an in-app feedback uploader.
+  uploads, or a hosted in-app feedback uploader. The persistent feedback action
+  prepares an editable email in the user's default email app.

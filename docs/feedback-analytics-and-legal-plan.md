@@ -1,9 +1,9 @@
 # Plan: Feedback, Privacy-Safe Analytics, and Legal Pages
 
-Status: **proposed / not started**. This document describes a future feature and
-does not represent behavior currently implemented in the app.
+Status: **email feedback implemented; hosted ingestion and automatic telemetry
+proposed**.
 
-Last reviewed: **2026-08-12**. Re-check privacy, Store, and vendor requirements
+Last reviewed: **2026-08-14**. Re-check privacy, Store, and vendor requirements
 before implementation and before each release.
 
 The product name is **Mote Desktop** and the publisher display name is **Anton
@@ -26,9 +26,11 @@ The system should answer questions such as:
 - How well do PC Sync, Sync Box, widgets, and Hue commands perform?
 - What bugs and feature requests do users voluntarily report?
 
-Use PostHog Cloud EU as the analytics, error, and feedback destination. Start
-within its free tier, disable billing overage, and keep all collection behind a
-strict app-owned event schema.
+The first release uses a persistent, user-initiated action that prepares an
+editable email to `support@motedesktop.com`. It includes optional, allowlisted
+app information and sends nothing automatically. The PostHog Cloud EU design
+below is retained for a possible later hosted analytics, error, and feedback
+phase; it is not part of the first release.
 
 ## Privacy Model
 
@@ -370,8 +372,9 @@ birth or target children.
    pipeline.
 3. Add the first-run disclosure, Settings controls, and explicit frontend
    instrumentation.
-4. Add the feedback form, error-screen entry point, diagnostics preview, and
-   local redaction.
+4. Replace email feedback with hosted submission only if its operational value
+   justifies the additional privacy, validation, abuse-prevention, and retention
+   work.
 5. Add source-map upload, dashboards, alerts, Store links, and public legal
    pages.
 6. Perform payload inspection, privacy/legal review, Store certification, and a
@@ -386,7 +389,8 @@ birth or target children.
   user tracking.
 - Anonymous analytics and crash reports are default-on after disclosure, with
   a permanent opt-out.
-- PostHog Cloud EU is the sole analytics, crash, and feedback platform in v1.
+- PostHog Cloud EU remains the candidate for a future hosted analytics, crash,
+  and feedback phase; it is not used by the first release.
 - Screenshots, attachments, session replay, and cross-session user analytics are
   outside v1 scope.
 - This is an implementation plan, not legal advice; final public documents need

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "main-external-links",
-  "description": "Allow the main window to open only Mote Desktop public pages",
+  "description": "Allow the main window to open Mote Desktop public pages and its support email",
   "windows": ["main"],
   "permissions": [
     {
@@ -10,7 +10,8 @@
         { "url": "https://motedesktop.com/privacy" },
         { "url": "https://motedesktop.com/terms" },
         { "url": "https://motedesktop.com/support" },
-        { "url": "https://motedesktop.com/releases" }
+        { "url": "https://motedesktop.com/releases" },
+        { "url": "mailto:support@motedesktop.com*" }
       ]
     }
   ]

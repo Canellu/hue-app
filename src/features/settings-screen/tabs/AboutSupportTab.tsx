@@ -26,6 +26,7 @@ const ExternalLinkButton = ({
 }) => (
   <Button
     variant="outline"
+    className="bg-background shadow-none hover:bg-background/75"
     onClick={() =>
       void openUrl(href).catch(() => toast.error(`Couldn't open ${label}.`))
     }
@@ -81,7 +82,7 @@ export const AboutSupportTab = () => {
           title="Mote Desktop"
           description="An unofficial Windows desktop controller for compatible Philips Hue devices. Mote Desktop is not affiliated with or endorsed by Signify."
         >
-          <span className="text-sm font-medium text-muted-foreground">
+          <span className="rounded-lg bg-black/5 px-3 py-1.5 text-sm font-medium text-muted-foreground shadow-[inset_0_1px_3px_rgb(0_0_0/0.14)] dark:bg-black/20 dark:shadow-[inset_0_1px_3px_rgb(0_0_0/0.45)]">
             Version {version}
           </span>
         </SettingsRow>
@@ -125,7 +126,11 @@ export const AboutSupportTab = () => {
           title="Copy app information"
           description="Copies only the product, version, platform, release channel, and telemetry status. It excludes Hue names, identifiers, addresses, credentials, and personal file paths."
         >
-          <Button variant="outline" onClick={() => void copyDiagnostics()}>
+          <Button
+            variant="outline"
+            className="w-40 bg-background shadow-none hover:bg-background/75"
+            onClick={() => void copyDiagnostics()}
+          >
             {copied ? <Check /> : <Copy />}
             {copied ? "Copied" : "Copy diagnostics"}
           </Button>

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ErrorScreen } from "@/components/ErrorScreen";
 import { ComponentGallery } from "@/features/dev-gallery/ComponentGallery";
 import { DeviceGallery } from "@/features/dev-gallery/DeviceGallery";
+import { FeedbackButton } from "@/features/feedback/FeedbackButton";
 import {
   sampleSyncBoxSession,
   SYNC_BOX_CONNECTED_DEV_VIEW_ID,
@@ -394,6 +395,7 @@ function App() {
       <AppContentTransition viewKey={rendered.viewKey}>
         {rendered.content}
       </AppContentTransition>
+      <FeedbackButton />
       <DevUrlBar />
     </main>
   );

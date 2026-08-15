@@ -1,6 +1,6 @@
 # Production security hardening audit
 
-Audit date: 2026-08-13
+Audit date: 2026-08-14
 
 ## Completed controls
 
@@ -9,8 +9,9 @@ Audit date: 2026-08-13
   connections are limited to Tauri IPC. Inline styles remain enabled because the
   current React UI generates style attributes.
 - Disabled Tauri's global JavaScript API and removed the broad opener default.
-  Only the `main` window can open the four exact Mote Desktop legal/support URLs.
-  Widget windows have no opener permission.
+  Only the `main` window can open the four exact Mote Desktop legal/support URLs
+  and an email addressed to `support@motedesktop.com`. Widget windows have no
+  opener permission.
 - Removed the Hue application key from the serialized session returned to the
   frontend. Application keys, entertainment credentials, and Sync Box tokens stay
   in the Rust backend and system keyring.

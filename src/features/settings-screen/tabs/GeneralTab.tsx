@@ -1,7 +1,20 @@
 import { Switch } from "@/components/ui/switch";
+import {
+  type FeedbackButtonMode,
+  useFeedbackPreferences,
+} from "@/features/feedback/preferences";
 import { selectableVariants } from "@/lib/selection-styles";
 import { cn } from "@/lib/utils";
-import { Minus, Monitor, Moon, Sun, X } from "lucide-react";
+import {
+  EyeOff,
+  MessageSquare,
+  MessageSquareText,
+  Minus,
+  Monitor,
+  Moon,
+  Sun,
+  X,
+} from "lucide-react";
 import type { ThemeMode } from "../../../context/ThemeContext";
 import {
   SegmentedControl,
@@ -19,6 +32,16 @@ const themeOptions = [
   { value: "light", label: "Light", icon: Sun },
   { value: "dark", label: "Dark", icon: Moon },
 ] satisfies Array<{ value: ThemeMode; label: string; icon: SegmentIcon }>;
+
+const feedbackButtonOptions = [
+  { value: "full", label: "Button", icon: MessageSquareText },
+  { value: "icon", label: "Icon", icon: MessageSquare },
+  { value: "hidden", label: "Hidden", icon: EyeOff },
+] satisfies Array<{
+  value: FeedbackButtonMode;
+  label: string;
+  icon: SegmentIcon;
+}>;
 
 const closeButtonOptions = [
   {
@@ -133,6 +156,9 @@ export const GeneralTab = ({
   onUpdateCloseButtonBehavior: (behavior: CloseButtonBehavior) => void;
   onUpdateAutoStart: (enabled: boolean) => void;
 }) => {
+  const [feedbackPreferences, updateFeedbackPreferences] =
+    useFeedbackPreferences();
+
   return (
     <div>
       <SettingsStack>
@@ -144,6 +170,20 @@ export const GeneralTab = ({
               ariaLabel="Theme mode"
               options={themeOptions}
               layoutId="app-theme-mode-pill"
+            />
+          </SettingsRow>
+          <SettingsRow
+            title="Feedback button"
+            description="Show the full button, use a smaller icon, or hide it."
+          >
+            <SegmentedControl
+              value={feedbackPreferences.buttonMode}
+              onValueChange={(buttonMode) =>
+                updateFeedbackPreferences({ buttonMode })
+              }
+              ariaLabel="Feedback button display"
+              options={feedbackButtonOptions}
+              layoutId="feedback-button-mode-pill"
             />
           </SettingsRow>
         </SettingsSection>

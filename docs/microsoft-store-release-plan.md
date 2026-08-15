@@ -255,9 +255,11 @@ Required before submission:
 
 Analytics, crashes, and feedback:
 
-- [x] Ship the first release without analytics, automatic crash uploads, or an
-      in-app feedback uploader. Do not ship a partial/unreviewed telemetry
-      payload.
+- [x] Keep analytics and automatic crash uploads out of the first release. Add
+      a persistent, user-initiated feedback button that prepares an editable
+      email to `support@motedesktop.com`; nothing is sent automatically.
+- [x] Limit optional feedback diagnostics to app version, Windows x64, and
+      release channel. Exclude Hue data, addresses, credentials, and file paths.
 - [ ] If telemetry ships, implement the closed event schema, redaction, default
       preference/disclosure, permanent opt-out, retention, and vendor configuration.
 - [ ] Keep automatic telemetry free of names, email, Hue IDs/names, IPs, paths,

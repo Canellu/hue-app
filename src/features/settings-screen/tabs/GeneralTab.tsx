@@ -203,7 +203,7 @@ export const GeneralTab = ({
           <SettingsRow
             title="Start on login"
             description="Launch Mote Desktop when you sign in to Windows."
-            alignControlWithDescription
+            keepControlInline
           >
             <Switch
               aria-label="Start Mote Desktop on login"

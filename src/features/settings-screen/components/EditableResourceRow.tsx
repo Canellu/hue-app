@@ -19,6 +19,7 @@ export const EditableResourceRow = ({
   onDelete,
   deleteDescription,
   actions,
+  showRenameAction = true,
   children,
 }: {
   id: string;
@@ -31,6 +32,8 @@ export const EditableResourceRow = ({
   deleteDescription?: string;
   /** Extra row actions rendered before the rename button. */
   actions?: React.ReactNode;
+  /** Whether to show the inline rename pencil. */
+  showRenameAction?: boolean;
   children?: React.ReactNode;
 }) => {
   const [isEditing, setIsEditing] = useState(false);
@@ -93,7 +96,7 @@ export const EditableResourceRow = ({
           </Button>
         </form>
       ) : (
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="text-xs text-muted-foreground">{eyebrow}</p>
             <p className="truncate font-medium">{name}</p>
@@ -105,15 +108,17 @@ export const EditableResourceRow = ({
           </div>
           <div className="flex shrink-0 gap-1">
             {actions}
-            <Button
-              type="button"
-              size="icon"
-              variant="ghost"
-              onClick={() => setIsEditing(true)}
-              aria-label={`Rename ${name}`}
-            >
-              <Pencil />
-            </Button>
+            {showRenameAction && (
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                onClick={() => setIsEditing(true)}
+                aria-label={`Rename ${name}`}
+              >
+                <Pencil />
+              </Button>
+            )}
             {onDelete && (
               <DeleteResourceButton
                 label={name}

@@ -20,6 +20,7 @@ export type RenameResource = (
   resourceType: RenameableResourceType,
   id: string,
   name: string,
+  archetype?: string,
 ) => Promise<void>;
 
 export type DeleteResource = (

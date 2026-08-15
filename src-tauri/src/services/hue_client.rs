@@ -2761,7 +2761,7 @@ impl HueClient {
             return Err("Name cannot be empty.".to_string());
         }
         let (device_id, _) = self.get_bridge_device(ip, application_key).await?;
-        self.rename_resource(ip, application_key, "device", &device_id, trimmed)
+        self.rename_resource(ip, application_key, "device", &device_id, trimmed, None)
             .await?;
         Ok(trimmed.to_string())
     }
@@ -2891,6 +2891,7 @@ impl HueClient {
         resource_type: &str,
         id: &str,
         name: &str,
+        archetype: Option<&str>,
     ) -> Result<(), String> {
         match resource_type {
             "light"
@@ -2912,7 +2913,13 @@ impl HueClient {
             return Err("Name cannot be empty.".to_string());
         }
 
-        let body = json!({ "metadata": { "name": trimmed } });
+        let mut metadata = json!({ "name": trimmed });
+        if matches!(resource_type, "room" | "zone") {
+            if let Some(archetype) = archetype.filter(|value| !value.trim().is_empty()) {
+                metadata["archetype"] = json!(archetype);
+            }
+        }
+        let body = json!({ "metadata": metadata });
         self.put_v2(ip, application_key, resource_type, id, body)
             .await
     }

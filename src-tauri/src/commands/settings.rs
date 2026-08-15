@@ -35,6 +35,7 @@ pub async fn rename_hue_resource(
     resource_type: String,
     id: String,
     name: String,
+    archetype: Option<String>,
 ) -> Result<(), String> {
     let client = HueClient::new()?;
     let stored_bridge = client.get_stored_bridge(&app)?;
@@ -46,6 +47,7 @@ pub async fn rename_hue_resource(
             &resource_type,
             &id,
             &name,
+            archetype.as_deref(),
         )
         .await
 }

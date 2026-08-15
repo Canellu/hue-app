@@ -2,7 +2,7 @@ import { Separator } from "@/components/ui/separator";
 import { Children, Fragment } from "react";
 
 export const SettingsStack = ({ children }: { children: React.ReactNode }) => (
-  <div className="grid gap-10">{children}</div>
+  <div className="grid min-w-0 gap-10">{children}</div>
 );
 
 export const SettingsSection = ({
@@ -17,7 +17,7 @@ export const SettingsSection = ({
   return (
     <section className="grid gap-4">
       <h2 className="text-base font-semibold text-foreground">{title}</h2>
-      <div className="grid gap-4 rounded-2xl bg-(--settings-surface) p-5">
+      <div className="grid min-w-0 gap-4 rounded-2xl bg-(--settings-surface) p-4 @3xl:p-5">
         {rows.map((row, index) => (
           <Fragment key={`settings-row-${index}`}>
             {index > 0 && <Separator />}
@@ -33,14 +33,22 @@ export const SettingsRow = ({
   title,
   description,
   alignControlWithDescription = false,
+  keepControlInline = false,
   children,
 }: {
   title: string;
   description?: React.ReactNode;
   alignControlWithDescription?: boolean;
+  keepControlInline?: boolean;
   children: React.ReactNode;
 }) => (
-  <div className="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-2">
+  <div
+    className={
+      keepControlInline
+        ? "grid min-h-14 min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 gap-y-2"
+        : "grid min-h-14 min-w-0 grid-cols-1 items-start gap-3 @3xl:grid-cols-[minmax(0,1fr)_auto] @3xl:items-center @3xl:gap-x-6 @3xl:gap-y-2"
+    }
+  >
     <div className="grid min-w-0 gap-1">
       <p className="text-sm font-medium text-foreground">{title}</p>
       {description && (
@@ -50,7 +58,7 @@ export const SettingsRow = ({
       )}
     </div>
     <div
-      className={`flex shrink-0 items-center justify-end ${alignControlWithDescription ? "self-end" : ""}`}
+      className={`flex min-w-0 max-w-full items-center ${keepControlInline ? "shrink-0 justify-end" : "justify-start @3xl:shrink-0 @3xl:justify-end"} ${alignControlWithDescription ? (keepControlInline ? "self-end" : "@3xl:self-end") : ""}`}
     >
       {children}
     </div>
